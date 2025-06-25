@@ -1,0 +1,10 @@
+[package]
+name = "prop-compiler"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# For checking properties of unicode characters
+icu_properties = "1.4"
+# String / identifier interning
+string-interner = "0.18"
