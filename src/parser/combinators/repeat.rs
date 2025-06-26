@@ -29,6 +29,35 @@ impl<T, P: Parser<T>> Repeat0Ext<T> for P {
     }
 }
 
+fn repeat_1<T, P: Parser<T>>(p: P) -> impl Parser<Vec<T>> {
+    parser(move |mut input, mut context| {
+        let mut result = ParseResult::new(());
+        let mut values = Vec::new();
+
+        loop {
+            match p.parse(input, context.borrow()) {
+                None => break,
+                Some((rest, res)) => {
+                    input = rest;
+                    values.push(result.take_errors_from(res));
+                }
+            }
+        }
+
+        Some((input, result.with_value(values)))
+    })
+}
+
+pub trait Repeat1Ext<T>: Parser<T> {
+    fn repeat_1(self) -> impl Parser<Vec<T>>;
+}
+
+impl<T, P: Parser<T>> Repeat1Ext<T> for P {
+    fn repeat_1(self) -> impl Parser<Vec<T>> {
+        repeat_1(self)
+    }
+}
+
 fn repeat_exact<T, P: Parser<T>>(n: usize, p: P) -> impl Parser<Vec<T>> {
     parser(move |mut input, mut context| {
         let mut result = ParseResult::new(());

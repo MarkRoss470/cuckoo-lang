@@ -1,4 +1,3 @@
-use std::any::type_name_of_val;
 use crate::parser::PrettyPrint;
 use crate::parser::combinators::repeat::Repeat0Ext;
 use crate::parser::{Interner, ParseContext, ParseResult};
@@ -21,8 +20,6 @@ pub fn parse_file(content: &str) -> ParseResult<Ast> {
         indent_levels: 0,
     };
 
-    println!("{}", type_name_of_val(&item().repeat_0()));
-    
     let (rest, res) = item().repeat_0().parse(content, context).unwrap();
 
     if !rest.is_empty() {

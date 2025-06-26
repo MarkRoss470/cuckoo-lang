@@ -1,5 +1,5 @@
 use crate::parser::atoms::whitespace::whitespace;
-use crate::parser::atoms::{Identifier, identifier, str_exact};
+use crate::parser::atoms::{Identifier, identifier, keyword, special_operator, str_exact};
 use crate::parser::combinators::alt::AltExt;
 use crate::parser::combinators::modifiers::{DebugExt, InBoxExt, MapExt};
 use crate::parser::combinators::repeat::Fold1Ext;
@@ -9,30 +9,30 @@ use std::io::Write;
 
 #[derive(Debug)]
 pub enum Term {
+    /// The keyword `Type`
+    KwType,
+    /// An identifier
     Identifier(Identifier),
+    /// A function application
     Application {
         function: Box<Term>,
         argument: Box<Term>,
     },
+    /// A function / pi type
     PiType {
-        binder: Box<PiBinder>,
+        binder: Box<Binder>,
         output: Box<Term>,
     },
+    /// A lambda abstraction
     Lambda {
-        binding: Box<LambdaBinder>,
+        binding: Box<Binder>,
         body: Box<Term>,
     },
 }
 
 #[derive(Debug)]
-pub struct PiBinder {
+pub struct Binder {
     pub name: Option<Identifier>,
-    pub ty: Term,
-}
-
-#[derive(Debug)]
-pub struct LambdaBinder {
-    pub name: Identifier,
     pub ty: Term,
 }
 
@@ -56,7 +56,7 @@ fn pi_term() -> impl Parser<Term> {
         (
             pi_binder().in_box(),
             whitespace(),
-            str_exact("->"), // TODO: replace with some operator type thing
+            special_operator("->").debug("to"),
             whitespace(),
             pi_precedence_term().in_box(),
         )
@@ -64,9 +64,29 @@ fn pi_term() -> impl Parser<Term> {
     )
 }
 
-fn pi_binder() -> impl Parser<PiBinder> {
-    // TODO: parse binders properly
-    application_precedence_term().map(|ty| PiBinder { name: None, ty })
+fn pi_binder() -> impl Parser<Binder> {
+    rec!(
+        (
+            (
+                whitespace(),
+                str_exact("("),
+                whitespace(),
+                identifier(),
+                whitespace(),
+                special_operator(":"),
+                whitespace(),
+                term(),
+                whitespace(),
+                str_exact(")"),
+            )
+                .combine(|(_, _, _, name, _, _, _, ty, _, _)| Binder {
+                    name: Some(name),
+                    ty
+                }),
+            application_precedence_term().map(|ty| Binder { name: None, ty }),
+        )
+            .alt()
+    )
 }
 
 fn application_precedence_term() -> impl Parser<Term> {
@@ -79,6 +99,7 @@ fn application_precedence_term() -> impl Parser<Term> {
 fn atomic_term() -> impl Parser<Term> {
     rec!(
         (
+            (whitespace(), keyword("Type"), whitespace()).combine(|_| Term::KwType),
             (
                 whitespace(),
                 identifier().map(Term::Identifier),
@@ -87,11 +108,11 @@ fn atomic_term() -> impl Parser<Term> {
                 .combine(|(_, t, _)| t),
             (
                 whitespace(),
-                str_exact("(").debug("open paren"),
+                str_exact("("),
                 whitespace(),
-                rec!(term()),
+                term(),
                 whitespace(),
-                str_exact(")").debug("close paren"),
+                str_exact(")"),
                 whitespace(),
             )
                 .combine(|(_, _, _, t, _, _, _)| t),
@@ -107,6 +128,7 @@ impl PrettyPrint for Term {
         context: PrettyPrintContext,
     ) -> std::io::Result<()> {
         match self {
+            Term::KwType => write!(out, "Type"),
             Term::Identifier(id) => id.pretty_print(out, context),
             Term::Application { function, argument } => {
                 write!(out, "(")?;
@@ -127,7 +149,7 @@ impl PrettyPrint for Term {
     }
 }
 
-impl PrettyPrint for PiBinder {
+impl PrettyPrint for Binder {
     fn pretty_print(
         &self,
         out: &mut dyn Write,
@@ -142,15 +164,5 @@ impl PrettyPrint for PiBinder {
 
         self.ty.pretty_print(out, context)?;
         write!(out, ")")
-    }
-}
-
-impl PrettyPrint for LambdaBinder {
-    fn pretty_print(
-        &self,
-        _: &mut dyn std::io::Write,
-        _: PrettyPrintContext<'_>,
-    ) -> Result<(), std::io::Error> {
-        todo!()
     }
 }

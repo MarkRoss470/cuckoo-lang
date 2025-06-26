@@ -1,8 +1,16 @@
 pub mod whitespace;
 
+use crate::parser::combinators::modifiers::{
+    IgnoreValExt, MapExt, MapStrExt, ReparseExt, VerifyExt, VerifyStrExt,
+};
+use crate::parser::combinators::repeat::{Repeat0Ext, Repeat1Ext};
+use crate::parser::combinators::sequence::SequenceExt;
+use crate::parser::{
+    InternKey, Interner, ParseResult, Parser, PrettyPrint, PrettyPrintContext, parser, todo,
+};
+use icu_properties::props::{IdContinue, IdStart, Math};
+use icu_properties::{CodePointSetData, CodePointSetDataBorrowed};
 use std::io::Write;
-use crate::parser::combinators::modifiers::VerifyExt;
-use crate::parser::{InternKey, ParseResult, Parser, parser, PrettyPrint, Interner, PrettyPrintContext};
 
 pub fn str_exact(s: &str) -> impl Parser<()> {
     parser(move |input, context| {
@@ -20,56 +28,99 @@ fn char() -> impl Parser<char> {
     })
 }
 
+fn intern() -> impl Parser<InternKey> {
+    parser(|input, context| Some(("", ParseResult::new(context.interner.get_or_intern(input)))))
+}
+
 #[derive(Debug)]
 pub struct Identifier(InternKey);
 
-fn identifier_start() -> impl Parser<char> {
-    char().verify(|c| *c == '_' || icu_properties::sets::id_start().contains(*c))
+const ID_START_SET: CodePointSetDataBorrowed = CodePointSetData::new::<IdStart>();
+const ID_CONTINUE_SET: CodePointSetDataBorrowed = CodePointSetData::new::<IdContinue>();
+
+/// Sequences of characters which would be valid identifiers but are reserved for other purposes
+const RESERVED_IDENTIFIERS: &[&str] = &["Type", "_", "data", "where"];
+
+fn identifier_start() -> impl Parser<()> {
+    char()
+        .verify(|&c| c == '_' || ID_START_SET.contains(c))
+        .ignore_val()
 }
 
-fn identifier_continue() -> impl Parser<char> {
-    char().verify(|c| icu_properties::sets::id_continue().contains(*c))
+fn identifier_continue() -> impl Parser<()> {
+    char()
+        .verify(|&c| c == '_' || ID_CONTINUE_SET.contains(c))
+        .ignore_val()
+}
+
+/// Parses an identifier, without the restriction that it can't be a keyword
+fn identifier_like() -> impl Parser<Identifier> {
+    (identifier_start(), identifier_continue().repeat_0())
+        .sequence()
+        .reparse(intern())
+        .map(Identifier)
 }
 
 pub fn identifier() -> impl Parser<Identifier> {
-    parser(move |input, context| {
-        let mut chars = input.char_indices();
-        let (_, first) = chars.next()?;
-
-        if !icu_properties::sets::id_start().contains(first) {
-            return None;
-        }
-
-        // Get the identifier as a string slice - this spans until the first character which is not
-        // in the id_continue set, or the whole input string.
-        let s = chars
-            .find(|(_, c)| !icu_properties::sets::id_continue().contains(*c))
-            .map(|(index, _)| &input[..index])
-            .unwrap_or(input);
-        
-        let sym = context.interner.get_or_intern(s);
-        let id = Identifier(sym);
-        
-        Some((&input[s.len()..], ParseResult::new(id)))
-    })
+    identifier_like().verify_str(|s| !RESERVED_IDENTIFIERS.binary_search(&s).is_ok())
 }
 
 pub fn keyword(kw: &str) -> impl Parser<()> {
-    parser(move |input, context| {
-        let rest = input.strip_prefix(kw)?;
-        let next = rest.chars().next().unwrap_or(' ');
+    identifier_like().verify_str(move |s| s == kw).ignore_val()
+}
 
-        // The next character must not be a valid character for an identifier
-        if !icu_properties::sets::id_start().contains(next) {
-            Some((rest, ParseResult::new(())))
-        } else {
-            None
-        }
-    })
+#[derive(Debug)]
+pub struct Operator(InternKey);
+
+const MATH_SYMBOLS_SET: CodePointSetDataBorrowed = CodePointSetData::new::<Math>();
+
+/// Sequences of characters which would be valid operators but are reserved for other types of syntax
+const RESERVED_OPERATORS: &[&str] = &[".", ":", ":="];
+
+fn is_operator_char(c: char) -> bool {
+    match c {
+        // These characters from the Basic Latin block are valid
+        '!' | '#' | '$' | '%' | '&' | '*' | '-' | '.' | ':' | '?' | '@' | '\\' | '^' => true,
+        // Characters in the Math Symbols set are also valid
+        _ => MATH_SYMBOLS_SET.contains(c),
+    }
+}
+
+fn operator_char() -> impl Parser<()> {
+    char().verify(|c| is_operator_char(*c)).ignore_val()
+}
+
+/// Parses an operator, without the restriction that it can't be a reserved operator
+pub fn operator_like() -> impl Parser<Operator> {
+    operator_char().repeat_1().reparse(intern()).map(Operator)
+}
+
+pub fn operator() -> impl Parser<Operator> {
+    operator_like().verify_str(|s| !RESERVED_OPERATORS.binary_search(&s).is_ok())
+}
+
+pub fn special_operator(op: &str) -> impl Parser<()> {
+    operator_like().verify_str(move |s| s == op).ignore_val()
 }
 
 impl PrettyPrint for Identifier {
-    fn pretty_print(&self, out: &mut dyn Write, context: PrettyPrintContext) -> std::io::Result<()> {
+    fn pretty_print(
+        &self,
+        out: &mut dyn Write,
+        context: PrettyPrintContext,
+    ) -> std::io::Result<()> {
         write!(out, "{}", context.interner.resolve(self.0).unwrap())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Checks that certain lists are sorted so that binary searches can be correctly performed on them
+    #[test]
+    fn test_sorted_lists() {
+        assert!(RESERVED_IDENTIFIERS.is_sorted());
+        assert!(RESERVED_OPERATORS.is_sorted());
     }
 }

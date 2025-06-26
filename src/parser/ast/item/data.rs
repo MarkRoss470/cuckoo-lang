@@ -1,6 +1,9 @@
 use crate::parser::ast::term::{Term, term};
-use crate::parser::atoms::whitespace::{InBlockExt, newline_and_indent, whitespace};
-use crate::parser::atoms::{Identifier, identifier, keyword, str_exact};
+use crate::parser::atoms::whitespace::{
+    InBlockExt, newline_and_indent, non_newline_whitespace, whitespace,
+};
+use crate::parser::atoms::{Identifier, identifier, keyword, special_operator, str_exact};
+use crate::parser::combinators::modifiers::DebugExt;
 use crate::parser::combinators::repeat::Repeat0Ext;
 use crate::parser::combinators::sequence::CombineExt;
 use crate::parser::{Parser, PrettyPrint, PrettyPrintContext};
@@ -9,6 +12,7 @@ use std::io::Write;
 #[derive(Debug)]
 pub struct DataDefinition {
     pub name: Identifier,
+    pub family: Term,
     pub constructors: Vec<DataConstructor>,
 }
 
@@ -25,10 +29,21 @@ pub(super) fn data_definition() -> impl Parser<DataDefinition> {
             whitespace(),
             identifier(),
             whitespace(),
+            special_operator(":"),
+            whitespace(),
+            term(),
+            whitespace(),
             keyword("where"),
+            non_newline_whitespace(),
             data_constructor().repeat_0().in_block(),
         )
-            .combine(|(_, _, name, _, _, constructors)| DataDefinition { name, constructors })
+            .combine(|(_, _, name, _, _, _, family, _, _, _, constructors)| {
+                DataDefinition {
+                    name,
+                    family,
+                    constructors,
+                }
+            })
     )
 }
 
@@ -39,7 +54,7 @@ fn data_constructor() -> impl Parser<DataConstructor> {
             whitespace(),
             identifier(),
             whitespace(),
-            str_exact(":"), // TODO: replace with some operator type thing
+            special_operator(":"),
             term().in_block(),
         )
             .combine(|(_, _, name, _, _, telescope)| DataConstructor { name, telescope })
@@ -54,6 +69,8 @@ impl PrettyPrint for DataDefinition {
     ) -> std::io::Result<()> {
         write!(out, "data ")?;
         self.name.pretty_print(out, context)?;
+        write!(out, " : ")?;
+        self.family.pretty_print(out, context)?;
         write!(out, " where")?;
 
         {

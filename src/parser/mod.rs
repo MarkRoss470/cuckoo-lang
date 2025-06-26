@@ -1,3 +1,5 @@
+/// Puts a parser inside a closure to hide its type.
+/// This allows parsers to be recursive, and keep `impl Parser` types smaller which helps compile times.
 macro_rules! rec {
     ($parser: expr) => {{ $crate::parser::parser(move |input, context| $parser.parse(input, context)) }};
 }
@@ -8,7 +10,7 @@ mod combinators;
 
 use std::io::Write;
 use string_interner::symbol::SymbolU32;
-use string_interner::{DefaultBackend, StringInterner};
+use string_interner::DefaultBackend;
 
 #[derive(Debug)]
 pub enum ParseError {}

@@ -1,6 +1,7 @@
 use crate::parser::ast::parse_file;
 
 mod parser;
+mod typeck;
 
 fn main() {
     let content = std::fs::read("examples/test").unwrap();

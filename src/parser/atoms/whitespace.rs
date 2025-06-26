@@ -21,7 +21,7 @@ pub fn newline_and_indent() -> impl Parser<()> {
 }
 
 /// Parses a single whitespace character that's not a newline
-fn non_newline_whitespace() -> impl Parser<()> {
+fn single_non_newline_whitespace() -> impl Parser<()> {
     char()
         .verify(|c| c.is_whitespace() && *c != '\n')
         .ignore_val()
@@ -40,10 +40,14 @@ fn comment() -> impl Parser<()> {
 
 /// Parses whitespace
 pub fn whitespace() -> impl Parser<()> {
-    (newline_and_indent(), non_newline_whitespace(), comment())
+    (newline_and_indent(), single_non_newline_whitespace(), comment())
         .alt()
         .repeat_0()
         .ignore_val()
+}
+
+pub fn non_newline_whitespace() -> impl Parser<()> {
+    single_non_newline_whitespace().repeat_0().ignore_val()
 }
 
 /// Runs the given parser in an indented block
