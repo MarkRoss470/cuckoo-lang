@@ -5,12 +5,12 @@ macro_rules! rec {
 }
 
 pub mod ast;
-mod atoms;
+pub mod atoms;
 mod combinators;
 
 use std::io::Write;
-use string_interner::symbol::SymbolU32;
 use string_interner::DefaultBackend;
+use string_interner::symbol::SymbolU32;
 
 #[derive(Debug)]
 pub enum ParseError {}
@@ -62,9 +62,9 @@ impl<T> ParseResult<T> {
 }
 
 /// The type of the string interner
-type Interner = string_interner::StringInterner<DefaultBackend>;
+pub type Interner = string_interner::StringInterner<DefaultBackend>;
 /// The key / symbol type used to compare / look up strings in the interner
-type InternKey = SymbolU32;
+pub type InternKey = SymbolU32;
 
 #[derive(Debug)]
 struct ParseContext<'a> {
@@ -140,6 +140,7 @@ impl<'a> PrettyPrintContext<'a> {
     }
 }
 
-trait PrettyPrint {
-    fn pretty_print(&self, out: &mut dyn Write, context: PrettyPrintContext) -> std::io::Result<()>;
+pub trait PrettyPrint<C> {
+    fn pretty_print(&self, out: &mut dyn Write, context: C)
+    -> std::io::Result<()>;
 }

@@ -4,13 +4,29 @@ use crate::parser::combinators::alt::AltExt;
 use crate::parser::combinators::modifiers::{DebugExt, InBoxExt, MapExt};
 use crate::parser::combinators::repeat::Fold1Ext;
 use crate::parser::combinators::sequence::CombineExt;
-use crate::parser::{Parser, PrettyPrint, PrettyPrintContext};
+use crate::parser::{Interner, Parser, PrettyPrint, PrettyPrintContext};
 use std::io::Write;
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Universe(usize);
+
+impl Universe {
+    pub const PROP: Self = Universe(0);
+    pub const TYPE: Self = Universe(1);
+
+    pub fn succ(self) -> Self {
+        Self(self.0 + 1)
+    }
+
+    pub fn max(self, other: Self) -> Self {
+        Self(self.0.max(other.0))
+    }
+}
 
 #[derive(Debug)]
 pub enum Term {
-    /// The keyword `Type`
-    KwType,
+    /// The keywords `Prop` or `Type n`
+    SortLiteral(Universe),
     /// An identifier
     Identifier(Identifier),
     /// A function application
@@ -25,7 +41,7 @@ pub enum Term {
     },
     /// A lambda abstraction
     Lambda {
-        binding: Box<Binder>,
+        binder: Box<Binder>,
         body: Box<Term>,
     },
 }
@@ -56,7 +72,7 @@ fn pi_term() -> impl Parser<Term> {
         (
             pi_binder().in_box(),
             whitespace(),
-            special_operator("->").debug("to"),
+            special_operator("->"),
             whitespace(),
             pi_precedence_term().in_box(),
         )
@@ -99,7 +115,10 @@ fn application_precedence_term() -> impl Parser<Term> {
 fn atomic_term() -> impl Parser<Term> {
     rec!(
         (
-            (whitespace(), keyword("Type"), whitespace()).combine(|_| Term::KwType),
+            (whitespace(), keyword("Type"), whitespace())
+                .combine(|_| Term::SortLiteral(Universe::TYPE)),
+            (whitespace(), keyword("Prop"), whitespace())
+                .combine(|_| Term::SortLiteral(Universe::PROP)),
             (
                 whitespace(),
                 identifier().map(Term::Identifier),
@@ -121,15 +140,26 @@ fn atomic_term() -> impl Parser<Term> {
     )
 }
 
-impl PrettyPrint for Term {
+
+impl PrettyPrint<()> for Universe {
+    fn pretty_print(&self, out: &mut dyn Write, _: ()) -> std::io::Result<()> {
+        match self.0 {
+            0 => write!(out, "Prop"),
+            1 => write!(out, "Type"),
+            n => write!(out, "(Type {})", n - 1),
+        }
+    }
+}
+
+impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Term {
     fn pretty_print(
         &self,
         out: &mut dyn Write,
         context: PrettyPrintContext,
     ) -> std::io::Result<()> {
         match self {
-            Term::KwType => write!(out, "Type"),
-            Term::Identifier(id) => id.pretty_print(out, context),
+            Term::SortLiteral(u) => u.pretty_print(out, ()),
+            Term::Identifier(id) => id.pretty_print(out, context.interner),
             Term::Application { function, argument } => {
                 write!(out, "(")?;
                 function.pretty_print(out, context)?;
@@ -149,7 +179,7 @@ impl PrettyPrint for Term {
     }
 }
 
-impl PrettyPrint for Binder {
+impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Binder {
     fn pretty_print(
         &self,
         out: &mut dyn Write,
@@ -158,7 +188,7 @@ impl PrettyPrint for Binder {
         write!(out, "(")?;
         match &self.name {
             None => write!(out, "_")?,
-            Some(id) => id.pretty_print(out, context)?,
+            Some(id) => id.pretty_print(out, context.interner)?,
         }
         write!(out, " : ")?;
 

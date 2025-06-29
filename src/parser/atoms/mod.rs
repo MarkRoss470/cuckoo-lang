@@ -11,6 +11,8 @@ use crate::parser::{
 use icu_properties::props::{IdContinue, IdStart, Math};
 use icu_properties::{CodePointSetData, CodePointSetDataBorrowed};
 use std::io::Write;
+use string_interner::Symbol;
+use string_interner::symbol::SymbolU32;
 
 pub fn str_exact(s: &str) -> impl Parser<()> {
     parser(move |input, context| {
@@ -32,14 +34,26 @@ fn intern() -> impl Parser<InternKey> {
     parser(|input, context| Some(("", ParseResult::new(context.interner.get_or_intern(input)))))
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Identifier(InternKey);
+
+impl Identifier {
+    #[cfg(test)]
+    pub fn dummy() -> Self {
+        Self(InternKey::try_from_usize(0).unwrap())
+    }
+
+    #[cfg(test)]
+    pub fn dummy_val(v: usize) -> Self {
+        Self(InternKey::try_from_usize(v).unwrap())
+    }
+}
 
 const ID_START_SET: CodePointSetDataBorrowed = CodePointSetData::new::<IdStart>();
 const ID_CONTINUE_SET: CodePointSetDataBorrowed = CodePointSetData::new::<IdContinue>();
 
 /// Sequences of characters which would be valid identifiers but are reserved for other purposes
-const RESERVED_IDENTIFIERS: &[&str] = &["Type", "_", "data", "where"];
+const RESERVED_IDENTIFIERS: &[&str] = &["Prop", "Type", "_", "data", "where"];
 
 fn identifier_start() -> impl Parser<()> {
     char()
@@ -91,25 +105,21 @@ fn operator_char() -> impl Parser<()> {
 }
 
 /// Parses an operator, without the restriction that it can't be a reserved operator
-pub fn operator_like() -> impl Parser<Operator> {
+fn operator_like() -> impl Parser<Operator> {
     operator_char().repeat_1().reparse(intern()).map(Operator)
 }
 
-pub fn operator() -> impl Parser<Operator> {
+pub(super) fn operator() -> impl Parser<Operator> {
     operator_like().verify_str(|s| !RESERVED_OPERATORS.binary_search(&s).is_ok())
 }
 
-pub fn special_operator(op: &str) -> impl Parser<()> {
+pub(super) fn special_operator(op: &str) -> impl Parser<()> {
     operator_like().verify_str(move |s| s == op).ignore_val()
 }
 
-impl PrettyPrint for Identifier {
-    fn pretty_print(
-        &self,
-        out: &mut dyn Write,
-        context: PrettyPrintContext,
-    ) -> std::io::Result<()> {
-        write!(out, "{}", context.interner.resolve(self.0).unwrap())
+impl<'a> PrettyPrint<&'a Interner> for Identifier {
+    fn pretty_print(&self, out: &mut dyn Write, context: &'a Interner) -> std::io::Result<()> {
+        write!(out, "{}", context.resolve(self.0).unwrap())
     }
 }
 

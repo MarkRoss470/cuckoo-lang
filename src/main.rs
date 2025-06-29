@@ -1,4 +1,6 @@
 use crate::parser::ast::parse_file;
+use crate::parser::PrettyPrint;
+use crate::typeck::{TypeError, TypingEnvironment};
 
 mod parser;
 mod typeck;
@@ -10,6 +12,21 @@ fn main() {
 
     println!("errors : {:#?}", parse_res.errors);
     println!("warnings : {:#?}", parse_res.warnings);
-    parse_res.value.pretty_print();
+    let ast = parse_res.value;
+    
+    ast.pretty_print();
+    
+    let mut env = TypingEnvironment::new(&ast.interner);
+    match env.resolve_file(&ast) {
+        Ok(()) => {}
+        Err(e) => {
+            env.pretty_println_val(&e);
+            println!();
+            println!();
+        }
+    };
+    
+    // println!("{env:#?}")
+    env.pretty_print()
 }
 

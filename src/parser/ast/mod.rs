@@ -1,16 +1,18 @@
 use crate::parser::PrettyPrint;
+use crate::parser::atoms::whitespace::whitespace;
 use crate::parser::combinators::repeat::Repeat0Ext;
+use crate::parser::combinators::sequence::CombineExt;
 use crate::parser::{Interner, ParseContext, ParseResult};
 use crate::parser::{Parser, PrettyPrintContext};
 use item::{Item, item};
 
 pub mod item;
-mod term;
+pub mod term;
 
 #[derive(Debug)]
 pub struct Ast {
-    interner: Interner,
-    items: Vec<Item>,
+    pub interner: Interner,
+    pub items: Vec<Item>,
 }
 
 pub fn parse_file(content: &str) -> ParseResult<Ast> {
@@ -20,7 +22,11 @@ pub fn parse_file(content: &str) -> ParseResult<Ast> {
         indent_levels: 0,
     };
 
-    let (rest, res) = item().repeat_0().parse(content, context).unwrap();
+    let (rest, res) = (whitespace(), item(), whitespace())
+        .combine(|(_, i, _)| i)
+        .repeat_0()
+        .parse(content, context)
+        .unwrap();
 
     if !rest.is_empty() {
         eprintln!("Some content unparsed:");
@@ -42,5 +48,16 @@ impl Ast {
         for item in &self.items {
             item.pretty_print(&mut stdout, context).unwrap();
         }
+    }
+    
+    pub fn pretty_print_val<T: for<'a> PrettyPrint<PrettyPrintContext<'a>>>(&self, val: T) {
+        let context = PrettyPrintContext {
+            interner: &self.interner,
+            indent_levels: 0,
+        };
+
+        let mut stdout = std::io::stdout().lock();
+
+        val.pretty_print(&mut stdout, context).unwrap()
     }
 }

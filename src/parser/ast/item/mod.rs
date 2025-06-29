@@ -18,7 +18,7 @@ pub(super) fn item() -> impl Parser<Item> {
     (data_definition().map(Item::DataDefinition),).alt()
 }
 
-impl PrettyPrint for Item {
+impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Item {
     fn pretty_print(
         &self,
         out: &mut dyn Write,

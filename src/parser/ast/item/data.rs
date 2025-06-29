@@ -61,14 +61,14 @@ fn data_constructor() -> impl Parser<DataConstructor> {
     )
 }
 
-impl PrettyPrint for DataDefinition {
+impl<'a> PrettyPrint<PrettyPrintContext<'a>> for DataDefinition {
     fn pretty_print(
         &self,
         out: &mut dyn Write,
         context: PrettyPrintContext,
     ) -> std::io::Result<()> {
         write!(out, "data ")?;
-        self.name.pretty_print(out, context)?;
+        self.name.pretty_print(out, context.interner)?;
         write!(out, " : ")?;
         self.family.pretty_print(out, context)?;
         write!(out, " where")?;
@@ -87,13 +87,13 @@ impl PrettyPrint for DataDefinition {
     }
 }
 
-impl PrettyPrint for DataConstructor {
+impl<'a> PrettyPrint<PrettyPrintContext<'a>> for DataConstructor {
     fn pretty_print(
         &self,
         out: &mut dyn Write,
         context: PrettyPrintContext,
     ) -> std::io::Result<()> {
-        self.name.pretty_print(out, context)?;
+        self.name.pretty_print(out, context.interner)?;
         write!(out, " : ")?;
         self.telescope.pretty_print(out, context)
     }
