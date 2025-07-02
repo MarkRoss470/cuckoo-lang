@@ -1,9 +1,8 @@
 use crate::parser::combinators::modifiers::MapExt;
 use crate::parser::{ParseContext, ParseResult, Parser, parser};
 
-/// A helper trait for the [`alt`] function. Is implemented for tuples where all the members are [`Parser`]s.
 pub trait SequenceExt<T> {
-    /// Runs the contained parsers, returning the result of the first successful one, or `None`.
+    /// Runs the contained parsers, returning the result of each. If any individual parser returns `None`, so will the combined parser.
     fn sequence(self) -> impl Parser<T>;
 }
 
@@ -53,7 +52,7 @@ macro_rules! seqence_impl_multiple {
 seqence_impl_multiple!(TA PA TB PB TC PC TD PD TE PE TF PF TG PG TH PH TI PI TJ PJ TK PK TL PL TM PM TN PN TO PO TP PP);
 
 pub trait CombineExt<T> {
-    fn combine<U, F: Fn(T) -> U>(self, f : F) -> impl Parser<U>;
+    fn combine<U, F: Fn(T) -> U>(self, f: F) -> impl Parser<U>;
 }
 
 impl<T, P: SequenceExt<T>> CombineExt<T> for P {

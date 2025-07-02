@@ -1,6 +1,5 @@
 use crate::parser::{ParseContext, ParseResult, Parser, parser};
 
-/// A helper trait for the [`alt`] function. Is implemented for tuples where all the members are [`Parser`]s.
 pub trait AltExt<T> {
     /// Runs the contained parsers, returning the result of the first successful one, or `None`.
     fn alt(self) -> impl Parser<T>;

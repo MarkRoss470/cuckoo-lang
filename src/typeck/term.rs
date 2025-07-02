@@ -20,6 +20,63 @@ impl TypedTerm {
         }
     }
 
+    /// Checks that the term represents a telescope of types. If it is, returns the binders and the resultant type.
+    /// If it is not, returns the original term for re-use.
+    pub(super) fn into_telescope(mut self) -> (Vec<TypedBinder>, TypedTerm) {
+        let mut indices = Vec::new();
+
+        loop {
+            self.term.reduce_root();
+
+            match self.term {
+                TypedTermKind::PiType { binder, output } => {
+                    indices.push(*binder);
+                    self = *output;
+                }
+
+                t => {
+                    return (
+                        indices,
+                        // Reconstruct `self`
+                        TypedTerm {
+                            ty: self.ty,
+                            term: t,
+                        },
+                    );
+                }
+            }
+        }
+    }
+
+    /// Checks that the term represents a telescope of types. If it is, returns the binders and the resultant type.
+    /// If it is not, returns the original term for re-use.
+    pub(super) fn into_application_stack(mut self) -> (TypedTerm, Vec<TypedTerm>) {
+        let mut args_reversed = Vec::new();
+
+        loop {
+            self.term.reduce_root();
+
+            match self.term {
+                TypedTermKind::Application { function, argument } => {
+                    args_reversed.push(*argument);
+                    self = *function;
+                }
+
+                t => {
+                    args_reversed.reverse();
+                    return (
+                        // Reconstruct `self`
+                        TypedTerm {
+                            ty: self.ty,
+                            term: t,
+                        },
+                        args_reversed,
+                    );
+                }
+            }
+        }
+    }
+
     /// Replaces the binder with de Bruijn index `id` with the given term, adding `id` to the ids of all bound variables in the new expression
     pub(super) fn replace_binder(&self, id: usize, expr: &TypedTerm) -> Self {
         Self {
@@ -80,6 +137,14 @@ pub enum TypedTermKind {
 }
 
 impl TypedTermKind {
+    /// Checks that the term is a sort literal, returning its universe
+    pub(super) fn check_is_sort(&self) -> Result<Universe, ()> {
+        match self {
+            TypedTermKind::SortLiteral(u) => Ok(*u),
+            _ => Err(()),
+        }
+    }
+
     /// Reduces the term until it is guaranteed that further reduction would not change the term's
     /// root kind
     pub(super) fn reduce_root(&mut self) {
@@ -103,7 +168,7 @@ impl TypedTermKind {
         }
     }
 
-    /// Clones the value, while incrementing all bound variable indices by `inc`
+    /// Clones the value, while incrementing all bound variable indices above `limit` by `inc`
     pub(super) fn clone_incrementing(&self, limit: usize, inc: usize) -> Self {
         use TypedTermKind::*;
 
@@ -157,7 +222,7 @@ impl TypedTermKind {
         }
     }
 
-    /// Replaces the binder with de Bruijn index `id` with the given term, adding `inc` to the ids of all bound variables in the new expression
+    /// Replaces the binder with de Bruijn index `id` with the given term, adding `inc` to the ids of all bound variables in the substituted term
     pub(super) fn replace_binder(&self, id: usize, expr: &TypedTerm) -> Self {
         use TypedTermKind::*;
 
@@ -264,6 +329,32 @@ impl TypedTermKind {
                 },
             ) => sbo.term.def_eq(obo.term),
             (Lambda { .. }, _) => false,
+        }
+    }
+
+    pub(super) fn forbid_references_to_adt(&self, adt: AdtIndex) -> Result<(), TypeError> {
+        use TypedTermKind::*;
+
+        match self {
+            AdtName(id) if *id == adt => Err(TypeError::InvalidLocationForAdtNameInConstructor(adt)),
+            AdtName(_) => Ok(()),
+
+            SortLiteral(_) | AdtConstructor(_, _) | FreeVariable(_) | BoundVariable { .. } => {
+                Ok(())
+            }
+
+            Application { function, argument } => {
+                function.term.forbid_references_to_adt(adt)?;
+                argument.term.forbid_references_to_adt(adt)
+            }
+            PiType { binder, output } => {
+                binder.ty.term.forbid_references_to_adt(adt)?;
+                output.term.forbid_references_to_adt(adt)
+            }
+            Lambda { binder, body } => {
+                binder.ty.term.forbid_references_to_adt(adt)?;
+                body.term.forbid_references_to_adt(adt)
+            }
         }
     }
 }
@@ -508,22 +599,28 @@ mod tests {
                 0,
                 &TypedTerm {
                     ty: TypedTermKind::SortLiteral(Universe::TYPE),
-                    term: TypedTermKind::BoundVariable { index: 1, name: Identifier::dummy() }
+                    term: TypedTermKind::BoundVariable {
+                        index: 1,
+                        name: Identifier::dummy()
+                    }
                 }
             ),
-            TypedTermKind::PiType { binder: Box::new(TypedBinder {
-                name: None,
-                ty: TypedTerm {
+            TypedTermKind::PiType {
+                binder: Box::new(TypedBinder {
+                    name: None,
+                    ty: TypedTerm {
+                        ty: TypedTermKind::SortLiteral(Universe::TYPE),
+                        term: TypedTermKind::AdtName(AdtIndex(0)),
+                    }
+                }),
+                output: Box::new(TypedTerm {
                     ty: TypedTermKind::SortLiteral(Universe::TYPE),
-                    term: TypedTermKind::AdtName(AdtIndex(0)),
-                }
-            }), output: Box::new(TypedTerm {
-                ty: TypedTermKind::SortLiteral(Universe::TYPE),
-                term: TypedTermKind::BoundVariable {
-                    index: 2,
-                    name: Identifier::dummy()
-                }
-            }) }
+                    term: TypedTermKind::BoundVariable {
+                        index: 2,
+                        name: Identifier::dummy()
+                    }
+                })
+            }
         );
 
         assert_eq!(
@@ -543,28 +640,32 @@ mod tests {
                     }
                 }),
             }
-                .replace_binder(
-                    0,
-                    &TypedTerm {
-                        ty: TypedTermKind::SortLiteral(Universe::TYPE),
-                        term: TypedTermKind::BoundVariable { index: 1, name: Identifier::dummy() }
-                    }
-                ),
-            TypedTermKind::PiType { binder: Box::new(TypedBinder {
-                name: None,
-                ty: TypedTerm {
+            .replace_binder(
+                0,
+                &TypedTerm {
                     ty: TypedTermKind::SortLiteral(Universe::TYPE),
-                    term: TypedTermKind::AdtName(AdtIndex(0)),
+                    term: TypedTermKind::BoundVariable {
+                        index: 1,
+                        name: Identifier::dummy()
+                    }
                 }
-            }), output: Box::new(TypedTerm {
-                ty: TypedTermKind::SortLiteral(Universe::TYPE),
-                term: TypedTermKind::BoundVariable {
-                    index: 1,
-                    name: Identifier::dummy()
-                }
-            }) }
+            ),
+            TypedTermKind::PiType {
+                binder: Box::new(TypedBinder {
+                    name: None,
+                    ty: TypedTerm {
+                        ty: TypedTermKind::SortLiteral(Universe::TYPE),
+                        term: TypedTermKind::AdtName(AdtIndex(0)),
+                    }
+                }),
+                output: Box::new(TypedTerm {
+                    ty: TypedTermKind::SortLiteral(Universe::TYPE),
+                    term: TypedTermKind::BoundVariable {
+                        index: 1,
+                        name: Identifier::dummy()
+                    }
+                })
+            }
         );
     }
-
-    
 }

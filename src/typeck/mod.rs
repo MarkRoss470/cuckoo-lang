@@ -19,14 +19,37 @@ pub struct AdtIndex(usize);
 #[derive(Debug)]
 pub struct Adt {
     name: Identifier,
-    family: TypedTerm,
+    indices: Vec<TypedBinder>,
+    sort: Universe,
     constructors: Vec<AdtConstructor>,
 }
 
 #[derive(Debug)]
 pub struct AdtConstructor {
     name: Identifier,
-    ty: TypedTerm,
+    /// The whole type of the constructor
+    ty: TypedTermKind,
+    /// The inputs to the constructor
+    params: Vec<AdtConstructorParam>,
+    /// The [`indices`] of the ADT produced by the constructor
+    ///
+    /// [`indices`]: Adt::indices
+    indices: Vec<TypedTerm>,
+}
+
+#[derive(Debug)]
+pub struct AdtConstructorParam {
+    name: Option<Identifier>,
+    kind: AdtConstructorParamKind,
+}
+
+#[derive(Debug)]
+pub enum AdtConstructorParamKind {
+    Inductive {
+        parameters: Vec<TypedBinder>,
+        indices: Vec<TypedTerm>,
+    },
+    NonInductive(TypedTerm),
 }
 
 #[derive(Debug)]
@@ -73,50 +96,134 @@ impl<'a> TypingEnvironment<'a> {
     fn resolve_data_definition(&mut self, ast: &DataDefinition) -> Result<(), TypeError> {
         let family = TypingContext::Root(self).resolve_term(&ast.family)?;
 
-        // TODO: check that `family` is a valid family of sorts
+        let Ok(_) = family.check_is_ty() else {
+            return Err(TypeError::NotASortFamily(family));
+        };
+
+        // Resolve the type's family as a telescope
+        let (indices, out) = family.clone().into_telescope();
+        // Check that the output of the telescope is a sort
+        let Ok(sort) = out.term.check_is_sort() else {
+            return Err(TypeError::NotASortFamily(family));
+        };
 
         let adt_index = AdtIndex(self.adts.len());
 
+        // Add the ADT so that the constructors can refer to it
         self.adts.push(Adt {
             name: ast.name,
-            family: family.clone(),
+            indices,
+            sort,
             constructors: vec![],
         });
-
         self.root.values.insert(
             ast.name,
             TypedTerm {
-                ty: family.clone().term,
+                ty: family.term,
                 term: TypedTermKind::AdtName(adt_index),
             },
         );
 
-        let mut constructors = Vec::new();
+        let mut constructor_tys = Vec::new();
         for constructor in &ast.constructors {
             let ty = TypingContext::Root(self).resolve_term(&constructor.telescope)?;
-            ty.check_is_ty()?;
-            constructors.push(AdtConstructor {
-                name: constructor.name,
-                ty,
-            });
+            constructor_tys.push((constructor.name, ty));
         }
 
-        for (i, constructor) in constructors.iter().enumerate() {
+        let mut constructors = Vec::new();
+        for (i, (name, ty)) in constructor_tys.into_iter().enumerate() {
+            let constructor = self.resolve_adt_constructor(name, &ty, adt_index)?;
+
+            constructors.push(constructor);
+
             self.root.values.insert(
-                constructor.name,
+                name,
                 TypedTerm {
-                    ty: constructor.ty.term.clone(),
+                    ty: ty.term,
                     term: TypedTermKind::AdtConstructor(adt_index, i),
                 },
             );
         }
 
-        // TODO: check that the constructors actually end in a member of the type
-        // TODO: positivity checking
+        // TODO: generate eliminators
 
         self.adts.last_mut().unwrap().constructors = constructors;
 
         Ok(())
+    }
+
+    fn resolve_adt_constructor(
+        &self,
+        name: Identifier,
+        ty: &TypedTerm,
+        adt_index: AdtIndex,
+    ) -> Result<AdtConstructor, TypeError> {
+        // Check that the constructor is actually a type, and decompose it as a telescope
+        ty.check_is_ty()?;
+        let (params, mut result) = ty.clone().into_telescope();
+
+        let mut processed_params = Vec::new();
+        for param in params {
+            let (parameters, output) = param.ty.clone().into_telescope();
+            let (f, args) = output.into_application_stack();
+
+            // If f is the ADT being constructed, then this is an inductive parameter
+            let param_kind = match f.term {
+                TypedTermKind::AdtName(id) if id == adt_index => {
+                    for binder in &parameters {
+                        binder.ty.term.forbid_references_to_adt(adt_index)?;
+                    }
+                    for arg in &args {
+                        arg.term.forbid_references_to_adt(adt_index)?;
+                    }
+
+                    AdtConstructorParamKind::Inductive {
+                        parameters,
+                        indices: args,
+                    }
+                }
+
+                // If the type has any other form, then just check that it doesn't contain the ADT at all
+                _ => {
+                    param.ty.term.forbid_references_to_adt(adt_index)?;
+
+                    AdtConstructorParamKind::NonInductive(param.ty)
+                }
+            };
+
+            processed_params.push(AdtConstructorParam {
+                name: Some(name),
+                kind: param_kind,
+            });
+        }
+
+        // Decompose the output of the telescope as a series of applications.
+        // The underlying function should be the name of the ADT being constructed
+        let (f, arguments) = result.into_application_stack();
+
+        // Check that the underlying function is the correct ADT name
+        match f.term {
+            TypedTermKind::AdtName(id) if id == adt_index => (),
+
+            _ => {
+                return Err(TypeError::IncorrectConstructorResultantType {
+                    name,
+                    found: f,
+                    expected: adt_index,
+                });
+            }
+        }
+
+        for argument in &arguments {
+            // TODO: check that argument does not include references to the current ADT
+        }
+
+        Ok(AdtConstructor {
+            name,
+            ty: ty.term.clone(),
+            params: processed_params,
+            indices: arguments,
+        })
     }
 }
 
@@ -180,7 +287,7 @@ impl<'a> TypingContext<'a> {
         }
     }
 
-    /// Resolves an identifier in the context. On success, returns the associated term as well as the number of 
+    /// Resolves an identifier in the context. On success, returns the associated term as well as the number of
     /// binders between that binder's introduction and the current context - the binders in the term need to be
     /// increased by this number, which is done in [`resolve_identifier`][Self::resolve_identifier]
     fn resolve_identifier_inner(&self, id: Identifier) -> Result<(TypedTerm, usize), TypeError> {
@@ -199,7 +306,7 @@ impl<'a> TypingContext<'a> {
                     }
                 }
 
-                parent.resolve_identifier_inner(id).map(|(t, i)|(t, i + 1))
+                parent.resolve_identifier_inner(id).map(|(t, i)| (t, i + 1))
             }
         }
     }
@@ -295,7 +402,6 @@ impl<'a> TypingContext<'a> {
 #[derive(Debug, Copy, Clone)]
 struct PrettyPrintContext<'a> {
     environment: &'a TypingEnvironment<'a>,
-    binders: usize,
 }
 
 impl<'a> PrettyPrintContext<'a> {
@@ -306,10 +412,7 @@ impl<'a> PrettyPrintContext<'a> {
 
 impl<'a> TypingEnvironment<'a> {
     pub fn pretty_print(&self) {
-        let context = PrettyPrintContext {
-            environment: self,
-            binders: 0,
-        };
+        let context = PrettyPrintContext { environment: self };
 
         let mut stdout = std::io::stdout().lock();
 
@@ -321,10 +424,7 @@ impl<'a> TypingEnvironment<'a> {
     }
 
     pub fn pretty_print_val(&'a self, val: &impl PrettyPrint<PrettyPrintContext<'a>>) {
-        let context = PrettyPrintContext {
-            environment: self,
-            binders: 0,
-        };
+        let context = PrettyPrintContext { environment: self };
 
         let mut stdout = std::io::stdout().lock();
 
@@ -332,10 +432,7 @@ impl<'a> TypingEnvironment<'a> {
     }
 
     pub fn pretty_println_val(&'a self, val: &impl PrettyPrint<PrettyPrintContext<'a>>) {
-        let context = PrettyPrintContext {
-            environment: self,
-            binders: 0,
-        };
+        let context = PrettyPrintContext { environment: self };
 
         let mut stdout = std::io::stdout().lock();
 
@@ -354,14 +451,20 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Adt {
         write!(out, "data ")?;
         self.name.pretty_print(out, context.interner())?;
         write!(out, " : ")?;
-        self.family.term.pretty_print(out, context)?;
+
+        for index in &self.indices {
+            index.pretty_print(out, context)?;
+            write!(out, " -> ")?;
+        }
+        self.sort.pretty_print(out, ())?;
+
         writeln!(out, " where")?;
 
         for constructor in &self.constructors {
             write!(out, "  ")?;
             constructor.name.pretty_print(out, context.interner())?;
             write!(out, " : ")?;
-            constructor.ty.term.pretty_print(out, context)?;
+            constructor.ty.pretty_print(out, context)?;
             writeln!(out)?;
         }
 
