@@ -1,6 +1,8 @@
 pub mod data;
+pub mod def;
 
 use crate::parser::ast::item::data::{DataDefinition, data_definition};
+use crate::parser::ast::item::def::{ValueDefinition, value_definition};
 use crate::parser::combinators::alt::AltExt;
 use crate::parser::combinators::modifiers::MapExt;
 use crate::parser::{Parser, PrettyPrint, PrettyPrintContext};
@@ -11,11 +13,15 @@ pub enum Item {
     DataDefinition(DataDefinition),
     Class,
     Instance,
-    Def,
+    ValueDefinition(ValueDefinition),
 }
 
 pub(super) fn item() -> impl Parser<Item> {
-    (data_definition().map(Item::DataDefinition),).alt()
+    (
+        data_definition().map(Item::DataDefinition),
+        value_definition().map(Item::ValueDefinition),
+    )
+        .alt()
 }
 
 impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Item {
@@ -26,6 +32,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Item {
     ) -> std::io::Result<()> {
         match self {
             Item::DataDefinition(d) => d.pretty_print(out, context),
+            Item::ValueDefinition(v) => v.pretty_print(out, context),
             _ => todo!(),
         }
     }

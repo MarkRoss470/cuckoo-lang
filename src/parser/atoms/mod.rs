@@ -53,7 +53,7 @@ const ID_START_SET: CodePointSetDataBorrowed = CodePointSetData::new::<IdStart>(
 const ID_CONTINUE_SET: CodePointSetDataBorrowed = CodePointSetData::new::<IdContinue>();
 
 /// Sequences of characters which would be valid identifiers but are reserved for other purposes
-const RESERVED_IDENTIFIERS: &[&str] = &["Prop", "Type", "_", "data", "where"];
+const RESERVED_IDENTIFIERS: &[&str] = &["Prop", "Type", "_", "data", "def", "fun", "where"];
 
 fn identifier_start() -> impl Parser<()> {
     char()
@@ -89,7 +89,7 @@ pub struct Operator(InternKey);
 const MATH_SYMBOLS_SET: CodePointSetDataBorrowed = CodePointSetData::new::<Math>();
 
 /// Sequences of characters which would be valid operators but are reserved for other types of syntax
-const RESERVED_OPERATORS: &[&str] = &[".", ":", ":="];
+const RESERVED_OPERATORS: &[&str] = &[".", ":", ":=", "=>"];
 
 fn is_operator_char(c: char) -> bool {
     match c {

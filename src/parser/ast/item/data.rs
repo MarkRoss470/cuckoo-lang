@@ -2,8 +2,7 @@ use crate::parser::ast::term::{Term, term};
 use crate::parser::atoms::whitespace::{
     InBlockExt, newline_and_indent, non_newline_whitespace, whitespace,
 };
-use crate::parser::atoms::{Identifier, identifier, keyword, special_operator, str_exact};
-use crate::parser::combinators::modifiers::DebugExt;
+use crate::parser::atoms::{Identifier, identifier, keyword, special_operator};
 use crate::parser::combinators::repeat::Repeat0Ext;
 use crate::parser::combinators::sequence::CombineExt;
 use crate::parser::{Parser, PrettyPrint, PrettyPrintContext};

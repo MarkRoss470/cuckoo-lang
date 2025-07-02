@@ -25,6 +25,9 @@ pub enum TypeError {
     },
     /// The ADT being defined was referenced from a disallowed location in a constructor
     InvalidLocationForAdtNameInConstructor(AdtIndex),
+    
+    // Naming errors
+    NameAlreadyDefined(Identifier),
 }
 
 impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
@@ -93,6 +96,11 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
                     out,
                     "The inductive datatype being constructed can only be referenced in strictly positive positions. "
                 )
+            }
+            TypeError::NameAlreadyDefined(id) => {
+                write!(out, "The name ")?;
+                id.pretty_print(out, context.interner())?;
+                write!(out, " has already been defined.")
             }
             _ => todo!(),
         }

@@ -7,6 +7,7 @@ use std::io::Write;
 #[derive(Debug, Clone)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct TypedTerm {
+    pub(super) universe: Universe,
     pub(super) ty: TypedTermKind,
     pub(super) term: TypedTermKind,
 }
@@ -20,8 +21,7 @@ impl TypedTerm {
         }
     }
 
-    /// Checks that the term represents a telescope of types. If it is, returns the binders and the resultant type.
-    /// If it is not, returns the original term for re-use.
+    /// Decomposes a term as a telescope of pi types, returning the binders and the final output
     pub(super) fn into_telescope(mut self) -> (Vec<TypedBinder>, TypedTerm) {
         let mut indices = Vec::new();
 
@@ -38,18 +38,14 @@ impl TypedTerm {
                     return (
                         indices,
                         // Reconstruct `self`
-                        TypedTerm {
-                            ty: self.ty,
-                            term: t,
-                        },
+                        TypedTerm { term: t, ..self },
                     );
                 }
             }
         }
     }
 
-    /// Checks that the term represents a telescope of types. If it is, returns the binders and the resultant type.
-    /// If it is not, returns the original term for re-use.
+    /// Decomposes a term as a stack of function applications, returning the underlying function and the arguments.
     pub(super) fn into_application_stack(mut self) -> (TypedTerm, Vec<TypedTerm>) {
         let mut args_reversed = Vec::new();
 
@@ -66,10 +62,7 @@ impl TypedTerm {
                     args_reversed.reverse();
                     return (
                         // Reconstruct `self`
-                        TypedTerm {
-                            ty: self.ty,
-                            term: t,
-                        },
+                        TypedTerm { term: t, ..self },
                         args_reversed,
                     );
                 }
@@ -80,6 +73,7 @@ impl TypedTerm {
     /// Replaces the binder with de Bruijn index `id` with the given term, adding `id` to the ids of all bound variables in the new expression
     pub(super) fn replace_binder(&self, id: usize, expr: &TypedTerm) -> Self {
         Self {
+            universe: self.universe,
             ty: self.ty.replace_binder(id, expr),
             term: self.term.replace_binder(id, expr),
         }
@@ -88,6 +82,7 @@ impl TypedTerm {
     /// Clones the value, while incrementing all bound variable indices by `inc`
     fn clone_incrementing(&self, limit: usize, inc: usize) -> Self {
         Self {
+            universe: self.universe,
             ty: self.ty.clone_incrementing(limit, inc),
             term: self.term.clone_incrementing(limit, inc),
         }
@@ -336,7 +331,9 @@ impl TypedTermKind {
         use TypedTermKind::*;
 
         match self {
-            AdtName(id) if *id == adt => Err(TypeError::InvalidLocationForAdtNameInConstructor(adt)),
+            AdtName(id) if *id == adt => {
+                Err(TypeError::InvalidLocationForAdtNameInConstructor(adt))
+            }
             AdtName(_) => Ok(()),
 
             SortLiteral(_) | AdtConstructor(_, _) | FreeVariable(_) | BoundVariable { .. } => {
@@ -371,10 +368,7 @@ impl TypedBinder {
     pub(super) fn replace_binder(&self, id: usize, expr: &TypedTerm) -> Self {
         Self {
             name: self.name,
-            ty: TypedTerm {
-                ty: self.ty.ty.replace_binder(id, expr),
-                term: self.ty.term.replace_binder(id, expr),
-            },
+            ty: self.ty.replace_binder(id, expr)
         }
     }
 
@@ -430,7 +424,13 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypedTermKind {
                 output.term.pretty_print(out, context)?;
                 write!(out, ")")
             }
-            Lambda { binder, body } => todo!(),
+            Lambda { binder, body } => {
+                write!(out, "(fun ")?;
+                binder.pretty_print(out, context)?;
+                write!(out, " => ")?;
+                body.term.pretty_print(out, context)?;
+                write!(out, ")")
+            },
         }
     }
 }
@@ -496,11 +496,13 @@ mod tests {
                 binder: Box::new(TypedBinder {
                     name: None,
                     ty: TypedTerm {
+                        universe: Universe::TYPE.succ().succ(),
                         ty: TypedTermKind::SortLiteral(Universe::TYPE.succ()),
                         term: TypedTermKind::SortLiteral(Universe::TYPE),
                     },
                 }),
                 output: Box::new(TypedTerm {
+                    universe: Universe::TYPE.succ(),
                     ty: TypedTermKind::SortLiteral(Universe::TYPE),
                     term: TypedTermKind::BoundVariable {
                         index: 0,
@@ -523,11 +525,13 @@ mod tests {
                 binder: Box::new(TypedBinder {
                     name: None,
                     ty: TypedTerm {
+                        universe: Universe::TYPE.succ().succ(),
                         ty: TypedTermKind::SortLiteral(Universe::TYPE.succ()),
                         term: TypedTermKind::SortLiteral(Universe::TYPE),
                     },
                 }),
                 output: Box::new(TypedTerm {
+                    universe: Universe::TYPE.succ(),
                     ty: TypedTermKind::SortLiteral(Universe::TYPE),
                     term: TypedTermKind::BoundVariable {
                         index: 1,
@@ -545,11 +549,13 @@ mod tests {
                     binder: Box::new(TypedBinder {
                         name: None,
                         ty: TypedTerm {
+                            universe: Universe::TYPE.succ().succ(),
                             ty: TypedTermKind::SortLiteral(Universe::TYPE.succ()),
                             term: TypedTermKind::SortLiteral(Universe::TYPE),
                         },
                     }),
                     output: Box::new(TypedTerm {
+                        universe: Universe::TYPE.succ(),
                         ty: TypedTermKind::SortLiteral(Universe::TYPE),
                         term: TypedTermKind::BoundVariable {
                             index: 6,
@@ -571,6 +577,7 @@ mod tests {
             .replace_binder(
                 0,
                 &TypedTerm {
+                    universe: Universe::TYPE.succ(),
                     ty: TypedTermKind::SortLiteral(Universe::TYPE),
                     term: TypedTermKind::AdtName(AdtIndex(0))
                 }
@@ -583,11 +590,13 @@ mod tests {
                 binder: Box::new(TypedBinder {
                     name: None,
                     ty: TypedTerm {
+                        universe: Universe::TYPE.succ(),
                         ty: TypedTermKind::SortLiteral(Universe::TYPE),
                         term: TypedTermKind::AdtName(AdtIndex(0)),
                     }
                 }),
                 output: Box::new(TypedTerm {
+                    universe: Universe::TYPE.succ(),
                     ty: TypedTermKind::SortLiteral(Universe::TYPE),
                     term: TypedTermKind::BoundVariable {
                         index: 1,
@@ -598,6 +607,7 @@ mod tests {
             .replace_binder(
                 0,
                 &TypedTerm {
+                    universe: Universe::TYPE.succ(),
                     ty: TypedTermKind::SortLiteral(Universe::TYPE),
                     term: TypedTermKind::BoundVariable {
                         index: 1,
@@ -609,11 +619,13 @@ mod tests {
                 binder: Box::new(TypedBinder {
                     name: None,
                     ty: TypedTerm {
+                        universe: Universe::TYPE.succ(),
                         ty: TypedTermKind::SortLiteral(Universe::TYPE),
                         term: TypedTermKind::AdtName(AdtIndex(0)),
                     }
                 }),
                 output: Box::new(TypedTerm {
+                    universe: Universe::TYPE.succ(),
                     ty: TypedTermKind::SortLiteral(Universe::TYPE),
                     term: TypedTermKind::BoundVariable {
                         index: 2,
@@ -628,11 +640,13 @@ mod tests {
                 binder: Box::new(TypedBinder {
                     name: None,
                     ty: TypedTerm {
+                        universe: Universe::TYPE.succ(),
                         ty: TypedTermKind::SortLiteral(Universe::TYPE),
                         term: TypedTermKind::AdtName(AdtIndex(0)),
                     }
                 }),
                 output: Box::new(TypedTerm {
+                    universe: Universe::TYPE.succ(),
                     ty: TypedTermKind::SortLiteral(Universe::TYPE),
                     term: TypedTermKind::BoundVariable {
                         index: 2,
@@ -643,6 +657,7 @@ mod tests {
             .replace_binder(
                 0,
                 &TypedTerm {
+                    universe: Universe::TYPE.succ(),
                     ty: TypedTermKind::SortLiteral(Universe::TYPE),
                     term: TypedTermKind::BoundVariable {
                         index: 1,
@@ -654,11 +669,13 @@ mod tests {
                 binder: Box::new(TypedBinder {
                     name: None,
                     ty: TypedTerm {
+                        universe: Universe::TYPE.succ(),
                         ty: TypedTermKind::SortLiteral(Universe::TYPE),
                         term: TypedTermKind::AdtName(AdtIndex(0)),
                     }
                 }),
                 output: Box::new(TypedTerm {
+                    universe: Universe::TYPE.succ(),
                     ty: TypedTermKind::SortLiteral(Universe::TYPE),
                     term: TypedTermKind::BoundVariable {
                         index: 1,

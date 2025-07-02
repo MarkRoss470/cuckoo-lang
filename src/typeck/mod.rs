@@ -1,4 +1,6 @@
+mod data;
 mod error;
+mod namespace;
 mod term;
 
 pub use error::TypeError;
@@ -6,51 +8,17 @@ pub use error::TypeError;
 use crate::parser::ast::Ast;
 use crate::parser::ast::item::Item;
 use crate::parser::ast::item::data::DataDefinition;
+use crate::parser::ast::item::def::ValueDefinition;
 use crate::parser::ast::term::{Binder, Term, Universe};
 use crate::parser::atoms::Identifier;
 use crate::parser::{Interner, PrettyPrint};
+use crate::typeck::data::{Adt, AdtConstructor, AdtConstructorParam, AdtConstructorParamKind};
+use crate::typeck::namespace::Namespace;
 use crate::typeck::term::{TypedBinder, TypedTerm, TypedTermKind};
-use std::collections::HashMap;
 use std::io::Write;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct AdtIndex(usize);
-
-#[derive(Debug)]
-pub struct Adt {
-    name: Identifier,
-    indices: Vec<TypedBinder>,
-    sort: Universe,
-    constructors: Vec<AdtConstructor>,
-}
-
-#[derive(Debug)]
-pub struct AdtConstructor {
-    name: Identifier,
-    /// The whole type of the constructor
-    ty: TypedTermKind,
-    /// The inputs to the constructor
-    params: Vec<AdtConstructorParam>,
-    /// The [`indices`] of the ADT produced by the constructor
-    ///
-    /// [`indices`]: Adt::indices
-    indices: Vec<TypedTerm>,
-}
-
-#[derive(Debug)]
-pub struct AdtConstructorParam {
-    name: Option<Identifier>,
-    kind: AdtConstructorParamKind,
-}
-
-#[derive(Debug)]
-pub enum AdtConstructorParamKind {
-    Inductive {
-        parameters: Vec<TypedBinder>,
-        indices: Vec<TypedTerm>,
-    },
-    NonInductive(TypedTerm),
-}
 
 #[derive(Debug)]
 pub struct TypingEnvironment<'a> {
@@ -64,9 +32,7 @@ impl<'a> TypingEnvironment<'a> {
         Self {
             interner,
             adts: vec![],
-            root: Namespace {
-                values: Default::default(),
-            },
+            root: Namespace::new(),
         }
     }
 
@@ -86,7 +52,9 @@ impl<'a> TypingEnvironment<'a> {
                 }
                 Item::Class => {}
                 Item::Instance => {}
-                Item::Def => {}
+                Item::ValueDefinition(vd) => {
+                    self.resolve_value_definition(vd)?;
+                }
             }
         }
 
@@ -96,7 +64,7 @@ impl<'a> TypingEnvironment<'a> {
     fn resolve_data_definition(&mut self, ast: &DataDefinition) -> Result<(), TypeError> {
         let family = TypingContext::Root(self).resolve_term(&ast.family)?;
 
-        let Ok(_) = family.check_is_ty() else {
+        let Ok(family_univ) = family.check_is_ty() else {
             return Err(TypeError::NotASortFamily(family));
         };
 
@@ -109,46 +77,58 @@ impl<'a> TypingEnvironment<'a> {
 
         let adt_index = AdtIndex(self.adts.len());
 
-        // Add the ADT so that the constructors can refer to it
+        // Add the ADT so that the constructors can refer to it. The actual constructors will be added to this definition later.
         self.adts.push(Adt {
             name: ast.name,
             indices,
             sort,
             constructors: vec![],
         });
-        self.root.values.insert(
+        self.root.insert(
             ast.name,
             TypedTerm {
+                universe: family_univ,
                 ty: family.term,
                 term: TypedTermKind::AdtName(adt_index),
             },
-        );
+        )?;
 
+        self.resolve_adt_constructors(&ast, adt_index)?;
+
+        Ok(())
+    }
+
+    fn resolve_adt_constructors(
+        &mut self,
+        ast: &&DataDefinition,
+        adt_index: AdtIndex,
+    ) -> Result<(), TypeError> {
         let mut constructor_tys = Vec::new();
         for constructor in &ast.constructors {
             let ty = TypingContext::Root(self).resolve_term(&constructor.telescope)?;
-            constructor_tys.push((constructor.name, ty));
+            let universe = ty.check_is_ty()?;
+            constructor_tys.push((constructor.name, ty, universe));
         }
 
         let mut constructors = Vec::new();
-        for (i, (name, ty)) in constructor_tys.into_iter().enumerate() {
+        for (i, (name, ty, universe)) in constructor_tys.into_iter().enumerate() {
             let constructor = self.resolve_adt_constructor(name, &ty, adt_index)?;
 
             constructors.push(constructor);
 
-            self.root.values.insert(
+            self.root.insert(
                 name,
                 TypedTerm {
+                    universe,
                     ty: ty.term,
                     term: TypedTermKind::AdtConstructor(adt_index, i),
                 },
-            );
+            )?;
         }
 
         // TODO: generate eliminators
 
         self.adts.last_mut().unwrap().constructors = constructors;
-
         Ok(())
     }
 
@@ -160,41 +140,11 @@ impl<'a> TypingEnvironment<'a> {
     ) -> Result<AdtConstructor, TypeError> {
         // Check that the constructor is actually a type, and decompose it as a telescope
         ty.check_is_ty()?;
-        let (params, mut result) = ty.clone().into_telescope();
+        let (params, result) = ty.clone().into_telescope();
 
         let mut processed_params = Vec::new();
         for param in params {
-            let (parameters, output) = param.ty.clone().into_telescope();
-            let (f, args) = output.into_application_stack();
-
-            // If f is the ADT being constructed, then this is an inductive parameter
-            let param_kind = match f.term {
-                TypedTermKind::AdtName(id) if id == adt_index => {
-                    for binder in &parameters {
-                        binder.ty.term.forbid_references_to_adt(adt_index)?;
-                    }
-                    for arg in &args {
-                        arg.term.forbid_references_to_adt(adt_index)?;
-                    }
-
-                    AdtConstructorParamKind::Inductive {
-                        parameters,
-                        indices: args,
-                    }
-                }
-
-                // If the type has any other form, then just check that it doesn't contain the ADT at all
-                _ => {
-                    param.ty.term.forbid_references_to_adt(adt_index)?;
-
-                    AdtConstructorParamKind::NonInductive(param.ty)
-                }
-            };
-
-            processed_params.push(AdtConstructorParam {
-                name: Some(name),
-                kind: param_kind,
-            });
+            processed_params.push(self.resolve_adt_constructor_param(name, adt_index, param)?);
         }
 
         // Decompose the output of the telescope as a series of applications.
@@ -225,19 +175,76 @@ impl<'a> TypingEnvironment<'a> {
             indices: arguments,
         })
     }
-}
 
-#[derive(Debug)]
-struct Namespace {
-    values: HashMap<Identifier, TypedTerm>,
-}
+    fn resolve_adt_constructor_param(&self, name: Identifier, adt_index: AdtIndex, param: TypedBinder) -> Result<AdtConstructorParam, TypeError> {
+        let (parameters, output) = param.ty.clone().into_telescope();
+        let (f, args) = output.into_application_stack();
 
-impl Namespace {
-    fn resolve_identifier(&self, id: Identifier) -> Result<TypedTerm, TypeError> {
-        self.values
-            .get(&id)
-            .cloned()
-            .ok_or(TypeError::NameNotResolved(id))
+        // If f is the ADT being constructed, then this is an inductive parameter
+        let param_kind = match f.term {
+            TypedTermKind::AdtName(id) if id == adt_index => {
+                for binder in &parameters {
+                    binder.ty.term.forbid_references_to_adt(adt_index)?;
+                }
+                for arg in &args {
+                    arg.term.forbid_references_to_adt(adt_index)?;
+                }
+
+                AdtConstructorParamKind::Inductive {
+                    parameters,
+                    indices: args,
+                }
+            }
+
+            // If the type has any other form, then just check that it doesn't contain the ADT at all
+            _ => {
+                param.ty.term.forbid_references_to_adt(adt_index)?;
+
+                AdtConstructorParamKind::NonInductive(param.ty)
+            }
+        };
+
+        Ok(AdtConstructorParam {
+            name: Some(name),
+            kind: param_kind,
+        })
+    }
+
+    fn resolve_value_definition(&mut self, ast: &ValueDefinition) -> Result<(), TypeError> {
+        let mut ty = ast.ty.clone();
+        let mut value = ast.value.clone();
+
+        // Desugar `def` parameters to pi types and lambda expressions
+        for binder in ast.binders.iter().rev() {
+            ty = Term::PiType {
+                binder: Box::new(binder.clone()),
+                output: Box::new(ty),
+            };
+
+            value = Term::Lambda {
+                binder: Box::new(binder.clone()),
+                body: Box::new(value),
+            };
+        }
+
+        // Resolve the type of the `def`
+        let ty = TypingContext::Root(self).resolve_term(&ty)?;
+        ty.check_is_ty()?;
+
+        // Resolve the value of the `def`
+        let value = TypingContext::Root(self).resolve_term(&value)?;
+
+        // TODO: do this check without cloning
+        if !ty.term.clone().def_eq(value.ty.clone()) {
+            return Err(TypeError::MismatchedTypes {
+                term: value,
+                expected: ty,
+            });
+        }
+
+        self.root.insert(ast.name, value)?;
+
+        Ok(())
     }
 }
 
@@ -274,7 +281,7 @@ impl<'a> TypingContext<'a> {
     fn resolve_term(&self, term: &Term) -> Result<TypedTerm, TypeError> {
         match term {
             Term::SortLiteral(u) => Ok(TypedTerm {
-                // universe: u.succ().succ(),
+                universe: u.succ().succ(),
                 ty: TypedTermKind::SortLiteral(u.succ()),
                 term: TypedTermKind::SortLiteral(*u),
             }),
@@ -298,6 +305,7 @@ impl<'a> TypingContext<'a> {
                     if id == name {
                         return Ok((
                             TypedTerm {
+                                universe: binder.ty.universe.pred(),
                                 ty: binder.ty.term.clone(),
                                 term: TypedTermKind::BoundVariable { index: 0, name: id },
                             },
@@ -358,6 +366,7 @@ impl<'a> TypingContext<'a> {
         let output_ty = output.term.replace_binder(0, &argument);
 
         Ok(TypedTerm {
+            universe: output.universe,
             ty: output_ty,
             term: TypedTermKind::Application {
                 function: Box::new(function),
@@ -385,8 +394,12 @@ impl<'a> TypingContext<'a> {
         let output = c.resolve_term(&output)?;
         let output_univ = output.check_is_ty()?;
 
+        // Calculate the universe of the new type
+        let univ = binder_univ.max(output_univ); // TODO: special rules for Prop
+
         Ok(TypedTerm {
-            ty: TypedTermKind::SortLiteral(binder_univ.max(output_univ)), // TODO: special rules for Prop
+            universe: univ.succ(),
+            ty: TypedTermKind::SortLiteral(univ),
             term: TypedTermKind::PiType {
                 binder: Box::new(binder),
                 output: Box::new(output),
@@ -395,7 +408,41 @@ impl<'a> TypingContext<'a> {
     }
 
     fn resolve_lambda(&self, binder: &Binder, body: &Term) -> Result<TypedTerm, TypeError> {
-        todo!()
+        // Resolve the type of the binder, and check that it actually is a type
+        let binder_ty = self.resolve_term(&binder.ty)?;
+        let binder_univ = binder_ty.check_is_ty()?;
+        let binder = TypedBinder {
+            name: binder.name,
+            ty: binder_ty,
+        };
+
+        // Construct a new typing context which includes the new binder
+        let c = TypingContext::Binder {
+            binder: &binder,
+            parent: self,
+        };
+
+        // Resolve the output type in this new context
+        let body = c.resolve_term(&body)?;
+
+        // Calculate the universe of the new term
+        let univ = binder_univ.max(body.universe); // TODO: special rules for Prop
+
+        Ok(TypedTerm {
+            universe: univ,
+            ty: TypedTermKind::PiType {
+                binder: Box::new(binder.clone()),
+                output: Box::new(TypedTerm {
+                    universe: body.universe.succ(),
+                    ty: TypedTermKind::SortLiteral(body.universe),
+                    term: body.ty.clone(),
+                }),
+            },
+            term: TypedTermKind::Lambda {
+                binder: Box::new(binder),
+                body: Box::new(body),
+            },
+        })
     }
 }
 
@@ -472,26 +519,6 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Adt {
     }
 }
 
-impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Namespace {
-    fn pretty_print(
-        &self,
-        out: &mut dyn Write,
-        context: PrettyPrintContext<'a>,
-    ) -> std::io::Result<()> {
-        for (id, val) in &self.values {
-            write!(out, "def ")?;
-            id.pretty_print(out, context.interner())?;
-            write!(out, " : ")?;
-            val.ty.pretty_print(out, context)?;
-            write!(out, " := ")?;
-            val.term.pretty_print(out, context)?;
-            writeln!(out)?;
-        }
-
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -501,9 +528,7 @@ mod tests {
         let env = TypingEnvironment {
             interner: &Interner::new(),
             adts: vec![],
-            root: Namespace {
-                values: Default::default(),
-            },
+            root: Namespace::new(),
         };
 
         let id_t = Identifier::dummy_val(0);
@@ -515,6 +540,7 @@ mod tests {
             binder: &TypedBinder {
                 name: Some(id_t),
                 ty: TypedTerm {
+                    universe: Universe::TYPE.succ().succ(),
                     ty: TypedTermKind::SortLiteral(Universe::TYPE.succ()),
                     term: TypedTermKind::SortLiteral(Universe::TYPE),
                 },
@@ -526,6 +552,7 @@ mod tests {
             binder: &TypedBinder {
                 name: Some(id_x),
                 ty: TypedTerm {
+                    universe: Universe::TYPE.succ(),
                     ty: TypedTermKind::SortLiteral(Universe::TYPE),
                     term: TypedTermKind::BoundVariable {
                         index: 0,
@@ -539,6 +566,7 @@ mod tests {
         assert_eq!(
             context.resolve_identifier(id_t).unwrap(),
             TypedTerm {
+                universe: Universe::TYPE.succ(),
                 ty: TypedTermKind::SortLiteral(Universe::TYPE),
                 term: TypedTermKind::BoundVariable {
                     index: 1,
@@ -550,6 +578,7 @@ mod tests {
         assert_eq!(
             context.resolve_identifier(id_x).unwrap(),
             TypedTerm {
+                universe: Universe::TYPE,
                 ty: TypedTermKind::BoundVariable {
                     index: 1,
                     name: id_t

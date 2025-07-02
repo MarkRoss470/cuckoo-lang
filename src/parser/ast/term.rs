@@ -2,9 +2,9 @@ use crate::parser::atoms::whitespace::whitespace;
 use crate::parser::atoms::{Identifier, identifier, keyword, special_operator, str_exact};
 use crate::parser::combinators::alt::AltExt;
 use crate::parser::combinators::modifiers::{DebugExt, InBoxExt, MapExt};
-use crate::parser::combinators::repeat::Fold1Ext;
+use crate::parser::combinators::repeat::{Fold1Ext, Repeat1Ext};
 use crate::parser::combinators::sequence::CombineExt;
-use crate::parser::{Interner, Parser, PrettyPrint, PrettyPrintContext};
+use crate::parser::{Interner, Parser, PrettyPrint, PrettyPrintContext, todo};
 use std::io::Write;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -18,12 +18,16 @@ impl Universe {
         Self(self.0 + 1)
     }
 
+    pub fn pred(self) -> Self {
+        Self(self.0.saturating_sub(1))
+    }
+
     pub fn max(self, other: Self) -> Self {
         Self(self.0.max(other.0))
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Term {
     /// The keywords `Prop` or `Type n`
     SortLiteral(Universe),
@@ -46,7 +50,7 @@ pub enum Term {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Binder {
     pub name: Option<Identifier>,
     pub ty: Term,
@@ -57,8 +61,28 @@ pub fn term() -> impl Parser<Term> {
 }
 
 fn lambda_precedence_term() -> impl Parser<Term> {
-    // TODO: parse lambda expressions
-    pi_precedence_term()
+    rec!(
+        (
+            (
+                keyword("fun"),
+                whitespace(),
+                bracketed_binder().repeat_1(),
+                whitespace(),
+                special_operator("=>"),
+                whitespace(),
+                lambda_precedence_term(),
+            )
+                .combine(|(_, _, binders, _, _, _, body)| binders.into_iter().rfold(
+                    body,
+                    |body, binder| Term::Lambda {
+                        binder: Box::new(binder),
+                        body: Box::new(body)
+                    }
+                )),
+            pi_precedence_term(),
+        )
+            .alt()
+    )
 }
 
 /// Parses a term with the precedence of a pi type or higher
@@ -70,7 +94,7 @@ fn pi_precedence_term() -> impl Parser<Term> {
 fn pi_term() -> impl Parser<Term> {
     rec!(
         (
-            pi_binder().in_box(),
+            binder().in_box(),
             whitespace(),
             special_operator("->"),
             whitespace(),
@@ -80,25 +104,29 @@ fn pi_term() -> impl Parser<Term> {
     )
 }
 
-fn pi_binder() -> impl Parser<Binder> {
+pub fn bracketed_binder() -> impl Parser<Binder> {
+    (
+        whitespace(),
+        str_exact("("),
+        whitespace(),
+        identifier(),
+        whitespace(),
+        special_operator(":"),
+        whitespace(),
+        term(),
+        whitespace(),
+        str_exact(")"),
+    )
+        .combine(|(_, _, _, name, _, _, _, ty, _, _)| Binder {
+            name: Some(name),
+            ty,
+        })
+}
+
+pub fn binder() -> impl Parser<Binder> {
     rec!(
         (
-            (
-                whitespace(),
-                str_exact("("),
-                whitespace(),
-                identifier(),
-                whitespace(),
-                special_operator(":"),
-                whitespace(),
-                term(),
-                whitespace(),
-                str_exact(")"),
-            )
-                .combine(|(_, _, _, name, _, _, _, ty, _, _)| Binder {
-                    name: Some(name),
-                    ty
-                }),
+            bracketed_binder(),
             application_precedence_term().map(|ty| Binder { name: None, ty }),
         )
             .alt()
@@ -140,7 +168,6 @@ fn atomic_term() -> impl Parser<Term> {
     )
 }
 
-
 impl PrettyPrint<()> for Universe {
     fn pretty_print(&self, out: &mut dyn Write, _: ()) -> std::io::Result<()> {
         match self.0 {
@@ -174,7 +201,13 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Term {
                 output.pretty_print(out, context)?;
                 write!(out, ")")
             }
-            Term::Lambda { .. } => todo!(),
+            Term::Lambda { binder, body } => {
+                write!(out, "(fun ")?;
+                binder.pretty_print(out, context)?;
+                write!(out, " => ")?;
+                body.pretty_print(out, context)?;
+                write!(out, ")")
+            }
         }
     }
 }
