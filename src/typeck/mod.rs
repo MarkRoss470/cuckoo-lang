@@ -10,7 +10,7 @@ use crate::parser::ast::item::Item;
 use crate::parser::ast::item::data::DataDefinition;
 use crate::parser::ast::item::def::ValueDefinition;
 use crate::parser::ast::term::{Binder, Term, Universe};
-use crate::parser::atoms::Identifier;
+use crate::parser::atoms::{Identifier, OwnedPath, Path};
 use crate::parser::{Interner, PrettyPrint};
 use crate::typeck::data::{Adt, AdtConstructor, AdtConstructorParam, AdtConstructorParamKind};
 use crate::typeck::namespace::Namespace;
@@ -40,8 +40,8 @@ impl<'a> TypingEnvironment<'a> {
         &self.adts[id.0]
     }
 
-    fn resolve_identifier(&self, id: Identifier) -> Result<TypedTerm, TypeError> {
-        self.root.resolve_identifier(id)
+    fn resolve_path(&self, path: Path) -> Result<TypedTerm, TypeError> {
+        self.root.resolve(path)
     }
 
     pub fn resolve_file(&mut self, ast: &Ast) -> Result<(), TypeError> {
@@ -79,19 +79,20 @@ impl<'a> TypingEnvironment<'a> {
 
         // Add the ADT so that the constructors can refer to it. The actual constructors will be added to this definition later.
         self.adts.push(Adt {
-            name: ast.name,
+            name: ast.name.clone(),
             indices,
             sort,
             constructors: vec![],
         });
         self.root.insert(
-            ast.name,
+            ast.name.borrow(),
             TypedTerm {
                 universe: family_univ,
                 ty: family.term,
                 term: TypedTermKind::AdtName(adt_index),
             },
         )?;
+        self.root.insert_namespace(ast.name.borrow());
 
         self.resolve_adt_constructors(&ast, adt_index)?;
 
@@ -111,13 +112,15 @@ impl<'a> TypingEnvironment<'a> {
         }
 
         let mut constructors = Vec::new();
+
         for (i, (name, ty, universe)) in constructor_tys.into_iter().enumerate() {
             let constructor = self.resolve_adt_constructor(name, &ty, adt_index)?;
 
             constructors.push(constructor);
 
-            self.root.insert(
-                name,
+            let adt_namespace = self.root.resolve_namespace_mut(ast.name.borrow())?;
+            adt_namespace.insert(
+                Path::from_id(&name),
                 TypedTerm {
                     universe,
                     ty: ty.term,
@@ -129,6 +132,8 @@ impl<'a> TypingEnvironment<'a> {
         // TODO: generate eliminators
 
         self.adts.last_mut().unwrap().constructors = constructors;
+
+
         Ok(())
     }
 
@@ -176,7 +181,12 @@ impl<'a> TypingEnvironment<'a> {
         })
     }
 
-    fn resolve_adt_constructor_param(&self, name: Identifier, adt_index: AdtIndex, param: TypedBinder) -> Result<AdtConstructorParam, TypeError> {
+    fn resolve_adt_constructor_param(
+        &self,
+        name: Identifier,
+        adt_index: AdtIndex,
+        param: TypedBinder,
+    ) -> Result<AdtConstructorParam, TypeError> {
         let (parameters, output) = param.ty.clone().into_telescope();
         let (f, args) = output.into_application_stack();
 
@@ -242,7 +252,7 @@ impl<'a> TypingEnvironment<'a> {
             });
         }
 
-        self.root.insert(ast.name, value)?;
+        self.root.insert(ast.path.borrow(), value)?;
 
         Ok(())
     }
@@ -285,7 +295,7 @@ impl<'a> TypingContext<'a> {
                 ty: TypedTermKind::SortLiteral(u.succ()),
                 term: TypedTermKind::SortLiteral(*u),
             }),
-            Term::Identifier(id) => self.resolve_identifier(*id),
+            Term::Path(id) => self.resolve_path(id.borrow()),
             Term::Application { function, argument } => {
                 self.resolve_application(function, argument)
             }
@@ -297,31 +307,40 @@ impl<'a> TypingContext<'a> {
     /// Resolves an identifier in the context. On success, returns the associated term as well as the number of
     /// binders between that binder's introduction and the current context - the binders in the term need to be
     /// increased by this number, which is done in [`resolve_identifier`][Self::resolve_identifier]
-    fn resolve_identifier_inner(&self, id: Identifier) -> Result<(TypedTerm, usize), TypeError> {
+    fn resolve_path_inner(&self, path: Path) -> Result<(TypedTerm, usize), TypeError> {
         match self {
-            TypingContext::Root(env) => env.resolve_identifier(id).map(|t| (t, 0)),
+            TypingContext::Root(env) => env.resolve_path(path).map(|t| (t, 0)),
             TypingContext::Binder { binder, parent } => {
+                let (first, rest) = path.split_first();
+
                 if let Some(name) = binder.name {
-                    if id == name {
+                    if first == name {
+                        if rest.is_some() {
+                            return Err(TypeError::NotANamespace(OwnedPath::from_id(first)));
+                        }
+
                         return Ok((
                             TypedTerm {
                                 universe: binder.ty.universe.pred(),
                                 ty: binder.ty.term.clone(),
-                                term: TypedTermKind::BoundVariable { index: 0, name: id },
+                                term: TypedTermKind::BoundVariable {
+                                    index: 0,
+                                    name: first,
+                                },
                             },
                             0,
                         ));
                     }
                 }
 
-                parent.resolve_identifier_inner(id).map(|(t, i)| (t, i + 1))
+                parent.resolve_path_inner(path).map(|(t, i)| (t, i + 1))
             }
         }
     }
 
-    /// Resolves an identifier in the current context
-    fn resolve_identifier(&self, id: Identifier) -> Result<TypedTerm, TypeError> {
-        self.resolve_identifier_inner(id).map(|(mut t, i)| {
+    /// Resolves a path in the current context
+    fn resolve_path(&self, path: Path) -> Result<TypedTerm, TypeError> {
+        self.resolve_path_inner(path).map(|(mut t, i)| {
             // The term includes its own binder while the type doesn't, so the type needs to be incremented by one more than the term
             t.ty.increment_binders_above(0, i + 1);
             t.term.increment_binders_above(0, i);
@@ -564,7 +583,7 @@ mod tests {
         };
 
         assert_eq!(
-            context.resolve_identifier(id_t).unwrap(),
+            context.resolve_path(Path::from_id(&id_t)).unwrap(),
             TypedTerm {
                 universe: Universe::TYPE.succ(),
                 ty: TypedTermKind::SortLiteral(Universe::TYPE),
@@ -576,7 +595,7 @@ mod tests {
         );
 
         assert_eq!(
-            context.resolve_identifier(id_x).unwrap(),
+            context.resolve_path(Path::from_id(&id_x)).unwrap(),
             TypedTerm {
                 universe: Universe::TYPE,
                 ty: TypedTermKind::BoundVariable {

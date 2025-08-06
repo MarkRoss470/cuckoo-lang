@@ -104,6 +104,8 @@ pub enum TypedTermKind {
     AdtName(AdtIndex),
     /// The name of an ADT constructor
     AdtConstructor(AdtIndex, usize),
+    /// The recursor of an ADT
+    AdtRecursor(AdtIndex),
     /// A free variable in the context
     FreeVariable(Identifier),
     /// The bound variable of a lambda abstraction, using de Bruijn indices
@@ -171,6 +173,7 @@ impl TypedTermKind {
             SortLiteral(u) => SortLiteral(*u),
             AdtName(adt) => AdtName(*adt),
             AdtConstructor(adt, cons) => AdtConstructor(*adt, *cons),
+            AdtRecursor(adt) => AdtRecursor(*adt),
             FreeVariable(v) => FreeVariable(*v),
             BoundVariable { index, name } => BoundVariable {
                 index: if *index >= limit { index + inc } else { *index },
@@ -196,7 +199,11 @@ impl TypedTermKind {
         use TypedTermKind::*;
 
         match self {
-            SortLiteral(_) | AdtName(_) | AdtConstructor(_, _) | FreeVariable(_) => {}
+            SortLiteral(_)
+            | AdtName(_)
+            | AdtConstructor(_, _)
+            | AdtRecursor(_)
+            | FreeVariable(_) => {}
             BoundVariable { index, name } => {
                 if *index >= limit {
                     *index += inc;
@@ -222,7 +229,11 @@ impl TypedTermKind {
         use TypedTermKind::*;
 
         let res = match self {
-            SortLiteral(_) | AdtName(_) | AdtConstructor(_, _) | FreeVariable(_) => self.clone(),
+            SortLiteral(_)
+            | AdtName(_)
+            | AdtConstructor(_, _)
+            | AdtRecursor(_)
+            | FreeVariable(_) => self.clone(),
 
             BoundVariable { index: eid, name } => {
                 if *eid < id {
@@ -278,6 +289,8 @@ impl TypedTermKind {
             (AdtName(_), _) => false,
             (AdtConstructor(sadt, sid), AdtConstructor(oadt, oid)) => sadt == oadt && sid == oid,
             (AdtConstructor(_, _), _) => false,
+            (AdtRecursor(sadt), AdtRecursor(oadt)) => sadt == oadt,
+            (AdtRecursor(_), _) => false,
             (FreeVariable(sv), FreeVariable(ov)) => sv == ov,
             (FreeVariable(_), _) => false,
             (
@@ -331,14 +344,12 @@ impl TypedTermKind {
         use TypedTermKind::*;
 
         match self {
-            AdtName(id) if *id == adt => {
+            AdtName(id) | AdtConstructor(id, _) | AdtRecursor(id) if *id == adt => {
                 Err(TypeError::InvalidLocationForAdtNameInConstructor(adt))
             }
-            AdtName(_) => Ok(()),
+            AdtName(_) | AdtConstructor(_, _) | AdtRecursor(_) => Ok(()),
 
-            SortLiteral(_) | AdtConstructor(_, _) | FreeVariable(_) | BoundVariable { .. } => {
-                Ok(())
-            }
+            SortLiteral(_) | FreeVariable(_) | BoundVariable { .. } => Ok(()),
 
             Application { function, argument } => {
                 function.term.forbid_references_to_adt(adt)?;
@@ -368,7 +379,7 @@ impl TypedBinder {
     pub(super) fn replace_binder(&self, id: usize, expr: &TypedTerm) -> Self {
         Self {
             name: self.name,
-            ty: self.ty.replace_binder(id, expr)
+            ty: self.ty.replace_binder(id, expr),
         }
     }
 
@@ -405,6 +416,14 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypedTermKind {
             AdtConstructor(adt, con) => context.environment.get_adt(*adt).constructors[*con]
                 .name
                 .pretty_print(out, context.interner()),
+            AdtRecursor(adt) => {
+                context
+                    .environment
+                    .get_adt(*adt)
+                    .name
+                    .pretty_print(out, context.interner())?;
+                write!(out, ".rec")
+            }
             FreeVariable(name) => name.pretty_print(out, context.interner()),
             BoundVariable { index, name } => {
                 name.pretty_print(out, context.interner())?;
@@ -430,7 +449,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypedTermKind {
                 write!(out, " => ")?;
                 body.term.pretty_print(out, context)?;
                 write!(out, ")")
-            },
+            }
         }
     }
 }

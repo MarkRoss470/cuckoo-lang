@@ -1,5 +1,5 @@
 use crate::parser::PrettyPrint;
-use crate::parser::atoms::Identifier;
+use crate::parser::atoms::{Identifier, OwnedPath};
 use crate::typeck::{AdtIndex, PrettyPrintContext, TypedTerm};
 use std::io::Write;
 
@@ -14,6 +14,7 @@ pub enum TypeError {
         term: TypedTerm,
         expected: TypedTerm,
     },
+    NotANamespace(OwnedPath),
 
     // ----- ADT declaration errors
     NotASortFamily(TypedTerm),

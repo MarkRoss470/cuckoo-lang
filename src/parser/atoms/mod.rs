@@ -1,18 +1,16 @@
 pub mod whitespace;
 
+use crate::parser::combinators::alt::AltExt;
 use crate::parser::combinators::modifiers::{
     IgnoreValExt, MapExt, MapStrExt, ReparseExt, VerifyExt, VerifyStrExt,
 };
-use crate::parser::combinators::repeat::{Repeat0Ext, Repeat1Ext};
-use crate::parser::combinators::sequence::SequenceExt;
-use crate::parser::{
-    InternKey, Interner, ParseResult, Parser, PrettyPrint, PrettyPrintContext, parser, todo,
-};
+use crate::parser::combinators::repeat::{Repeat0Ext, Repeat1Ext, Repeat1WithSeparatorExt};
+use crate::parser::combinators::sequence::{CombineExt, SequenceExt};
+use crate::parser::{InternKey, Interner, ParseResult, Parser, PrettyPrint, parser};
 use icu_properties::props::{IdContinue, IdStart, Math};
 use icu_properties::{CodePointSetData, CodePointSetDataBorrowed};
 use std::io::Write;
 use string_interner::Symbol;
-use string_interner::symbol::SymbolU32;
 
 pub fn str_exact(s: &str) -> impl Parser<()> {
     parser(move |input, context| {
@@ -37,6 +35,36 @@ fn intern() -> impl Parser<InternKey> {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Identifier(InternKey);
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct OwnedPath(Vec<Identifier>);
+
+impl OwnedPath {
+    pub fn from_id(id: Identifier) -> Self {
+        Self(vec![id])
+    }
+
+    pub fn borrow(&self) -> Path {
+        Path(&self.0)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Path<'a>(&'a [Identifier]);
+
+impl<'a> Path<'a> {
+    pub fn from_id(id: &'a Identifier) -> Self {
+        Self(core::slice::from_ref(id))
+    }
+
+    pub fn split_first(&self) -> (Identifier, Option<Path<'a>>) {
+        match self.0 {
+            [] => panic!("Empty path"),
+            [id] => (*id, None),
+            [id, rest @ ..] => (*id, Some(Path(rest))),
+        }
+    }
+}
+
 impl Identifier {
     #[cfg(test)]
     pub fn dummy() -> Self {
@@ -53,7 +81,7 @@ const ID_START_SET: CodePointSetDataBorrowed = CodePointSetData::new::<IdStart>(
 const ID_CONTINUE_SET: CodePointSetDataBorrowed = CodePointSetData::new::<IdContinue>();
 
 /// Sequences of characters which would be valid identifiers but are reserved for other purposes
-const RESERVED_IDENTIFIERS: &[&str] = &["Prop", "Type", "_", "data", "def", "fun", "where"];
+const RESERVED_IDENTIFIERS: &[&str] = &["Prop", "Type", "_", "data", "def", "fun", "rec", "where"];
 
 fn identifier_start() -> impl Parser<()> {
     char()
@@ -81,6 +109,17 @@ pub fn identifier() -> impl Parser<Identifier> {
 
 pub fn keyword(kw: &str) -> impl Parser<()> {
     identifier_like().verify_str(move |s| s == kw).ignore_val()
+}
+
+pub fn path() -> impl Parser<OwnedPath> {
+    // A path contains either identifiers or the keyword 'rec'
+    (
+        identifier(),
+        identifier_like().verify_str(move |s| s == "rec"),
+    )
+        .alt()
+        .repeat_1_with_separator(special_operator("."))
+        .map(OwnedPath)
 }
 
 #[derive(Debug)]
@@ -120,6 +159,20 @@ pub(super) fn special_operator(op: &str) -> impl Parser<()> {
 impl<'a> PrettyPrint<&'a Interner> for Identifier {
     fn pretty_print(&self, out: &mut dyn Write, context: &'a Interner) -> std::io::Result<()> {
         write!(out, "{}", context.resolve(self.0).unwrap())
+    }
+}
+
+impl<'a> PrettyPrint<&'a Interner> for OwnedPath {
+    fn pretty_print(&self, out: &mut dyn Write, context: &'a Interner) -> std::io::Result<()> {
+        let mut ids = self.0.iter();
+        ids.next().unwrap().pretty_print(out, context)?;
+
+        for id in ids {
+            write!(out, ".")?;
+            id.pretty_print(out, context)?;
+        }
+
+        Ok(())
     }
 }
 

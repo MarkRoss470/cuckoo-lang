@@ -1,5 +1,5 @@
 use crate::parser::atoms::whitespace::whitespace;
-use crate::parser::atoms::{Identifier, identifier, keyword, special_operator, str_exact};
+use crate::parser::atoms::{Identifier, identifier, keyword, special_operator, str_exact, OwnedPath, path};
 use crate::parser::combinators::alt::AltExt;
 use crate::parser::combinators::modifiers::{DebugExt, InBoxExt, MapExt};
 use crate::parser::combinators::repeat::{Fold1Ext, Repeat1Ext};
@@ -31,8 +31,8 @@ impl Universe {
 pub enum Term {
     /// The keywords `Prop` or `Type n`
     SortLiteral(Universe),
-    /// An identifier
-    Identifier(Identifier),
+    /// A path
+    Path(OwnedPath),
     /// A function application
     Application {
         function: Box<Term>,
@@ -149,7 +149,7 @@ fn atomic_term() -> impl Parser<Term> {
                 .combine(|_| Term::SortLiteral(Universe::PROP)),
             (
                 whitespace(),
-                identifier().map(Term::Identifier),
+                path().map(Term::Path),
                 whitespace(),
             )
                 .combine(|(_, t, _)| t),
@@ -186,7 +186,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Term {
     ) -> std::io::Result<()> {
         match self {
             Term::SortLiteral(u) => u.pretty_print(out, ()),
-            Term::Identifier(id) => id.pretty_print(out, context.interner),
+            Term::Path(id) => id.pretty_print(out, context.interner),
             Term::Application { function, argument } => {
                 write!(out, "(")?;
                 function.pretty_print(out, context)?;

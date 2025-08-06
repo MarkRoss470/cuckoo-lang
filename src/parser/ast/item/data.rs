@@ -2,7 +2,7 @@ use crate::parser::ast::term::{Term, term};
 use crate::parser::atoms::whitespace::{
     InBlockExt, newline_and_indent, non_newline_whitespace, whitespace,
 };
-use crate::parser::atoms::{Identifier, identifier, keyword, special_operator};
+use crate::parser::atoms::{Identifier, identifier, keyword, special_operator, OwnedPath, path};
 use crate::parser::combinators::repeat::Repeat0Ext;
 use crate::parser::combinators::sequence::CombineExt;
 use crate::parser::{Parser, PrettyPrint, PrettyPrintContext};
@@ -10,7 +10,7 @@ use std::io::Write;
 
 #[derive(Debug)]
 pub struct DataDefinition {
-    pub name: Identifier,
+    pub name: OwnedPath,
     pub family: Term,
     pub constructors: Vec<DataConstructor>,
 }
@@ -26,7 +26,7 @@ pub(super) fn data_definition() -> impl Parser<DataDefinition> {
         (
             keyword("data"),
             whitespace(),
-            identifier(),
+            path(),
             whitespace(),
             special_operator(":"),
             whitespace(),

@@ -12,7 +12,7 @@ fn main() {
 
     println!("errors : {:#?}", parse_res.errors);
     println!("warnings : {:#?}", parse_res.warnings);
-    let ast = parse_res.value;
+    let mut ast = parse_res.value;
     
     ast.pretty_print();
     

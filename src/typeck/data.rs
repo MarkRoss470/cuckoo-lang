@@ -1,10 +1,10 @@
 use crate::parser::ast::term::Universe;
-use crate::parser::atoms::Identifier;
+use crate::parser::atoms::{Identifier, OwnedPath};
 use crate::typeck::term::{TypedBinder, TypedTerm, TypedTermKind};
 
 #[derive(Debug)]
 pub struct Adt {
-    pub name: Identifier,
+    pub name: OwnedPath,
     pub indices: Vec<TypedBinder>,
     pub sort: Universe,
     pub constructors: Vec<AdtConstructor>,
