@@ -1,26 +1,58 @@
-use crate::parser::combinators::sequence::CombineExt;
+use crate::parser::combinators::tuples::HeterogeneousTupleExt;
 use crate::parser::{ParseContext, ParseResult, Parser, parser, todo};
 use std::fmt::Debug;
 
-pub trait IgnoreValExt<T>: Parser<T> {
-    fn ignore_val(self) -> impl Parser<()>;
+pub trait IgnoreValExt: Parser {
+    fn with_value<T: Clone>(self, t: T) -> impl Parser<Output = T>;
+    fn ignore_value(self) -> impl Parser<Output = ()>;
 }
 
-impl<T, P: Parser<T>> IgnoreValExt<T> for P {
-    fn ignore_val(self) -> impl Parser<()> {
+impl<P: Parser> IgnoreValExt for P {
+    fn with_value<T: Clone>(self, t: T) -> impl Parser<Output = T> {
         parser(move |input, context| {
             self.parse(input, context)
-                .map(|(rest, res)| (rest, res.with_value(())))
+                .map(|(rest, res)| (rest, res.with_value(t.clone())))
         })
+    }
+    fn ignore_value(self) -> impl Parser<Output = ()> {
+        self.with_value(())
     }
 }
 
-pub trait VerifyExt<T>: Parser<T> {
-    fn verify<F: Fn(&T) -> bool>(self, f: F) -> impl Parser<T>;
+pub trait OptionalExt: Parser {
+    fn optional(self) -> impl Parser<Output = Option<Self::Output>>;
+    fn optional_or_else(self, t: impl Fn() -> Self::Output) -> impl Parser<Output = Self::Output>;
+    fn optional_or_default(self) -> impl Parser<Output = Self::Output>
+    where
+        Self::Output: Default;
 }
 
-impl<T, P: Parser<T>> VerifyExt<T> for P {
-    fn verify<F: Fn(&T) -> bool>(self, f: F) -> impl Parser<T> {
+impl<P: Parser> OptionalExt for P {
+    fn optional(self) -> impl Parser<Output = Option<Self::Output>> {
+        parser(move |input, context| match self.parse(input, context) {
+            None => Some((input, ParseResult::new(None))),
+            Some((rest, res)) => Some((rest, res.map(Some))),
+        })
+    }
+
+    fn optional_or_else(self, t: impl Fn() -> Self::Output) -> impl Parser<Output = Self::Output> {
+        self.optional().map(move |v| v.unwrap_or_else(&t))
+    }
+
+    fn optional_or_default(self) -> impl Parser<Output = Self::Output>
+    where
+        Self::Output: Default,
+    {
+        self.optional_or_else(Default::default)
+    }
+}
+
+pub trait VerifyExt: Parser {
+    fn verify<F: Fn(&Self::Output) -> bool>(self, f: F) -> impl Parser<Output = Self::Output>;
+}
+
+impl<P: Parser> VerifyExt for P {
+    fn verify<F: Fn(&Self::Output) -> bool>(self, f: F) -> impl Parser<Output = Self::Output> {
         parser(move |input, context| {
             let (rest, res) = self.parse(input, context)?;
 
@@ -33,12 +65,12 @@ impl<T, P: Parser<T>> VerifyExt<T> for P {
     }
 }
 
-pub trait MapExt<T>: Parser<T> {
-    fn map<U, F: Fn(T) -> U>(self, f: F) -> impl Parser<U>;
+pub trait MapExt: Parser {
+    fn map<U, F: Fn(Self::Output) -> U>(self, f: F) -> impl Parser<Output = U>;
 }
 
-impl<T, P: Parser<T>> MapExt<T> for P {
-    fn map<U, F: Fn(T) -> U>(self, f: F) -> impl Parser<U> {
+impl<P: Parser> MapExt for P {
+    fn map<U, F: Fn(Self::Output) -> U>(self, f: F) -> impl Parser<Output = U> {
         parser(move |input, context| {
             let (rest, res) = self.parse(input, context)?;
             let res = res.map(&f);
@@ -47,12 +79,12 @@ impl<T, P: Parser<T>> MapExt<T> for P {
     }
 }
 
-pub trait VerifyStrExt<T>: Parser<T> {
-    fn verify_str<F: Fn(&str) -> bool>(self, f: F) -> impl Parser<T>;
+pub trait VerifyStrExt: Parser {
+    fn verify_str<F: Fn(&str) -> bool>(self, f: F) -> impl Parser<Output = Self::Output>;
 }
 
-impl<T, P: Parser<T>> VerifyStrExt<T> for P {
-    fn verify_str<F: Fn(&str) -> bool>(self, f: F) -> impl Parser<T> {
+impl<P: Parser> VerifyStrExt for P {
+    fn verify_str<F: Fn(&str) -> bool>(self, f: F) -> impl Parser<Output = Self::Output> {
         parser(move |input, context| {
             let (rest, res) = self.parse(input, context)?;
             let parsed_str = &input[..input.len() - rest.len()];
@@ -66,26 +98,26 @@ impl<T, P: Parser<T>> VerifyStrExt<T> for P {
     }
 }
 
-pub trait MapStrExt<T>: Parser<T> {
-    fn map_str<U, F: Fn(&str) -> U>(self, f: F) -> impl Parser<U>;
+pub trait MapStrExt: Parser {
+    fn map_str<U, F: Fn(&str) -> U>(self, f: F) -> impl Parser<Output = U>;
 }
 
-impl<T, P: Parser<T>> MapStrExt<T> for P {
-    fn map_str<U, F: Fn(&str) -> U>(self, f: F) -> impl Parser<U> {
+impl<P: Parser> MapStrExt for P {
+    fn map_str<U, F: Fn(&str) -> U>(self, f: F) -> impl Parser<Output = U> {
         self.reparse(parser(move |input, _| {
             Some(("", ParseResult::new(f(input))))
         }))
     }
 }
 
-pub trait ReparseExt<T>: Parser<T> {
+pub trait ReparseExt: Parser {
     /// Runs the parser `self`, then runs the parser `q` on the input consumed by `self`.
     /// `q` must consume all its input, otherwise the whole parser will fail to match.
-    fn reparse<U, Q: Parser<U>>(self, q: Q) -> impl Parser<U>;
+    fn reparse<U, Q: Parser<Output = U>>(self, q: Q) -> impl Parser<Output = U>;
 }
 
-impl<T, P: Parser<T>> ReparseExt<T> for P {
-    fn reparse<U, Q: Parser<U>>(self, q: Q) -> impl Parser<U> {
+impl<P: Parser> ReparseExt for P {
+    fn reparse<U, Q: Parser<Output = U>>(self, q: Q) -> impl Parser<Output = U> {
         parser(move |input, mut context| {
             let (rest_p, res_p) = self.parse(input, context.borrow())?;
             let parsed_str = &input[..input.len() - rest_p.len()];
@@ -100,26 +132,22 @@ impl<T, P: Parser<T>> ReparseExt<T> for P {
     }
 }
 
-fn in_box<T, P: Parser<T>>(p: P) -> impl Parser<Box<T>> {
-    p.map(Box::new)
+pub trait InBoxExt: Parser {
+    fn in_box(self) -> impl Parser<Output = Box<Self::Output>>;
 }
 
-pub trait InBoxExt<T>: Parser<T> {
-    fn in_box(self) -> impl Parser<Box<T>>;
-}
-
-impl<T, P: Parser<T>> InBoxExt<T> for P {
-    fn in_box(self) -> impl Parser<Box<T>> {
-        in_box(self)
+impl<P: Parser> InBoxExt for P {
+    fn in_box(self) -> impl Parser<Output = Box<Self::Output>> {
+        self.map(Box::new)
     }
 }
 
-pub trait DebugExt<T>: Parser<T> {
-    fn debug(self, message: &str) -> impl Parser<T>;
+pub trait DebugExt: Parser {
+    fn debug(self, message: &str) -> impl Parser<Output = Self::Output>;
 }
 
-impl<T: Debug, P: Parser<T>> DebugExt<T> for P {
-    fn debug(self, message: &str) -> impl Parser<T> {
+impl<P: Parser<Output: Debug>> DebugExt for P {
+    fn debug(self, message: &str) -> impl Parser<Output = Self::Output> {
         parser(move |input, context| {
             let start: String = input.chars().take(15).collect();
             let res = self.parse(input, context);
@@ -136,16 +164,12 @@ impl<T: Debug, P: Parser<T>> DebugExt<T> for P {
     }
 }
 
-fn then_ignore<T, U, P: Parser<T>, Q: Parser<U>>(p: P, q: Q) -> impl Parser<T> {
-    (p, q).combine(|(t, _)| t)
+pub trait ThenIgnoreExt: Parser {
+    fn then_ignore<Q: Parser>(self, q: Q) -> impl Parser<Output = Self::Output>;
 }
 
-pub trait ThenIgnoreExt<T>: Parser<T> {
-    fn then_ignore<U, Q: Parser<U>>(self, q: Q) -> impl Parser<T>;
-}
-
-impl<T, P: Parser<T>> ThenIgnoreExt<T> for P {
-    fn then_ignore<U, Q: Parser<U>>(self, q: Q) -> impl Parser<T> {
-        then_ignore(self, q)
+impl<P: Parser> ThenIgnoreExt for P {
+    fn then_ignore<Q: Parser>(self, q: Q) -> impl Parser<Output = Self::Output> {
+        (self, q).combine(|(t, _)| t)
     }
 }

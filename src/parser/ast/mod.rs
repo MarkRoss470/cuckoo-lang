@@ -1,7 +1,7 @@
 use crate::parser::PrettyPrint;
-use crate::parser::atoms::whitespace::whitespace;
+use crate::parser::atoms::whitespace::{SurroundWhitespaceExt, whitespace};
 use crate::parser::combinators::repeat::Repeat0Ext;
-use crate::parser::combinators::sequence::CombineExt;
+use crate::parser::combinators::tuples::HeterogeneousTupleExt;
 use crate::parser::{Interner, ParseContext, ParseResult};
 use crate::parser::{Parser, PrettyPrintContext};
 use item::{Item, item};
@@ -22,8 +22,8 @@ pub fn parse_file(content: &str) -> ParseResult<Ast> {
         indent_levels: 0,
     };
 
-    let (rest, res) = (whitespace(), item(), whitespace())
-        .combine(|(_, i, _)| i)
+    let (rest, res) = item()
+        .surround_whitespace()
         .repeat_0()
         .parse(content, context)
         .unwrap();
@@ -49,7 +49,7 @@ impl Ast {
             item.pretty_print(&mut stdout, context).unwrap();
         }
     }
-    
+
     pub fn pretty_print_val<T: for<'a> PrettyPrint<PrettyPrintContext<'a>>>(&self, val: T) {
         let context = PrettyPrintContext {
             interner: &self.interner,

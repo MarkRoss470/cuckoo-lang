@@ -1,125 +1,39 @@
+pub mod ident;
 pub mod whitespace;
+pub mod literal;
 
-use crate::parser::combinators::alt::AltExt;
 use crate::parser::combinators::modifiers::{
-    IgnoreValExt, MapExt, MapStrExt, ReparseExt, VerifyExt, VerifyStrExt,
+    IgnoreValExt, MapExt, ReparseExt, VerifyExt, VerifyStrExt,
 };
+use crate::parser::combinators::repeat::FinalSeparatorBehaviour::ForbidFinal;
 use crate::parser::combinators::repeat::{Repeat0Ext, Repeat1Ext, Repeat1WithSeparatorExt};
-use crate::parser::combinators::sequence::{CombineExt, SequenceExt};
+use crate::parser::combinators::tuples::{HeterogeneousTupleExt, HomogeneousTupleExt};
 use crate::parser::{InternKey, Interner, ParseResult, Parser, PrettyPrint, parser};
 use icu_properties::props::{IdContinue, IdStart, Math};
 use icu_properties::{CodePointSetData, CodePointSetDataBorrowed};
 use std::io::Write;
-use string_interner::Symbol;
 
-pub fn str_exact(s: &str) -> impl Parser<()> {
-    parser(move |input, context| {
+/// Parses exactly the given string once from the input
+pub(in crate::parser) fn str_exact(s: &str) -> impl Parser<Output = ()> {
+    parser(move |input, _| {
         input
             .strip_prefix(s)
             .map(|rest| (rest, ParseResult::new(())))
     })
 }
 
-fn char() -> impl Parser<char> {
-    parser(move |input, context| {
+/// Parses one character of input
+fn char() -> impl Parser<Output = char> {
+    parser(move |input, _| {
         let mut chars = input.chars();
         let c = chars.next()?;
         Some((chars.as_str(), ParseResult::new(c)))
     })
 }
 
-fn intern() -> impl Parser<InternKey> {
+/// Consumes the entire input, adding it to the interner and returning the [`InternKey`]
+fn intern() -> impl Parser<Output = InternKey> {
     parser(|input, context| Some(("", ParseResult::new(context.interner.get_or_intern(input)))))
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct Identifier(InternKey);
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct OwnedPath(Vec<Identifier>);
-
-impl OwnedPath {
-    pub fn from_id(id: Identifier) -> Self {
-        Self(vec![id])
-    }
-
-    pub fn borrow(&self) -> Path {
-        Path(&self.0)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Path<'a>(&'a [Identifier]);
-
-impl<'a> Path<'a> {
-    pub fn from_id(id: &'a Identifier) -> Self {
-        Self(core::slice::from_ref(id))
-    }
-
-    pub fn split_first(&self) -> (Identifier, Option<Path<'a>>) {
-        match self.0 {
-            [] => panic!("Empty path"),
-            [id] => (*id, None),
-            [id, rest @ ..] => (*id, Some(Path(rest))),
-        }
-    }
-}
-
-impl Identifier {
-    #[cfg(test)]
-    pub fn dummy() -> Self {
-        Self(InternKey::try_from_usize(0).unwrap())
-    }
-
-    #[cfg(test)]
-    pub fn dummy_val(v: usize) -> Self {
-        Self(InternKey::try_from_usize(v).unwrap())
-    }
-}
-
-const ID_START_SET: CodePointSetDataBorrowed = CodePointSetData::new::<IdStart>();
-const ID_CONTINUE_SET: CodePointSetDataBorrowed = CodePointSetData::new::<IdContinue>();
-
-/// Sequences of characters which would be valid identifiers but are reserved for other purposes
-const RESERVED_IDENTIFIERS: &[&str] = &["Prop", "Type", "_", "data", "def", "fun", "rec", "where"];
-
-fn identifier_start() -> impl Parser<()> {
-    char()
-        .verify(|&c| c == '_' || ID_START_SET.contains(c))
-        .ignore_val()
-}
-
-fn identifier_continue() -> impl Parser<()> {
-    char()
-        .verify(|&c| c == '_' || ID_CONTINUE_SET.contains(c))
-        .ignore_val()
-}
-
-/// Parses an identifier, without the restriction that it can't be a keyword
-fn identifier_like() -> impl Parser<Identifier> {
-    (identifier_start(), identifier_continue().repeat_0())
-        .sequence()
-        .reparse(intern())
-        .map(Identifier)
-}
-
-pub fn identifier() -> impl Parser<Identifier> {
-    identifier_like().verify_str(|s| !RESERVED_IDENTIFIERS.binary_search(&s).is_ok())
-}
-
-pub fn keyword(kw: &str) -> impl Parser<()> {
-    identifier_like().verify_str(move |s| s == kw).ignore_val()
-}
-
-pub fn path() -> impl Parser<OwnedPath> {
-    // A path contains either identifiers or the keyword 'rec'
-    (
-        identifier(),
-        identifier_like().verify_str(move |s| s == "rec"),
-    )
-        .alt()
-        .repeat_1_with_separator(special_operator("."))
-        .map(OwnedPath)
 }
 
 #[derive(Debug)]
@@ -128,7 +42,7 @@ pub struct Operator(InternKey);
 const MATH_SYMBOLS_SET: CodePointSetDataBorrowed = CodePointSetData::new::<Math>();
 
 /// Sequences of characters which would be valid operators but are reserved for other types of syntax
-const RESERVED_OPERATORS: &[&str] = &[".", ":", ":=", "=>"];
+const RESERVED_OPERATORS: &[&str] = &[".", ":", ":=", "=>", "|"];
 
 fn is_operator_char(c: char) -> bool {
     match c {
@@ -139,51 +53,55 @@ fn is_operator_char(c: char) -> bool {
     }
 }
 
-fn operator_char() -> impl Parser<()> {
-    char().verify(|c| is_operator_char(*c)).ignore_val()
+fn operator_char() -> impl Parser<Output = ()> {
+    char().verify(|c| is_operator_char(*c)).ignore_value()
 }
 
 /// Parses an operator, without the restriction that it can't be a reserved operator
-fn operator_like() -> impl Parser<Operator> {
+fn operator_like() -> impl Parser<Output = Operator> {
     operator_char().repeat_1().reparse(intern()).map(Operator)
 }
 
-pub(super) fn operator() -> impl Parser<Operator> {
+pub(super) fn operator() -> impl Parser<Output = Operator> {
     operator_like().verify_str(|s| !RESERVED_OPERATORS.binary_search(&s).is_ok())
 }
 
-pub(super) fn special_operator(op: &str) -> impl Parser<()> {
-    operator_like().verify_str(move |s| s == op).ignore_val()
-}
+pub(super) fn special_operator(op: &str) -> impl Parser<Output = ()> {
+    debug_assert!(op.chars().all(is_operator_char));
 
-impl<'a> PrettyPrint<&'a Interner> for Identifier {
-    fn pretty_print(&self, out: &mut dyn Write, context: &'a Interner) -> std::io::Result<()> {
-        write!(out, "{}", context.resolve(self.0).unwrap())
-    }
-}
-
-impl<'a> PrettyPrint<&'a Interner> for OwnedPath {
-    fn pretty_print(&self, out: &mut dyn Write, context: &'a Interner) -> std::io::Result<()> {
-        let mut ids = self.0.iter();
-        ids.next().unwrap().pretty_print(out, context)?;
-
-        for id in ids {
-            write!(out, ".")?;
-            id.pretty_print(out, context)?;
-        }
-
-        Ok(())
-    }
+    operator_like().verify_str(move |s| s == op).ignore_value()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parser::tests::{ParseAllExt, setup_context};
+
 
     /// Checks that certain lists are sorted so that binary searches can be correctly performed on them
     #[test]
     fn test_sorted_lists() {
-        assert!(RESERVED_IDENTIFIERS.is_sorted());
         assert!(RESERVED_OPERATORS.is_sorted());
     }
+
+
+    #[test]
+    fn test_str_exact() {
+        setup_context!(context);
+
+        str_exact("test").parse_all("test", context.borrow());
+        assert_eq!(
+            str_exact("test")
+                .parse("test string", context.borrow())
+                .unwrap()
+                .0,
+            " string"
+        );
+        assert!(
+            str_exact("test")
+                .parse("not test", context.borrow())
+                .is_none()
+        );
+    }
+
 }

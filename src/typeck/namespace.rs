@@ -1,13 +1,21 @@
 use crate::parser::PrettyPrint;
-use crate::parser::atoms::{Identifier, OwnedPath, Path};
+use crate::parser::ast::item::LevelParameters;
+use crate::parser::atoms::ident::{Identifier, Path};
 use crate::typeck::term::TypedTerm;
 use crate::typeck::{PrettyPrintContext, TypeError};
 use std::collections::HashMap;
 use std::io::Write;
+use crate::typeck::level::LevelArgs;
+
+#[derive(Debug)]
+struct NamespaceItem {
+    level_params: LevelParameters,
+    value: TypedTerm,
+}
 
 #[derive(Debug, Default)]
 pub struct Namespace {
-    values: HashMap<Identifier, TypedTerm>,
+    items: HashMap<Identifier, NamespaceItem>,
     namespaces: HashMap<Identifier, Namespace>,
 }
 
@@ -16,30 +24,46 @@ impl Namespace {
         Default::default()
     }
 
-    pub fn resolve(&self, path: Path) -> Result<TypedTerm, TypeError> {
+    pub fn resolve(&self, path: Path, level_args: &LevelArgs) -> Result<TypedTerm, TypeError> {
         let (id, rest) = path.split_first();
 
         match rest {
-            None => match self.values.get(&id) {
+            None => match self.items.get(&id) {
                 None => Err(TypeError::NameNotResolved(id)),
-                Some(v) => Ok(v.clone()),
+                Some(v) => {
+                    // Check that there are the right number of given level arguments
+                    if v.level_params.count() != level_args.count() {
+                        Err(TypeError::WrongNumberOfLevelArgs {
+                            path: path.to_owned(),
+                            expected: v.level_params.count(),
+                            found: level_args.count(),
+                        })
+                    } else {
+                        Ok(v.value.instantiate(level_args))
+                    }
+                }
             },
             Some(rest) => match self.namespaces.get(&id) {
                 None => Err(TypeError::NameAlreadyDefined(id)),
-                Some(n) => n.resolve(rest),
+                Some(n) => n.resolve(rest, level_args),
             },
         }
     }
 
-    pub fn insert(&mut self, path: Path, value: TypedTerm) -> Result<(), TypeError> {
+    pub fn insert(
+        &mut self,
+        path: Path,
+        level_params: LevelParameters,
+        value: TypedTerm,
+    ) -> Result<(), TypeError> {
         let (id, rest) = path.split_first();
 
         match rest {
             None => {
-                if self.values.contains_key(&id) {
+                if self.items.contains_key(&id) {
                     Err(TypeError::NameAlreadyDefined(id))
                 } else {
-                    self.values.insert(id, value);
+                    self.items.insert(id, NamespaceItem { level_params, value });
                     Ok(())
                 }
             }
@@ -48,7 +72,10 @@ impl Namespace {
                     self.namespaces.insert(id, Namespace::new());
                 }
 
-                self.namespaces.get_mut(&id).unwrap().insert(rest, value)
+                self.namespaces
+                    .get_mut(&id)
+                    .unwrap()
+                    .insert(rest, level_params, value)
             }
         }
     }
@@ -86,14 +113,25 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Namespace {
         out: &mut dyn Write,
         context: PrettyPrintContext<'a>,
     ) -> std::io::Result<()> {
-        for (id, val) in &self.values {
+        for (id, item) in &self.items {
+            context.newline(out)?;
             write!(out, "def ")?;
             id.pretty_print(out, context.interner())?;
+            item.level_params.pretty_print(out, context.interner())?;
             write!(out, " : ")?;
-            val.ty.pretty_print(out, context)?;
+            item.value.ty.pretty_print(out, context)?;
             write!(out, " := ")?;
-            val.term.pretty_print(out, context)?;
-            writeln!(out)?;
+            item.value.term.pretty_print(out, context)?;
+        }
+
+        for (id, namespace) in &self.namespaces {
+            context.newline(out)?;
+            context.newline(out)?;
+
+            write!(out, "namespace ")?;
+            id.pretty_print(out, context.interner())?;
+
+            namespace.pretty_print(out, context.borrow_indented())?;
         }
 
         Ok(())

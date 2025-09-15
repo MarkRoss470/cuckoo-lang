@@ -1,9 +1,10 @@
 use crate::parser::PrettyPrint;
-use crate::parser::atoms::{Identifier, OwnedPath};
+use crate::parser::atoms::ident::{Identifier, OwnedPath, Path};
 use crate::typeck::{AdtIndex, PrettyPrintContext, TypedTerm};
 use std::io::Write;
 
 // TODO: track error locations
+#[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
 pub enum TypeError {
     // ----- Term resolution errors
@@ -14,7 +15,17 @@ pub enum TypeError {
         term: TypedTerm,
         expected: TypedTerm,
     },
-    NotANamespace(OwnedPath),
+    LocalVariableIsNotANamespace(OwnedPath),
+
+    // ------ Level errors
+    LevelLiteralTooBig(usize),
+    DuplicateLevelParameter(Identifier),
+    LevelParameterNotFound(Identifier),
+    WrongNumberOfLevelArgs {
+        path: OwnedPath,
+        expected: usize,
+        found: usize,
+    },
 
     // ----- ADT declaration errors
     NotASortFamily(TypedTerm),
@@ -26,8 +37,8 @@ pub enum TypeError {
     },
     /// The ADT being defined was referenced from a disallowed location in a constructor
     InvalidLocationForAdtNameInConstructor(AdtIndex),
-    
-    // Naming errors
+
+    // ----- Naming errors
     NameAlreadyDefined(Identifier),
 }
 
@@ -40,6 +51,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
         write!(out, "ERROR: ")?;
 
         match self {
+            // ----- Term resolution errors
             TypeError::NotAFunction(t) => {
                 t.term.pretty_print(out, context)?;
                 write!(out, " is not a function. It has type ")?;
@@ -66,6 +78,41 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
                 term.ty.pretty_print(out, context)?;
                 write!(out, ".")
             }
+            TypeError::LocalVariableIsNotANamespace(path) => {
+                write!(out, "Local variable ")?;
+                path.pretty_print(out, context.interner())?;
+                write!(
+                    out,
+                    " is not a namespace and cannot be used as the start of a path expression."
+                )
+            }
+
+            // ------ Level errors
+            TypeError::LevelLiteralTooBig(l) => {
+                write!(
+                    out,
+                    "Level literal {l} is too large: level literals must be smaller than 8."
+                )
+            }
+            TypeError::DuplicateLevelParameter(id) => {
+                write!(out, "Duplicate level parameter ")?;
+                id.pretty_print(out, context.interner())
+            }
+            TypeError::LevelParameterNotFound(p) => {
+                write!(out, "Level ")?;
+                p.pretty_print(out, context.interner())?;
+                write!(out, " not found")
+            }
+            TypeError::WrongNumberOfLevelArgs {
+                path,
+                expected,
+                found,
+            } => {
+                path.pretty_print(out, context.interner())?;
+                write!(out, " takes {expected} level argument(s), but {found} were provided.")
+            }
+
+            // ----- ADT declaration errors
             TypeError::NotASortFamily(t) => {
                 t.term.pretty_print(out, context)?;
                 write!(out, " is not a sort or family of sorts.")
@@ -98,11 +145,14 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
                     "The inductive datatype being constructed can only be referenced in strictly positive positions. "
                 )
             }
+
+            // ----- Naming errors
             TypeError::NameAlreadyDefined(id) => {
                 write!(out, "The name ")?;
                 id.pretty_print(out, context.interner())?;
                 write!(out, " has already been defined.")
             }
+
             _ => todo!(),
         }
     }

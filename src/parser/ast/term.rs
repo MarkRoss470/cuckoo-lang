@@ -1,38 +1,54 @@
-use crate::parser::atoms::whitespace::whitespace;
-use crate::parser::atoms::{Identifier, identifier, keyword, special_operator, str_exact, OwnedPath, path};
-use crate::parser::combinators::alt::AltExt;
-use crate::parser::combinators::modifiers::{DebugExt, InBoxExt, MapExt};
-use crate::parser::combinators::repeat::{Fold1Ext, Repeat1Ext};
-use crate::parser::combinators::sequence::CombineExt;
-use crate::parser::{Interner, Parser, PrettyPrint, PrettyPrintContext, todo};
+use crate::parser::atoms::ident::{Identifier, OwnedPath, identifier, keyword, path};
+use crate::parser::atoms::literal::nat_literal;
+use crate::parser::atoms::whitespace::{SurroundWhitespaceExt, whitespace};
+use crate::parser::atoms::{special_operator, str_exact};
+use crate::parser::combinators::modifiers::IgnoreValExt;
+use crate::parser::combinators::modifiers::InBoxExt;
+use crate::parser::combinators::modifiers::MapExt;
+use crate::parser::combinators::modifiers::OptionalExt;
+use crate::parser::combinators::repeat::FinalSeparatorBehaviour::AllowFinal;
+use crate::parser::combinators::repeat::{Fold1Ext, Repeat1Ext, Repeat1WithSeparatorExt};
+use crate::parser::combinators::tuples::{HeterogeneousTupleExt, HomogeneousTupleExt};
+use crate::parser::{Interner, Parser, PrettyPrint, PrettyPrintContext};
+use std::fs::write;
 use std::io::Write;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Universe(usize);
+#[cfg_attr(test, derive(PartialEq, Eq))]
+#[derive(Debug, Clone)]
+pub enum LevelExpr {
+    Literal(usize),
+    Parameter(Identifier),
+    Succ(Box<LevelExpr>),
+    Max(Box<LevelExpr>, Box<LevelExpr>),
+    IMax(Box<LevelExpr>, Box<LevelExpr>),
+}
 
-impl Universe {
-    pub const PROP: Self = Universe(0);
-    pub const TYPE: Self = Universe(1);
+impl LevelExpr {
+    pub const PROP: Self = LevelExpr::Literal(0);
+    pub const TYPE: Self = LevelExpr::Literal(1);
+}
 
-    pub fn succ(self) -> Self {
-        Self(self.0 + 1)
+#[cfg_attr(test, derive(PartialEq, Eq))]
+#[derive(Debug, Clone, Default)]
+pub struct LevelArgs(Vec<LevelExpr>);
+
+impl LevelArgs {
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    pub fn pred(self) -> Self {
-        Self(self.0.saturating_sub(1))
-    }
-
-    pub fn max(self, other: Self) -> Self {
-        Self(self.0.max(other.0))
+    pub fn iter(&self) -> impl Iterator<Item = &LevelExpr> {
+        self.0.iter()
     }
 }
 
+#[cfg_attr(test, derive(PartialEq, Eq))]
 #[derive(Debug, Clone)]
 pub enum Term {
     /// The keywords `Prop` or `Type n`
-    SortLiteral(Universe),
+    Sort(Box<LevelExpr>),
     /// A path
-    Path(OwnedPath),
+    Path(OwnedPath, LevelArgs),
     /// A function application
     Application {
         function: Box<Term>,
@@ -50,35 +66,32 @@ pub enum Term {
     },
 }
 
+#[cfg_attr(test, derive(PartialEq, Eq))]
 #[derive(Debug, Clone)]
 pub struct Binder {
     pub name: Option<Identifier>,
     pub ty: Term,
 }
 
-pub fn term() -> impl Parser<Term> {
+pub fn term() -> impl Parser<Output = Term> {
     lambda_precedence_term()
 }
 
-fn lambda_precedence_term() -> impl Parser<Term> {
+fn lambda_precedence_term() -> impl Parser<Output = Term> {
     rec!(
         (
             (
                 keyword("fun"),
-                whitespace(),
                 bracketed_binder().repeat_1(),
-                whitespace(),
                 special_operator("=>"),
-                whitespace(),
                 lambda_precedence_term(),
             )
-                .combine(|(_, _, binders, _, _, _, body)| binders.into_iter().rfold(
-                    body,
-                    |body, binder| Term::Lambda {
+                .combine_with_whitespace(|(_, binders, _, body)| binders
+                    .into_iter()
+                    .rfold(body, |body, binder| Term::Lambda {
                         binder: Box::new(binder),
                         body: Box::new(body)
-                    }
-                )),
+                    })),
             pi_precedence_term(),
         )
             .alt()
@@ -86,44 +99,39 @@ fn lambda_precedence_term() -> impl Parser<Term> {
 }
 
 /// Parses a term with the precedence of a pi type or higher
-fn pi_precedence_term() -> impl Parser<Term> {
+fn pi_precedence_term() -> impl Parser<Output = Term> {
     (pi_term(), application_precedence_term()).alt()
 }
 
 /// Parses a pi type term
-fn pi_term() -> impl Parser<Term> {
+fn pi_term() -> impl Parser<Output = Term> {
     rec!(
         (
             binder().in_box(),
-            whitespace(),
             special_operator("->"),
-            whitespace(),
             pi_precedence_term().in_box(),
         )
-            .combine(|(binder, _, _, _, output)| Term::PiType { binder, output })
+            .combine_with_whitespace(|(binder, _, output)| Term::PiType { binder, output })
     )
 }
 
-pub fn bracketed_binder() -> impl Parser<Binder> {
-    (
-        whitespace(),
-        str_exact("("),
-        whitespace(),
-        identifier(),
-        whitespace(),
-        special_operator(":"),
-        whitespace(),
-        term(),
-        whitespace(),
-        str_exact(")"),
+pub fn bracketed_binder() -> impl Parser<Output = Binder> {
+    rec!(
+        (
+            str_exact("("),
+            identifier(),
+            special_operator(":"),
+            term(),
+            str_exact(")"),
+        )
+            .combine_with_whitespace(|(_, name, _, ty, _)| Binder {
+                name: Some(name),
+                ty,
+            })
     )
-        .combine(|(_, _, _, name, _, _, _, ty, _, _)| Binder {
-            name: Some(name),
-            ty,
-        })
 }
 
-pub fn binder() -> impl Parser<Binder> {
+pub fn binder() -> impl Parser<Output = Binder> {
     rec!(
         (
             bracketed_binder(),
@@ -133,48 +141,136 @@ pub fn binder() -> impl Parser<Binder> {
     )
 }
 
-fn application_precedence_term() -> impl Parser<Term> {
-    atomic_term().fold_1(|l, r| Term::Application {
+fn application_precedence_term() -> impl Parser<Output = Term> {
+    sort_precedence_term().then_fold(atomic_term(), |l, r| Term::Application {
         function: Box::new(l),
         argument: Box::new(r),
     })
 }
 
-fn atomic_term() -> impl Parser<Term> {
+fn sort_precedence_term() -> impl Parser<Output = Term> {
+    (
+        (keyword("Sort"), level_expr()).combine_with_whitespace(|(_, u)| Term::Sort(Box::new(u))),
+        (keyword("Type"), level_expr())
+            .combine_with_whitespace(|(_, u)| Term::Sort(Box::new(LevelExpr::Succ(Box::new(u))))),
+        atomic_term(),
+    )
+        .alt()
+}
+
+fn atomic_term() -> impl Parser<Output = Term> {
     rec!(
         (
-            (whitespace(), keyword("Type"), whitespace())
-                .combine(|_| Term::SortLiteral(Universe::TYPE)),
-            (whitespace(), keyword("Prop"), whitespace())
-                .combine(|_| Term::SortLiteral(Universe::PROP)),
-            (
-                whitespace(),
-                path().map(Term::Path),
-                whitespace(),
-            )
-                .combine(|(_, t, _)| t),
-            (
-                whitespace(),
-                str_exact("("),
-                whitespace(),
-                term(),
-                whitespace(),
-                str_exact(")"),
-                whitespace(),
-            )
-                .combine(|(_, _, _, t, _, _, _)| t),
+            keyword("Sort")
+                .surround_whitespace()
+                .with_value(Term::Sort(Box::new(LevelExpr::PROP))),
+            keyword("Type")
+                .surround_whitespace()
+                .with_value(Term::Sort(Box::new(LevelExpr::TYPE))),
+            keyword("Prop")
+                .surround_whitespace()
+                .with_value(Term::Sort(Box::new(LevelExpr::PROP))),
+            path_term(),
+            (str_exact("("), term(), str_exact(")"),).combine_with_whitespace(|(_, t, _)| t),
         )
             .alt()
     )
 }
 
-impl PrettyPrint<()> for Universe {
-    fn pretty_print(&self, out: &mut dyn Write, _: ()) -> std::io::Result<()> {
-        match self.0 {
-            0 => write!(out, "Prop"),
-            1 => write!(out, "Type"),
-            n => write!(out, "(Type {})", n - 1),
+fn path_term() -> impl Parser<Output = Term> {
+    (whitespace(), path(), level_args())
+        .combine(|(_, path, level_args)| Term::Path(path, level_args))
+}
+
+fn level_args() -> impl Parser<Output = LevelArgs> {
+    (
+        str_exact(".{"),
+        level_expr().repeat_1_with_separator(AllowFinal, str_exact(",").surround_whitespace()),
+        str_exact("}"),
+    )
+        .combine(|(_, args, _)| LevelArgs(args))
+        .optional_or_default()
+}
+
+fn level_expr() -> impl Parser<Output = LevelExpr> {
+    rec!(
+        (
+            nat_literal().map(LevelExpr::Literal).surround_whitespace(),
+            identifier().map(LevelExpr::Parameter).surround_whitespace(),
+            (
+                str_exact("("),
+                keyword("succ"),
+                level_expr(),
+                str_exact(")")
+            )
+                .combine_with_whitespace(|(_, _, u, _)| LevelExpr::Succ(Box::new(u))),
+            (
+                str_exact("("),
+                keyword("max"),
+                level_expr(),
+                level_expr(),
+                str_exact(")")
+            )
+                .combine_with_whitespace(|(_, _, u, v, _)| LevelExpr::Max(
+                    Box::new(u),
+                    Box::new(v)
+                )),
+            (
+                str_exact("("),
+                keyword("imax"),
+                level_expr(),
+                level_expr(),
+                str_exact(")")
+            )
+                .combine_with_whitespace(|(_, _, u, v, _)| LevelExpr::IMax(
+                    Box::new(u),
+                    Box::new(v)
+                )),
+            (str_exact("("), level_expr(), str_exact(")")).combine_with_whitespace(|(_, u, _)| u)
+        )
+            .alt()
+    )
+}
+
+impl<'a> PrettyPrint<&'a Interner> for LevelExpr {
+    fn pretty_print(&self, out: &mut dyn Write, context: &'a Interner) -> std::io::Result<()> {
+        match self {
+            LevelExpr::Literal(u) => write!(out, "{u}"),
+            LevelExpr::Parameter(v) => v.pretty_print(out, context),
+            LevelExpr::Succ(u) => {
+                write!(out, "(succ ")?;
+                u.pretty_print(out, context)?;
+                write!(out, ")")
+            }
+            LevelExpr::Max(u, v) => {
+                write!(out, "(max ")?;
+                u.pretty_print(out, context)?;
+                write!(out, ", ")?;
+                v.pretty_print(out, context)?;
+                write!(out, ")")
+            }
+            LevelExpr::IMax(u, v) => {
+                write!(out, "(imax ")?;
+                u.pretty_print(out, context)?;
+                write!(out, ", ")?;
+                v.pretty_print(out, context)?;
+                write!(out, ")")
+            }
         }
+    }
+}
+
+impl<'a> PrettyPrint<&'a Interner> for LevelArgs {
+    fn pretty_print(&self, out: &mut dyn Write, context: &'a Interner) -> std::io::Result<()> {
+        if self.0.len() == 0 {
+            return Ok(());
+        }
+
+        write!(out, ".{{")?;
+        for arg in &self.0 {
+            arg.pretty_print(out, context)?;
+        }
+        write!(out, "}}")
     }
 }
 
@@ -185,8 +281,14 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Term {
         context: PrettyPrintContext,
     ) -> std::io::Result<()> {
         match self {
-            Term::SortLiteral(u) => u.pretty_print(out, ()),
-            Term::Path(id) => id.pretty_print(out, context.interner),
+            Term::Sort(u) => {
+                write!(out, "Sort ")?;
+                u.pretty_print(out, context.interner)
+            }
+            Term::Path(id, level_args) => {
+                id.pretty_print(out, context.interner)?;
+                level_args.pretty_print(out, context.interner)
+            }
             Term::Application { function, argument } => {
                 write!(out, "(")?;
                 function.pretty_print(out, context)?;

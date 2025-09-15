@@ -9,8 +9,9 @@ pub mod atoms;
 mod combinators;
 
 use std::io::Write;
-use string_interner::DefaultBackend;
 use string_interner::symbol::SymbolU32;
+use string_interner::{DefaultBackend, StringInterner};
+use crate::parser::atoms::ident::Identifier;
 
 #[derive(Debug)]
 pub enum ParseError {}
@@ -61,10 +62,36 @@ impl<T> ParseResult<T> {
     }
 }
 
-/// The type of the string interner
-pub type Interner = string_interner::StringInterner<DefaultBackend>;
 /// The key / symbol type used to compare / look up strings in the interner
 pub type InternKey = SymbolU32;
+
+/// The parser's string interner type
+#[derive(Debug)]
+pub struct Interner {
+    interner: StringInterner<DefaultBackend>,
+    /// The identifier corresponding to the 'rec' keyword
+    kw_rec: Identifier,
+}
+
+impl Interner {
+    pub fn new() -> Self {
+        let mut interner = StringInterner::new();
+        let kw_rec = Identifier(interner.get_or_intern("rec"));
+        Self { interner, kw_rec }
+    }
+
+    pub fn get_or_intern(&mut self, string: &str) -> InternKey {
+        self.interner.get_or_intern(string)
+    }
+
+    pub fn resolve(&self, symbol: InternKey) -> Option<&str> {
+        self.interner.resolve(symbol)
+    }
+
+    pub fn kw_rec(&self) -> Identifier {
+        self.kw_rec
+    }
+}
 
 #[derive(Debug)]
 struct ParseContext<'a> {
@@ -88,32 +115,42 @@ impl<'a> ParseContext<'a> {
     }
 }
 
-trait Parser<T> {
-    fn parse<'a>(&self, input: &'a str, context: ParseContext)
-    -> Option<(&'a str, ParseResult<T>)>;
-}
+trait Parser {
+    type Output;
 
-impl<T, F> Parser<T> for F
-where
-    F: for<'a> Fn(&'a str, ParseContext) -> Option<(&'a str, ParseResult<T>)>,
-{
     fn parse<'a>(
         &self,
         input: &'a str,
         context: ParseContext,
-    ) -> Option<(&'a str, ParseResult<T>)> {
-        self(input, context)
-    }
+    ) -> Option<(&'a str, ParseResult<Self::Output>)>;
 }
 
 fn parser<T>(
     f: impl for<'a> Fn(&'a str, ParseContext) -> Option<(&'a str, ParseResult<T>)>,
-) -> impl Parser<T> {
-    f
+) -> impl Parser<Output = T> {
+    struct FnParser<T, F: for<'a> Fn(&'a str, ParseContext) -> Option<(&'a str, ParseResult<T>)>>(
+        F,
+    );
+
+    impl<T, F: for<'a> Fn(&'a str, ParseContext) -> Option<(&'a str, ParseResult<T>)>> Parser
+        for FnParser<T, F>
+    {
+        type Output = T;
+
+        fn parse<'a>(
+            &self,
+            input: &'a str,
+            context: ParseContext,
+        ) -> Option<(&'a str, ParseResult<Self::Output>)> {
+            self.0(input, context)
+        }
+    }
+
+    FnParser(f)
 }
 
 #[allow(dead_code)]
-fn todo<T>() -> impl Parser<T> {
+fn todo<T>() -> impl Parser<Output = T> {
     parser(|_, _| todo!())
 }
 
@@ -141,6 +178,70 @@ impl<'a> PrettyPrintContext<'a> {
 }
 
 pub trait PrettyPrint<C> {
-    fn pretty_print(&self, out: &mut dyn Write, context: C)
-    -> std::io::Result<()>;
+    fn pretty_print(&self, out: &mut dyn Write, context: C) -> std::io::Result<()>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    macro_rules! setup_context {
+        ($context: ident) => {
+            let mut interner = $crate::parser::Interner::new();
+            #[allow(unused_mut)]
+            let mut $context = $crate::parser::ParseContext {
+                interner: &mut interner,
+                indent_levels: 0,
+            };
+        };
+    }
+
+    pub(in crate::parser) use setup_context;
+
+    pub(in crate::parser) trait ParseAllExt: Parser {
+        fn parse_all(&self, input: &str, context: ParseContext) -> Self::Output;
+        fn parse_leaving(&self, input: &str, unparsed: &str, context: ParseContext)
+        -> Self::Output;
+    }
+
+    impl<P: Parser> ParseAllExt for P {
+        fn parse_all(&self, input: &str, context: ParseContext) -> Self::Output {
+            match self.parse(input, context) {
+                None => panic!("Parser should have recognised input"),
+                Some((rest, val)) => {
+                    if !rest.is_empty() {
+                        panic!(
+                            "Parser should have consumed the entire input, but it left '{rest}' unparsed."
+                        );
+                    }
+
+                    assert!(val.warnings.is_empty() && val.errors.is_empty());
+
+                    val.value
+                }
+            }
+        }
+
+        fn parse_leaving(
+            &self,
+            input: &str,
+            unparsed: &str,
+            context: ParseContext,
+        ) -> Self::Output {
+            match self.parse(input, context) {
+                None => panic!("Parser should have recognised input"),
+                Some((rest, val)) => {
+                    if rest != unparsed {
+                        panic!(
+                            "Parser should have left {unparsed:?} unparsed, but it left {rest:?}."
+                        );
+                    }
+
+                    assert!(val.warnings.is_empty() && val.errors.is_empty());
+
+                    val.value
+                }
+            }
+        }
+    }
 }

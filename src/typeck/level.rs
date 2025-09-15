@@ -1,0 +1,873 @@
+use crate::parser::PrettyPrint;
+use crate::parser::ast::item::LevelParameters;
+use crate::parser::ast::term::LevelExpr;
+use crate::parser::atoms::ident::Identifier;
+use crate::typeck::{PrettyPrintContext, TypeError, TypingContext, TypingEnvironment};
+use std::cmp::Ordering;
+use std::io::Write;
+use std::ops::Index;
+use std::panic::panic_any;
+use std::rc::Rc;
+
+#[derive(Debug, Clone, Eq)]
+pub enum Level {
+    // TODO: add a more efficient way to represent finite integer levels
+    Zero,
+    /// An index into the level parameters of the item this term is a part of
+    Parameter {
+        index: usize,
+        /// The name of the level parameter. For pretty printing only.
+        name: Identifier,
+    },
+    Succ(Rc<Level>),
+    Max(Rc<Level>, Rc<Level>),
+    IMax(Rc<Level>, Rc<Level>),
+}
+
+// Manually implement PartialEq to ignore parameter names when checking equality
+impl PartialEq for Level {
+    fn eq(&self, other: &Self) -> bool {
+        use Level::*;
+
+        match (self, other) {
+            (Zero, Zero) => true,
+            (Zero, _) => false,
+            (Parameter { index: pu, name: _ }, Parameter { index: pv, name: _ }) => pu == pv,
+            (Parameter { .. }, _) => false,
+            (Succ(u), Succ(v)) => u == v,
+            (Succ(_), _) => false,
+            (Max(au, bu), Max(av, bv)) => au == av && bu == bv,
+            (Max(_, _), _) => false,
+            (IMax(au, bu), IMax(av, bv)) => au == av && bu == bv,
+            (IMax(_, _), _) => false,
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct LevelArgs(Vec<Rc<Level>>);
+
+impl LevelArgs {
+    pub fn count(&self) -> usize {
+        self.0.len()
+    }
+}
+
+impl Index<usize> for LevelArgs {
+    type Output = Rc<Level>;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.0[index]
+    }
+}
+
+impl Level {
+    pub fn zero() -> Rc<Level> {
+        Rc::new(Self::Zero)
+    }
+
+    pub fn constant(u: usize) -> Rc<Level> {
+        if u == 0 {
+            Rc::new(Self::Zero)
+        } else {
+            Rc::new(Self::Succ(Self::constant(u - 1)))
+        }
+    }
+
+    pub fn parameter(index: usize, name: Identifier) -> Rc<Level> {
+        Rc::new(Self::Parameter { index, name })
+    }
+
+    pub fn succ(self: &Rc<Level>) -> Rc<Level> {
+        Rc::new(Self::Succ(self.clone()))
+    }
+
+    pub fn offset(self: &Rc<Level>, offset: usize) -> Rc<Level> {
+        if offset == 0 {
+            self.clone()
+        } else {
+            self.succ().offset(offset - 1)
+        }
+    }
+
+    /// Wrapper for [`Max`] which handles [`Rc`]s
+    ///
+    /// [`Max`]: Level::Max
+    fn max(self: &Rc<Level>, other: &Rc<Level>) -> Rc<Level> {
+        Rc::new(Level::Max(self.clone(), other.clone()))
+    }
+
+    /// Constructs a level representing the maximum of two levels,
+    /// while performing some simple simplifications.
+    pub fn smart_max(self: &Rc<Level>, other: &Rc<Level>) -> Rc<Level> {
+        use Level::*;
+
+        match (&**self, &**other) {
+            (Zero, _) => other.clone(),
+            (_, Zero) => self.clone(),
+            (Max(a, b), v) if *v == **a || *v == **b => self.clone(),
+            (u, Max(a, b)) if *u == **a || *u == **b => other.clone(),
+            (_, _) => self.max(other),
+        }
+    }
+
+    /// Wrapper for [`IMax`] which handles [`Rc`]s
+    ///
+    /// [`IMax`]: Level::IMax
+    fn imax(self: &Rc<Level>, other: &Rc<Level>) -> Rc<Level> {
+        Rc::new(Level::IMax(self.clone(), other.clone()))
+    }
+
+    /// Constructs a level representing the impredicative maximum of two levels,
+    /// while performing some simple simplifications.
+    pub fn smart_imax(self: &Rc<Level>, other: &Rc<Level>) -> Rc<Level> {
+        use Level::*;
+
+        if other.is_not_zero() {
+            self.smart_max(other)
+        } else if **other == Zero {
+            Self::zero()
+        } else if *self == Self::zero() || *self == Self::zero().succ() {
+            other.clone()
+        } else if self == other {
+            self.clone()
+        } else {
+            self.imax(other)
+        }
+    }
+
+    /// Checks if a level is guaranteed to be non-zero
+    fn is_not_zero(self: &Rc<Level>) -> bool {
+        use Level::*;
+
+        match &**self {
+            Zero | Parameter { .. } => false,
+            Succ(_) => true,
+            Max(a, b) => a.is_not_zero() || b.is_not_zero(),
+            IMax(a, _) => a.is_not_zero(),
+        }
+    }
+
+    /// Strips [`Succ`]s from a level, returning the inner level and the constant
+    /// offset which has been removed.
+    ///
+    /// [`Succ`]: Level::Succ
+    fn to_offset(self: &Rc<Level>) -> (Rc<Level>, usize) {
+        match &**self {
+            Level::Succ(u) => {
+                let (u, o) = u.to_offset();
+                (u, o + 1)
+            }
+            _ => (self.clone(), 0),
+        }
+    }
+
+    pub fn instantiate_parameters(self: &Rc<Level>, args: &LevelArgs) -> Rc<Level> {
+        use Level::*;
+
+        match &**self {
+            Zero => self.clone(),
+            Parameter { index: p, .. } => args[*p].clone(),
+            Succ(s_old) => {
+                let s = s_old.instantiate_parameters(args);
+
+                if Rc::ptr_eq(&s, s_old) {
+                    self.clone()
+                } else {
+                    s.succ()
+                }
+            }
+            Max(u_old, v_old) => {
+                let u = u_old.instantiate_parameters(args);
+                let v = v_old.instantiate_parameters(args);
+
+                if Rc::ptr_eq(&u, u_old) && Rc::ptr_eq(&v, v_old) {
+                    self.clone()
+                } else {
+                    u.smart_max(&v)
+                }
+            }
+            IMax(u_old, v_old) => {
+                let u = u_old.instantiate_parameters(args);
+                let v = v_old.instantiate_parameters(args);
+
+                if Rc::ptr_eq(&u, u_old) && Rc::ptr_eq(&v, v_old) {
+                    self.clone()
+                } else {
+                    u.smart_imax(&v)
+                }
+            }
+        }
+    }
+
+    /// A number representing the type of the level
+    fn tag(&self) -> usize {
+        match self {
+            Level::Zero => 0,
+            Level::Parameter { .. } => 1,
+            Level::Succ(_) => 2,
+            Level::Max(_, _) => 3,
+            Level::IMax(_, _) => 4,
+        }
+    }
+
+    /// A total order on [`Level`]s, where zero is the initial element and
+    /// `Succ(u)` is the immediate successor of `u`.
+    fn cmp_norm(self: &Rc<Level>, other: &Rc<Level>) -> Ordering {
+        use Level::*;
+
+        let (u, ou) = self.to_offset();
+        let (v, ov) = other.to_offset();
+        if u == v {
+            ou.cmp(&ov)
+        } else {
+            match (&*u, &*v) {
+                (Parameter { index: pu, .. }, Parameter { index: pv, .. }) => pu.cmp(pv),
+                (Max(au, bu), Max(av, bv)) | (IMax(au, bu), IMax(av, bv)) => {
+                    if au == av {
+                        bu.cmp_norm(bv)
+                    } else {
+                        au.cmp_norm(av)
+                    }
+                }
+                (_, _) => u.tag().cmp(&v.tag()),
+            }
+        }
+    }
+
+    /// Collects the arguments to nested [`Max`] expressions into a single vector.
+    /// Arguments are normalized, so any level which normalizes to a [`Max`] will have its
+    /// arguments collected as well.
+    ///
+    /// [`Max`]: Level::Max
+    fn collect_max_args(self: &Rc<Level>, buf: &mut Vec<Rc<Level>>) {
+        use Level::*;
+
+        match &**self {
+            Max(a, b) => {
+                a.normalize().collect_max_args(buf);
+                b.normalize().collect_max_args(buf);
+            }
+            _ => buf.push(self.clone()),
+        }
+    }
+
+    /// Normalizes a [`Max`] level. A constant offset of `offset` will be added to each argument.
+    ///
+    /// [`Max`]: Level::Max
+    fn normalize_max(self: &Rc<Self>, offset: usize) -> Rc<Self> {
+        let mut args = Vec::new();
+        // Collect the arguments to the `Max`
+        self.collect_max_args(&mut args);
+
+        // Sort the args in reverse by `cmp_norm`. This means that arguments which are identical except for
+        // a constant offset are next to each other, with the largest one first.
+        args.sort_unstable_by(|u, v| u.cmp_norm(v).reverse());
+        // Deduplicating the arguments by their non-constant part will therefore
+        // only keep the largest of each group.
+        args.dedup_by(|u, v| u.to_offset().0 == v.to_offset().0);
+
+        // If the last argument is a constant, it might be redundant if another argument is guaranteed
+        // to be larger than it.
+        let (last_arg, last_offset) = args.last().unwrap().to_offset();
+        if *last_arg == Self::Zero && args.len() > 1 {
+            // Find the largest constant offset among the other arguments
+            let largest_offset = args
+                .iter()
+                .take(args.len() - 1)
+                .map(|u| u.to_offset().1)
+                .max()
+                .unwrap();
+
+            if last_offset <= largest_offset {
+                args.pop();
+            }
+        }
+
+        // Offset each argument by `offset` and combine them back into a single level
+        let mut args = args.into_iter().map(|u| u.offset(offset));
+        let first = args.next().unwrap();
+        args.fold(first, |acc, u| u.max(&acc))
+    }
+
+    /// Converts a level to a normalized form which is equivalent to it.
+    /// Any two equivalent levels will convert to the same normalized form.
+    pub fn normalize(self: &Rc<Self>) -> Rc<Self> {
+        use Level::*;
+
+        let (u, o) = self.to_offset();
+
+        match &*u {
+            Succ(_) => unreachable!(),
+            Zero | Parameter { .. } => self.clone(),
+            Max(_, _) => u.normalize_max(o),
+            IMax(a_old, b_old) => {
+                let a = a_old.normalize();
+                let b = b_old.normalize();
+                if b.is_not_zero() {
+                    a.max(&b).normalize_max(o)
+                } else {
+                    a.smart_imax(&b).offset(o)
+                }
+            }
+        }
+    }
+
+    /// Checks whether two levels are definitionally equal i.e. if they are guaranteed to be equal
+    /// for any valuation of their parameters
+    pub fn def_eq(self: &Rc<Self>, other: &Rc<Self>) -> bool {
+        self.normalize() == other.normalize()
+    }
+
+    /// Checks whether one level is guaranteed to be greater than or equal to another
+    pub fn is_geq(self: &Rc<Self>, other: &Rc<Self>) -> bool {
+        let u = self.normalize();
+        let v = other.normalize();
+
+        if u == v || *v == Level::Zero {
+            true
+        } else if let Level::Max(a, b) = &*v {
+            u.is_geq(a) && u.is_geq(b)
+        } else if let Level::Max(a, b) = &*u
+            && (a.is_geq(&v) || b.is_geq(&v))
+        {
+            true
+        } else if let Level::IMax(a, b) = &*v {
+            u.is_geq(&a) && u.is_geq(&b)
+        } else if let Level::IMax(_, b) = &*u {
+            b.is_geq(&v)
+        } else {
+            let (u, ou) = u.to_offset();
+            let (v, ov) = v.to_offset();
+
+            if u == v || *v == Level::Zero {
+                ou >= ov
+            } else if ou == ov && ou > 0 {
+                u.is_geq(&v)
+            } else {
+                false
+            }
+        }
+    }
+}
+
+impl<'a> TypingEnvironment<'a> {
+    pub fn set_level_params(&mut self, params: &'a LevelParameters) -> Result<(), TypeError> {
+        if let Some(id) = params.find_duplicate() {
+            Err(TypeError::DuplicateLevelParameter(id))
+        } else {
+            self.level_parameters = Some(params);
+            Ok(())
+        }
+    }
+
+    pub fn clear_level_params(&mut self) {
+        self.level_parameters = None;
+    }
+
+    pub fn resolve_level(&self, arg: &LevelExpr) -> Result<Rc<Level>, TypeError> {
+        match arg {
+            LevelExpr::Literal(l) => {
+                if *l > 8 {
+                    Err(TypeError::LevelLiteralTooBig(*l))
+                } else {
+                    Ok(Level::constant(*l))
+                }
+            }
+            LevelExpr::Parameter(name) => {
+                let index = self
+                    .level_parameters
+                    .unwrap()
+                    .lookup(name)
+                    .ok_or(TypeError::LevelParameterNotFound(*name))?;
+                Ok(Level::parameter(index, *name))
+            }
+            LevelExpr::Succ(u) => {
+                let u = self.resolve_level(u)?;
+                Ok(u.succ())
+            }
+            LevelExpr::Max(u, v) => {
+                let u = self.resolve_level(u)?;
+                let v = self.resolve_level(v)?;
+                Ok(u.max(&v))
+            }
+            LevelExpr::IMax(u, v) => {
+                let u = self.resolve_level(u)?;
+                let v = self.resolve_level(v)?;
+                Ok(u.imax(&v))
+            }
+        }
+    }
+}
+
+impl<'a> TypingContext<'a> {
+    pub fn resolve_level(&self, arg: &LevelExpr) -> Result<Rc<Level>, TypeError> {
+        match self {
+            TypingContext::Root(env) => env.resolve_level(arg),
+            TypingContext::Binder { parent, .. } => parent.resolve_level(arg),
+        }
+    }
+
+    pub fn resolve_level_args(
+        &self,
+        level_args: &crate::parser::ast::term::LevelArgs,
+    ) -> Result<LevelArgs, TypeError> {
+        let mut v = Vec::new();
+
+        for arg in level_args.iter() {
+            v.push(self.resolve_level(arg)?)
+        }
+
+        Ok(LevelArgs(v))
+    }
+}
+
+impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Rc<Level> {
+    fn pretty_print(
+        &self,
+        out: &mut dyn Write,
+        context: PrettyPrintContext<'a>,
+    ) -> std::io::Result<()> {
+        let (u, o) = self.to_offset();
+
+        if *u == Level::Zero {
+            return write!(out, "{o}");
+        }
+
+        match &*u {
+            Level::Zero => write!(out, "0")?,
+            Level::Parameter { name, .. } => name.pretty_print(out, context.interner())?,
+            Level::Succ(u) => {
+                write!(out, "(succ ")?;
+                u.pretty_print(out, context)?;
+                write!(out, ")")?;
+            }
+            Level::Max(u, v) => {
+                write!(out, "(max ")?;
+                u.pretty_print(out, context)?;
+                v.pretty_print(out, context)?;
+                write!(out, ")")?;
+            }
+            Level::IMax(u, v) => {
+                write!(out, "(imax ")?;
+                u.pretty_print(out, context)?;
+                v.pretty_print(out, context)?;
+                write!(out, ")")?
+            }
+        }
+
+        if o != 0 {
+            write!(out, " + {o}")?;
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::ast::item::LevelParameters;
+    use crate::typeck::tests::setup_env;
+
+    #[test]
+    fn test_instantiate_parameters() {
+        let param_0 = Level::parameter(0, Identifier::dummy_val(0));
+        let param_1 = Level::parameter(1, Identifier::dummy_val(1));
+        let param_2 = Level::parameter(2, Identifier::dummy_val(2));
+        let param_20 = Level::parameter(20, Identifier::dummy_val(20));
+
+        let param_list = LevelArgs(vec![Level::zero(), param_0.clone(), param_20.succ()]);
+
+        assert_eq!(
+            Level::zero().instantiate_parameters(&param_list),
+            Level::zero()
+        );
+        assert_eq!(
+            Level::zero()
+                .max(&Level::zero().succ())
+                .instantiate_parameters(&param_list),
+            Level::zero().max(&Level::zero().succ())
+        );
+        assert_eq!(
+            Level::zero()
+                .imax(&Level::zero())
+                .instantiate_parameters(&param_list),
+            Level::zero().imax(&Level::zero())
+        );
+
+        assert_eq!(param_0.instantiate_parameters(&param_list), Level::zero());
+        assert_eq!(param_1.instantiate_parameters(&param_list), param_0);
+        assert_eq!(param_2.instantiate_parameters(&param_list), param_20.succ());
+
+        assert_eq!(
+            param_0.succ().instantiate_parameters(&param_list),
+            Level::zero().succ()
+        );
+        assert_eq!(
+            param_1.max(&param_2).instantiate_parameters(&param_list),
+            param_0.max(&param_20.succ())
+        );
+        assert_eq!(
+            param_0.imax(&param_2).instantiate_parameters(&param_list),
+            param_20.succ() // The imax gets removed by `smart_imax` because the LHS is zero
+        );
+    }
+
+    #[test]
+    fn test_cmp_norm() {
+        let param_0 = Level::parameter(0, Identifier::dummy_val(0));
+        let param_1 = Level::parameter(1, Identifier::dummy_val(1));
+        let param_2 = Level::parameter(2, Identifier::dummy_val(2));
+
+        assert_eq!(Level::zero().cmp_norm(&Level::zero()), Ordering::Equal);
+
+        // Zero should be less than everything else
+        assert_eq!(
+            Level::zero().cmp_norm(&Level::zero().succ()),
+            Ordering::Less
+        );
+        assert_eq!(Level::zero().cmp_norm(&param_0), Ordering::Less);
+        assert_eq!(
+            Level::zero().cmp_norm(&param_0.max(&Level::zero())),
+            Ordering::Less
+        );
+        assert_eq!(
+            Level::zero().cmp_norm(&param_1.imax(&param_0)),
+            Ordering::Less
+        );
+
+        // When comparing parameters, the constant offset only matters if the parameters are equal
+        assert_eq!(param_0.cmp_norm(&param_1), Ordering::Less);
+        assert_eq!(param_0.succ().cmp_norm(&param_1), Ordering::Less);
+        assert_eq!(param_0.cmp_norm(&param_1.succ()), Ordering::Less);
+
+        assert_eq!(param_0.cmp_norm(&param_0), Ordering::Equal);
+        assert_eq!(param_0.succ().cmp_norm(&param_0), Ordering::Greater);
+        assert_eq!(param_0.cmp_norm(&param_0.succ()), Ordering::Less);
+
+        // When comparing Max and IMax levels, the first parameter takes precedence over the second
+        assert_eq!(
+            param_0.max(&param_1).cmp_norm(&param_0.max(&param_0)),
+            Ordering::Greater
+        );
+        assert_eq!(
+            param_0.max(&param_1).cmp_norm(&param_0.max(&param_1)),
+            Ordering::Equal
+        );
+        assert_eq!(
+            param_0.max(&param_1).cmp_norm(&param_0.max(&param_2)),
+            Ordering::Less
+        );
+
+        assert_eq!(
+            param_0.imax(&param_1).cmp_norm(&param_1.imax(&param_0)),
+            Ordering::Less
+        );
+        assert_eq!(
+            param_0.imax(&param_1).cmp_norm(&param_1.imax(&param_1)),
+            Ordering::Less
+        );
+        assert_eq!(
+            param_0.imax(&param_1).cmp_norm(&param_1.imax(&param_2)),
+            Ordering::Less
+        );
+
+        assert_eq!(
+            param_1.max(&param_1).cmp_norm(&param_0.max(&param_0)),
+            Ordering::Greater
+        );
+        assert_eq!(
+            param_1.max(&param_1).cmp_norm(&param_0.max(&param_1)),
+            Ordering::Greater
+        );
+        assert_eq!(
+            param_1.max(&param_1).cmp_norm(&param_0.max(&param_2)),
+            Ordering::Greater
+        );
+
+        // Imax is always greater than max, even when the parameters and/or constant offset are less
+        assert_eq!(
+            param_0
+                .imax(&param_0)
+                .cmp_norm(&param_1.max(&param_1).succ()),
+            Ordering::Greater
+        );
+        assert_eq!(
+            param_1
+                .max(&param_1)
+                .succ()
+                .cmp_norm(&param_0.imax(&param_0)),
+            Ordering::Less
+        );
+    }
+
+    #[test]
+    fn test_normalize() {
+        let param_0 = Level::parameter(0, Identifier::dummy_val(0));
+        let param_1 = Level::parameter(1, Identifier::dummy_val(1));
+
+        // Basic cases
+        assert_eq!(Level::zero().normalize(), Level::zero());
+        assert_eq!(Level::zero().succ().normalize(), Level::zero().succ());
+        assert_eq!(param_0.normalize(), param_0);
+        assert_eq!(param_1.succ().normalize(), param_1.succ());
+
+        // Normalize reduces any expression with no parameters to a constant
+        assert_eq!(Level::zero().max(&Level::zero()).normalize(), Level::zero());
+        assert_eq!(
+            Level::constant(1)
+                .imax(&Level::constant(2).max(&Level::constant(3).imax(&Level::zero())))
+                .normalize(),
+            Level::constant(2)
+        );
+    }
+
+    #[test]
+    fn test_normalize_imax() {
+        let param_0 = Level::parameter(0, Identifier::dummy_val(0));
+        let param_1 = Level::parameter(1, Identifier::dummy_val(1));
+
+        // Imax becomes max if the RHS is not zero
+        assert_eq!(
+            param_0.imax(&param_1.succ()).normalize(),
+            param_0.max(&param_1.succ())
+        );
+        assert_eq!(
+            param_0.imax(&param_1.max(&Level::constant(1))).normalize(),
+            Level::constant(1).max(&param_0.max(&param_1))
+        );
+
+        // Imax becomes zero if the RHS is zero
+        assert_eq!(param_0.imax(&Level::zero()).normalize(), Level::zero());
+        assert_eq!(
+            param_0.imax(&Level::zero().max(&Level::zero())).normalize(),
+            Level::zero()
+        );
+        assert_eq!(
+            param_0.imax(&param_1.imax(&Level::zero())).normalize(),
+            Level::zero()
+        );
+
+        // Imax simplifies if both arguments are identical
+        assert_eq!(param_0.imax(&param_0).normalize(), param_0);
+        assert_eq!(
+            param_0
+                .max(&param_1)
+                .imax(&param_1.max(&param_0))
+                .normalize(),
+            param_0.max(&param_1)
+        );
+
+        // Imax becomes RHS if LHS is zero or one
+        assert_eq!(Level::zero().imax(&param_0).normalize(), param_0);
+        assert_eq!(Level::zero().smart_imax(&param_0).normalize(), param_0);
+        assert_eq!(
+            Level::zero()
+                .max(&Level::zero())
+                .imax(&param_1.max(&param_0))
+                .normalize(),
+            param_0.max(&param_1)
+        );
+    }
+
+    #[test]
+    fn test_normalize_max() {
+        let param_0 = Level::parameter(0, Identifier::dummy_val(0));
+        let param_1 = Level::parameter(1, Identifier::dummy_val(1));
+        let param_2 = Level::parameter(2, Identifier::dummy_val(2));
+        let param_3 = Level::parameter(3, Identifier::dummy_val(3));
+
+        // Constant arguments are removed if another argument is guaranteed to be at least as large
+        assert_eq!(param_0.max(&Level::zero()).normalize(), param_0); // param_0 >= 0
+        assert_eq!(
+            param_0.max(&Level::zero().succ()).normalize(),
+            Level::zero().succ().max(&param_0) // param_0 is not guaranteed to be >= 1 ...
+        );
+        assert_eq!(
+            param_0.succ().max(&Level::zero().succ()).normalize(),
+            param_0.succ() // ... but param_0 + 1 is
+        );
+
+        // Normalize sorts arguments
+        assert_eq!(param_0.max(&param_1).normalize(), param_0.max(&param_1));
+        assert_eq!(param_1.max(&param_0).normalize(), param_0.max(&param_1));
+        assert_eq!(param_0.max(&param_0).normalize(), param_0);
+        assert_eq!(param_0.max(&Level::zero()).normalize(), param_0);
+        assert_eq!(
+            param_0.max(&Level::zero().succ()).normalize(),
+            Level::zero().succ().max(&param_0)
+        );
+        assert_eq!(
+            Level::zero().succ().max(&param_0).normalize(),
+            Level::zero().succ().max(&param_0)
+        );
+
+        // Normalize makes everything right associative
+        assert_eq!(
+            param_1.max(&param_2).max(&param_0).normalize(),
+            param_0.max(&param_1.max(&param_2))
+        );
+        assert_eq!(
+            param_0
+                .max(&param_2.max(&param_3).max(&param_1))
+                .normalize(),
+            param_0.max(&param_1.max(&param_2.max(&param_3)))
+        );
+
+        // Normalize removes duplicates
+        assert_eq!(param_1.max(&param_1).normalize(), param_1);
+        assert_eq!(param_1.max(&param_1.succ()).normalize(), param_1.succ());
+        assert_eq!(
+            param_0.max(&param_1.imax(&param_1)).normalize(),
+            param_0.max(&param_1)
+        );
+
+        // Normalize pushes `succ`s to leaves
+        assert_eq!(
+            param_0
+                .max(&param_1.succ())
+                .succ()
+                .max(&param_2)
+                .succ()
+                .normalize(),
+            param_0
+                .succ()
+                .succ()
+                .max(&param_1.succ().succ().succ().max(&param_2.succ()))
+        );
+    }
+
+    #[test]
+    fn test_def_eq() {
+        let param_0 = Level::parameter(0, Identifier::dummy_val(0));
+        let param_1 = Level::parameter(1, Identifier::dummy_val(1));
+
+        assert!(Level::zero().def_eq(&Level::zero()));
+        assert!(Level::zero().succ().def_eq(&Level::zero().succ()));
+        assert!(!Level::zero().def_eq(&Level::zero().succ()));
+
+        assert!(
+            param_0
+                .succ()
+                .max(&param_1.succ())
+                .def_eq(&param_1.max(&param_0).succ())
+        );
+    }
+
+    #[test]
+    fn test_is_geq() {
+        let param_0 = Level::parameter(0, Identifier::dummy_val(0));
+        let param_1 = Level::parameter(1, Identifier::dummy_val(1));
+        let param_2 = Level::parameter(2, Identifier::dummy_val(2));
+
+        assert!(param_0.is_geq(&param_0));
+        assert!(param_0.succ().is_geq(&param_0));
+        assert!(!param_0.is_geq(&param_0.succ()));
+        assert!(param_0.succ().is_geq(&param_0.succ()));
+
+        assert!(!param_0.is_geq(&param_1));
+        assert!(!param_1.is_geq(&param_0));
+        assert!(!param_1.succ().is_geq(&param_0));
+        assert!(!param_1.succ().is_geq(&param_0.succ()));
+
+        assert!(param_0.max(&param_1).is_geq(&param_0));
+        assert!(param_0.max(&param_1).is_geq(&param_1));
+        assert!(!param_0.max(&param_1).is_geq(&param_2));
+
+        assert!(
+            param_0
+                .max(&param_1)
+                .max(&param_2)
+                .is_geq(&param_0.max(&param_2))
+        );
+
+        assert!(!param_0.is_geq(&param_1.imax(&param_0)));
+        assert!(!param_1.is_geq(&param_1.imax(&param_0)));
+        assert!(param_0.max(&param_1).is_geq(&param_1.imax(&param_0)));
+        assert!(!param_0.imax(&param_1).is_geq(&param_1.imax(&param_0)));
+
+        assert!(param_0.imax(&param_1).is_geq(&param_1));
+        assert!(!param_0.imax(&param_1).is_geq(&param_0));
+        assert!(!param_0.imax(&param_1).is_geq(&param_0.max(&param_1)));
+    }
+
+    #[test]
+    fn test_set_level_params() {
+        setup_env!(env);
+
+        let id_0 = Identifier::dummy_val(0);
+        let id_1 = Identifier::dummy_val(1);
+
+        let parameters = LevelParameters::new(&[id_0, id_1]);
+        env.set_level_params(&parameters)
+            .expect("Setting parameters should have succeeded");
+
+        let parameters = LevelParameters::new(&[id_0, id_1, id_0]);
+        assert_eq!(
+            env.set_level_params(&parameters),
+            Err(TypeError::DuplicateLevelParameter(id_0))
+        );
+    }
+
+    #[test]
+    fn test_resolve_level() {
+        setup_env!(env);
+
+        let id_0 = Identifier::dummy_val(0);
+        let id_1 = Identifier::dummy_val(1);
+        let id_2 = Identifier::dummy_val(2);
+        let param_0 = Level::parameter(0, id_0);
+        let param_1 = Level::parameter(1, id_1);
+
+        let parameters = LevelParameters::new(&[id_0, id_1]);
+        env.set_level_params(&parameters).unwrap();
+
+        // Constants
+        assert_eq!(
+            env.resolve_level(&LevelExpr::Literal(0)).unwrap(),
+            Level::zero()
+        );
+        assert_eq!(
+            env.resolve_level(&LevelExpr::Literal(1)).unwrap(),
+            Level::zero().succ()
+        );
+        assert_eq!(
+            env.resolve_level(&LevelExpr::Literal(2)).unwrap(),
+            Level::zero().succ().succ()
+        );
+
+        // Parameters
+        assert_eq!(
+            env.resolve_level(&LevelExpr::Parameter(id_0)).unwrap(),
+            param_0
+        );
+        assert_eq!(
+            env.resolve_level(&LevelExpr::Parameter(id_1)).unwrap(),
+            param_1
+        );
+        assert_eq!(
+            env.resolve_level(&LevelExpr::Parameter(id_2)),
+            Err(TypeError::LevelParameterNotFound(id_2))
+        );
+
+        // Max and Imax
+        assert_eq!(
+            env.resolve_level(&LevelExpr::Max(
+                Box::new(LevelExpr::Literal(1)),
+                Box::new(LevelExpr::Parameter(id_0))
+            ))
+            .unwrap(),
+            Level::constant(1).max(&param_0)
+        );
+
+        assert_eq!(
+            env.resolve_level(&LevelExpr::IMax(
+                Box::new(LevelExpr::Succ(Box::new(LevelExpr::Parameter(id_1)))),
+                Box::new(LevelExpr::Succ(Box::new(LevelExpr::Literal(1))))
+            ))
+            .unwrap(),
+            param_1.succ().imax(&Level::constant(2))
+        );
+    }
+}

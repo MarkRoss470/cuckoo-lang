@@ -1,18 +1,19 @@
 mod data;
 mod error;
+mod level;
 mod namespace;
 mod term;
 
 pub use error::TypeError;
 
 use crate::parser::ast::Ast;
-use crate::parser::ast::item::Item;
-use crate::parser::ast::item::data::DataDefinition;
 use crate::parser::ast::item::def::ValueDefinition;
-use crate::parser::ast::term::{Binder, Term, Universe};
-use crate::parser::atoms::{Identifier, OwnedPath, Path};
+use crate::parser::ast::item::{Item, LevelParameters};
+use crate::parser::ast::term::Term;
+use crate::parser::atoms::ident::{Identifier, Path};
 use crate::parser::{Interner, PrettyPrint};
-use crate::typeck::data::{Adt, AdtConstructor, AdtConstructorParam, AdtConstructorParamKind};
+use crate::typeck::data::Adt;
+use crate::typeck::level::LevelArgs;
 use crate::typeck::namespace::Namespace;
 use crate::typeck::term::{TypedBinder, TypedTerm, TypedTermKind};
 use std::io::Write;
@@ -22,17 +23,20 @@ pub struct AdtIndex(usize);
 
 #[derive(Debug)]
 pub struct TypingEnvironment<'a> {
-    interner: &'a Interner,
+    ast: &'a Ast,
     adts: Vec<Adt>,
     root: Namespace,
+    /// The level parameters of the item currently being type checked
+    level_parameters: Option<&'a LevelParameters>,
 }
 
 impl<'a> TypingEnvironment<'a> {
-    pub fn new(interner: &'a Interner) -> Self {
+    pub fn new(ast: &'a Ast) -> Self {
         Self {
-            interner,
+            ast,
             adts: vec![],
             root: Namespace::new(),
+            level_parameters: None,
         }
     }
 
@@ -40,11 +44,11 @@ impl<'a> TypingEnvironment<'a> {
         &self.adts[id.0]
     }
 
-    fn resolve_path(&self, path: Path) -> Result<TypedTerm, TypeError> {
-        self.root.resolve(path)
+    fn resolve_path(&self, path: Path, level_args: &LevelArgs) -> Result<TypedTerm, TypeError> {
+        self.root.resolve(path, level_args)
     }
 
-    pub fn resolve_file(&mut self, ast: &Ast) -> Result<(), TypeError> {
+    pub fn resolve_file(&mut self, ast: &'a Ast) -> Result<(), TypeError> {
         for item in &ast.items {
             match item {
                 Item::DataDefinition(dd) => {
@@ -61,168 +65,38 @@ impl<'a> TypingEnvironment<'a> {
         Ok(())
     }
 
-    fn resolve_data_definition(&mut self, ast: &DataDefinition) -> Result<(), TypeError> {
-        let family = TypingContext::Root(self).resolve_term(&ast.family)?;
+    fn assemble_telescope(
+        params: Vec<(Option<Identifier>, TypedTerm)>,
+        output: TypedTerm,
+    ) -> Result<TypedTerm, TypeError> {
+        params
+            .into_iter()
+            .rev()
+            .try_fold(output, |out, (name, param)| {
+                let param_level = param.check_is_ty()?;
+                let output_level = out.check_is_ty()?;
 
-        let Ok(family_univ) = family.check_is_ty() else {
-            return Err(TypeError::NotASortFamily(family));
-        };
+                let pi_level = param_level.smart_max(&output_level);
 
-        // Resolve the type's family as a telescope
-        let (indices, out) = family.clone().into_telescope();
-        // Check that the output of the telescope is a sort
-        let Ok(sort) = out.term.check_is_sort() else {
-            return Err(TypeError::NotASortFamily(family));
-        };
-
-        let adt_index = AdtIndex(self.adts.len());
-
-        // Add the ADT so that the constructors can refer to it. The actual constructors will be added to this definition later.
-        self.adts.push(Adt {
-            name: ast.name.clone(),
-            indices,
-            sort,
-            constructors: vec![],
-        });
-        self.root.insert(
-            ast.name.borrow(),
-            TypedTerm {
-                universe: family_univ,
-                ty: family.term,
-                term: TypedTermKind::AdtName(adt_index),
-            },
-        )?;
-        self.root.insert_namespace(ast.name.borrow());
-
-        self.resolve_adt_constructors(&ast, adt_index)?;
-
-        Ok(())
+                Ok(TypedTerm {
+                    level: pi_level.succ(),
+                    ty: TypedTermKind::SortLiteral(pi_level),
+                    term: TypedTermKind::PiType {
+                        binder: Box::new(TypedBinder { name, ty: param }),
+                        output: Box::new(out),
+                    },
+                })
+            })
     }
 
-    fn resolve_adt_constructors(
-        &mut self,
-        ast: &&DataDefinition,
-        adt_index: AdtIndex,
-    ) -> Result<(), TypeError> {
-        let mut constructor_tys = Vec::new();
-        for constructor in &ast.constructors {
-            let ty = TypingContext::Root(self).resolve_term(&constructor.telescope)?;
-            let universe = ty.check_is_ty()?;
-            constructor_tys.push((constructor.name, ty, universe));
-        }
-
-        let mut constructors = Vec::new();
-
-        for (i, (name, ty, universe)) in constructor_tys.into_iter().enumerate() {
-            let constructor = self.resolve_adt_constructor(name, &ty, adt_index)?;
-
-            constructors.push(constructor);
-
-            let adt_namespace = self.root.resolve_namespace_mut(ast.name.borrow())?;
-            adt_namespace.insert(
-                Path::from_id(&name),
-                TypedTerm {
-                    universe,
-                    ty: ty.term,
-                    term: TypedTermKind::AdtConstructor(adt_index, i),
-                },
-            )?;
-        }
-
-        // TODO: generate eliminators
-
-        self.adts.last_mut().unwrap().constructors = constructors;
-
-
-        Ok(())
-    }
-
-    fn resolve_adt_constructor(
-        &self,
-        name: Identifier,
-        ty: &TypedTerm,
-        adt_index: AdtIndex,
-    ) -> Result<AdtConstructor, TypeError> {
-        // Check that the constructor is actually a type, and decompose it as a telescope
-        ty.check_is_ty()?;
-        let (params, result) = ty.clone().into_telescope();
-
-        let mut processed_params = Vec::new();
-        for param in params {
-            processed_params.push(self.resolve_adt_constructor_param(name, adt_index, param)?);
-        }
-
-        // Decompose the output of the telescope as a series of applications.
-        // The underlying function should be the name of the ADT being constructed
-        let (f, arguments) = result.into_application_stack();
-
-        // Check that the underlying function is the correct ADT name
-        match f.term {
-            TypedTermKind::AdtName(id) if id == adt_index => (),
-
-            _ => {
-                return Err(TypeError::IncorrectConstructorResultantType {
-                    name,
-                    found: f,
-                    expected: adt_index,
-                });
-            }
-        }
-
-        for argument in &arguments {
-            // TODO: check that argument does not include references to the current ADT
-        }
-
-        Ok(AdtConstructor {
-            name,
-            ty: ty.term.clone(),
-            params: processed_params,
-            indices: arguments,
-        })
-    }
-
-    fn resolve_adt_constructor_param(
-        &self,
-        name: Identifier,
-        adt_index: AdtIndex,
-        param: TypedBinder,
-    ) -> Result<AdtConstructorParam, TypeError> {
-        let (parameters, output) = param.ty.clone().into_telescope();
-        let (f, args) = output.into_application_stack();
-
-        // If f is the ADT being constructed, then this is an inductive parameter
-        let param_kind = match f.term {
-            TypedTermKind::AdtName(id) if id == adt_index => {
-                for binder in &parameters {
-                    binder.ty.term.forbid_references_to_adt(adt_index)?;
-                }
-                for arg in &args {
-                    arg.term.forbid_references_to_adt(adt_index)?;
-                }
-
-                AdtConstructorParamKind::Inductive {
-                    parameters,
-                    indices: args,
-                }
-            }
-
-            // If the type has any other form, then just check that it doesn't contain the ADT at all
-            _ => {
-                param.ty.term.forbid_references_to_adt(adt_index)?;
-
-                AdtConstructorParamKind::NonInductive(param.ty)
-            }
-        };
-
-        Ok(AdtConstructorParam {
-            name: Some(name),
-            kind: param_kind,
-        })
-    }
-
-    fn resolve_value_definition(&mut self, ast: &ValueDefinition) -> Result<(), TypeError> {
+    fn resolve_value_definition(&mut self, ast: &'a ValueDefinition) -> Result<(), TypeError> {
         let mut ty = ast.ty.clone();
         let mut value = ast.value.clone();
+
+        // Set the level parameters for this item
+        self.set_level_params(&ast.level_params)?;
+
+        // TODO: validate level parameters (do this for def statements too)
 
         // Desugar `def` parameters to pi types and lambda expressions
         for binder in ast.binders.iter().rev() {
@@ -252,7 +126,11 @@ impl<'a> TypingEnvironment<'a> {
             });
         }
 
-        self.root.insert(ast.path.borrow(), value)?;
+        self.root
+            .insert(ast.path.borrow(), ast.level_params.clone(), value)?;
+
+        // Remove the level parameters from the context
+        self.clear_level_params();
 
         Ok(())
     }
@@ -287,198 +165,47 @@ impl<'a> TypingContext<'a> {
             }
         }
     }
-
-    fn resolve_term(&self, term: &Term) -> Result<TypedTerm, TypeError> {
-        match term {
-            Term::SortLiteral(u) => Ok(TypedTerm {
-                universe: u.succ().succ(),
-                ty: TypedTermKind::SortLiteral(u.succ()),
-                term: TypedTermKind::SortLiteral(*u),
-            }),
-            Term::Path(id) => self.resolve_path(id.borrow()),
-            Term::Application { function, argument } => {
-                self.resolve_application(function, argument)
-            }
-            Term::PiType { binder, output } => self.resolve_pi_type(binder, output),
-            Term::Lambda { binder, body } => self.resolve_lambda(binder, body),
-        }
-    }
-
-    /// Resolves an identifier in the context. On success, returns the associated term as well as the number of
-    /// binders between that binder's introduction and the current context - the binders in the term need to be
-    /// increased by this number, which is done in [`resolve_identifier`][Self::resolve_identifier]
-    fn resolve_path_inner(&self, path: Path) -> Result<(TypedTerm, usize), TypeError> {
-        match self {
-            TypingContext::Root(env) => env.resolve_path(path).map(|t| (t, 0)),
-            TypingContext::Binder { binder, parent } => {
-                let (first, rest) = path.split_first();
-
-                if let Some(name) = binder.name {
-                    if first == name {
-                        if rest.is_some() {
-                            return Err(TypeError::NotANamespace(OwnedPath::from_id(first)));
-                        }
-
-                        return Ok((
-                            TypedTerm {
-                                universe: binder.ty.universe.pred(),
-                                ty: binder.ty.term.clone(),
-                                term: TypedTermKind::BoundVariable {
-                                    index: 0,
-                                    name: first,
-                                },
-                            },
-                            0,
-                        ));
-                    }
-                }
-
-                parent.resolve_path_inner(path).map(|(t, i)| (t, i + 1))
-            }
-        }
-    }
-
-    /// Resolves a path in the current context
-    fn resolve_path(&self, path: Path) -> Result<TypedTerm, TypeError> {
-        self.resolve_path_inner(path).map(|(mut t, i)| {
-            // The term includes its own binder while the type doesn't, so the type needs to be incremented by one more than the term
-            t.ty.increment_binders_above(0, i + 1);
-            t.term.increment_binders_above(0, i);
-            t
-        })
-    }
-
-    fn resolve_application(
-        &self,
-        function: &Term,
-        argument: &Term,
-    ) -> Result<TypedTerm, TypeError> {
-        // Type check the function and argument
-        let mut function = self.resolve_term(function)?;
-        let mut argument = self.resolve_term(argument)?;
-
-        // Reduce the type of the function
-        function.ty.reduce_root();
-
-        // println!("Function and argument:");
-        // self.environment().pretty_println_val(&function.term);
-        // self.environment().pretty_println_val(&function.ty);
-        // self.environment().pretty_println_val(&argument.term);
-        // self.environment().pretty_println_val(&argument.ty);
-        // println!();
-
-        // Check that the function has a function type
-        let TypedTermKind::PiType { binder, output } = &mut function.ty else {
-            return Err(TypeError::NotAFunction(function));
-        };
-
-        // Check that the type of the argument matches the input type of the function
-        // TODO: do this check without cloning
-        if !binder.ty.term.clone().def_eq(argument.ty.clone()) {
-            return Err(TypeError::MismatchedTypes {
-                term: argument,
-                expected: binder.ty.clone(),
-            });
-        }
-
-        // Replace instances of the binder in the output type with the argument
-        let output_ty = output.term.replace_binder(0, &argument);
-
-        Ok(TypedTerm {
-            universe: output.universe,
-            ty: output_ty,
-            term: TypedTermKind::Application {
-                function: Box::new(function),
-                argument: Box::new(argument),
-            },
-        })
-    }
-
-    fn resolve_pi_type(&self, binder: &Binder, output: &Term) -> Result<TypedTerm, TypeError> {
-        // Resolve the type of the binder, and check that it actually is a type
-        let binder_ty = self.resolve_term(&binder.ty)?;
-        let binder_univ = binder_ty.check_is_ty()?;
-        let binder = TypedBinder {
-            name: binder.name,
-            ty: binder_ty,
-        };
-
-        // Construct a new typing context which includes the new binder
-        let c = TypingContext::Binder {
-            binder: &binder,
-            parent: self,
-        };
-
-        // Resolve the output type in this new context
-        let output = c.resolve_term(&output)?;
-        let output_univ = output.check_is_ty()?;
-
-        // Calculate the universe of the new type
-        let univ = binder_univ.max(output_univ); // TODO: special rules for Prop
-
-        Ok(TypedTerm {
-            universe: univ.succ(),
-            ty: TypedTermKind::SortLiteral(univ),
-            term: TypedTermKind::PiType {
-                binder: Box::new(binder),
-                output: Box::new(output),
-            },
-        })
-    }
-
-    fn resolve_lambda(&self, binder: &Binder, body: &Term) -> Result<TypedTerm, TypeError> {
-        // Resolve the type of the binder, and check that it actually is a type
-        let binder_ty = self.resolve_term(&binder.ty)?;
-        let binder_univ = binder_ty.check_is_ty()?;
-        let binder = TypedBinder {
-            name: binder.name,
-            ty: binder_ty,
-        };
-
-        // Construct a new typing context which includes the new binder
-        let c = TypingContext::Binder {
-            binder: &binder,
-            parent: self,
-        };
-
-        // Resolve the output type in this new context
-        let body = c.resolve_term(&body)?;
-
-        // Calculate the universe of the new term
-        let univ = binder_univ.max(body.universe); // TODO: special rules for Prop
-
-        Ok(TypedTerm {
-            universe: univ,
-            ty: TypedTermKind::PiType {
-                binder: Box::new(binder.clone()),
-                output: Box::new(TypedTerm {
-                    universe: body.universe.succ(),
-                    ty: TypedTermKind::SortLiteral(body.universe),
-                    term: body.ty.clone(),
-                }),
-            },
-            term: TypedTermKind::Lambda {
-                binder: Box::new(binder),
-                body: Box::new(body),
-            },
-        })
-    }
 }
 
 #[derive(Debug, Copy, Clone)]
 struct PrettyPrintContext<'a> {
     environment: &'a TypingEnvironment<'a>,
+    indent_levels: usize,
 }
 
 impl<'a> PrettyPrintContext<'a> {
+    fn new(environment: &'a TypingEnvironment<'a>) -> Self {
+        Self {
+            environment,
+            indent_levels: 0,
+        }
+    }
+
     fn interner(&self) -> &Interner {
-        self.environment.interner
+        &self.environment.ast.interner
+    }
+
+    fn newline(&self, out: &mut dyn Write) -> std::io::Result<()> {
+        writeln!(out)?;
+
+        for _ in 0..self.indent_levels {
+            write!(out, "  ")?;
+        }
+
+        Ok(())
+    }
+
+    fn borrow_indented(self) -> Self {
+        Self {
+            indent_levels: self.indent_levels + 1,
+            ..self
+        }
     }
 }
 
 impl<'a> TypingEnvironment<'a> {
     pub fn pretty_print(&self) {
-        let context = PrettyPrintContext { environment: self };
+        let context = PrettyPrintContext::new(self);
 
         let mut stdout = std::io::stdout().lock();
 
@@ -490,7 +217,7 @@ impl<'a> TypingEnvironment<'a> {
     }
 
     pub fn pretty_print_val(&'a self, val: &impl PrettyPrint<PrettyPrintContext<'a>>) {
-        let context = PrettyPrintContext { environment: self };
+        let context = PrettyPrintContext::new(self);
 
         let mut stdout = std::io::stdout().lock();
 
@@ -498,7 +225,7 @@ impl<'a> TypingEnvironment<'a> {
     }
 
     pub fn pretty_println_val(&'a self, val: &impl PrettyPrint<PrettyPrintContext<'a>>) {
-        let context = PrettyPrintContext { environment: self };
+        let context = PrettyPrintContext::new(self);
 
         let mut stdout = std::io::stdout().lock();
 
@@ -522,7 +249,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Adt {
             index.pretty_print(out, context)?;
             write!(out, " -> ")?;
         }
-        self.sort.pretty_print(out, ())?;
+        self.sort.pretty_print(out, context)?;
 
         writeln!(out, " where")?;
 
@@ -540,73 +267,17 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Adt {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    macro_rules! setup_env {
+        ($env: ident) => {
+            let ast = $crate::parser::ast::Ast {
+                interner: $crate::parser::Interner::new(),
+                items: Vec::new(),
+            };
 
-    #[test]
-    fn test_resolve_identifier() {
-        let env = TypingEnvironment {
-            interner: &Interner::new(),
-            adts: vec![],
-            root: Namespace::new(),
+            #[allow(unused_mut)]
+            let mut $env = $crate::typeck::TypingEnvironment::new(&ast);
         };
-
-        let id_t = Identifier::dummy_val(0);
-        let id_x = Identifier::dummy_val(1);
-
-        let context = TypingContext::Root(&env);
-
-        let context = TypingContext::Binder {
-            binder: &TypedBinder {
-                name: Some(id_t),
-                ty: TypedTerm {
-                    universe: Universe::TYPE.succ().succ(),
-                    ty: TypedTermKind::SortLiteral(Universe::TYPE.succ()),
-                    term: TypedTermKind::SortLiteral(Universe::TYPE),
-                },
-            },
-            parent: &context,
-        };
-
-        let context = TypingContext::Binder {
-            binder: &TypedBinder {
-                name: Some(id_x),
-                ty: TypedTerm {
-                    universe: Universe::TYPE.succ(),
-                    ty: TypedTermKind::SortLiteral(Universe::TYPE),
-                    term: TypedTermKind::BoundVariable {
-                        index: 0,
-                        name: id_t,
-                    },
-                },
-            },
-            parent: &context,
-        };
-
-        assert_eq!(
-            context.resolve_path(Path::from_id(&id_t)).unwrap(),
-            TypedTerm {
-                universe: Universe::TYPE.succ(),
-                ty: TypedTermKind::SortLiteral(Universe::TYPE),
-                term: TypedTermKind::BoundVariable {
-                    index: 1,
-                    name: id_t
-                },
-            },
-        );
-
-        assert_eq!(
-            context.resolve_path(Path::from_id(&id_x)).unwrap(),
-            TypedTerm {
-                universe: Universe::TYPE,
-                ty: TypedTermKind::BoundVariable {
-                    index: 1,
-                    name: id_t
-                },
-                term: TypedTermKind::BoundVariable {
-                    index: 0,
-                    name: id_x
-                },
-            },
-        );
     }
+
+    pub(in crate::typeck) use setup_env;
 }
