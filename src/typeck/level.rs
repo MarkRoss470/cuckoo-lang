@@ -6,7 +6,6 @@ use crate::typeck::{PrettyPrintContext, TypeError, TypingContext, TypingEnvironm
 use std::cmp::Ordering;
 use std::io::Write;
 use std::ops::Index;
-use std::panic::panic_any;
 use std::rc::Rc;
 
 #[derive(Debug, Clone, Eq)]
@@ -45,7 +44,7 @@ impl PartialEq for Level {
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct LevelArgs(Vec<Rc<Level>>);
+pub struct LevelArgs(pub Vec<Rc<Level>>);
 
 impl LevelArgs {
     pub fn count(&self) -> usize {
@@ -101,13 +100,31 @@ impl Level {
     /// while performing some simple simplifications.
     pub fn smart_max(self: &Rc<Level>, other: &Rc<Level>) -> Rc<Level> {
         use Level::*;
+        
+        // If the arguments are the same, just take one
+        if self == other {
+            self.clone()
+        } else {
+            match (&**self, &**other) {
+                (Zero, _) => other.clone(),
+                (_, Zero) => self.clone(),
+                (Max(a, b), v) if *v == **a || *v == **b => self.clone(),
+                (u, Max(a, b)) if *u == **a || *u == **b => other.clone(),
+                (_, _) => {
+                    let (u, ou) = self.to_offset();
+                    let (v, ov) = other.to_offset();
 
-        match (&**self, &**other) {
-            (Zero, _) => other.clone(),
-            (_, Zero) => self.clone(),
-            (Max(a, b), v) if *v == **a || *v == **b => self.clone(),
-            (u, Max(a, b)) if *u == **a || *u == **b => other.clone(),
-            (_, _) => self.max(other),
+                    if u == v {
+                        if ou >= ov {
+                            self.clone()
+                        } else {
+                            other.clone()
+                        }
+                    } else {
+                        self.max(other)
+                    }
+                }
+            }
         }
     }
 
@@ -404,7 +421,7 @@ impl<'a> TypingContext<'a> {
     pub fn resolve_level(&self, arg: &LevelExpr) -> Result<Rc<Level>, TypeError> {
         match self {
             TypingContext::Root(env) => env.resolve_level(arg),
-            TypingContext::Binder { parent, .. } => parent.resolve_level(arg),
+            TypingContext::Binders { parent, .. } => parent.resolve_level(arg),
         }
     }
 

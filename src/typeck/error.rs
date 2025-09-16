@@ -1,7 +1,8 @@
 use crate::parser::PrettyPrint;
-use crate::parser::atoms::ident::{Identifier, OwnedPath, Path};
+use crate::parser::atoms::ident::{Identifier, OwnedPath};
 use crate::typeck::{AdtIndex, PrettyPrintContext, TypedTerm};
 use std::io::Write;
+use crate::typeck::term::TypedTermKind;
 
 // TODO: track error locations
 #[cfg_attr(test, derive(PartialEq))]
@@ -10,7 +11,7 @@ pub enum TypeError {
     // ----- Term resolution errors
     NotAFunction(TypedTerm),
     NotAType(TypedTerm),
-    NameNotResolved(Identifier),
+    NameNotResolved(OwnedPath),
     MismatchedTypes {
         term: TypedTerm,
         expected: TypedTerm,
@@ -26,6 +27,7 @@ pub enum TypeError {
         expected: usize,
         found: usize,
     },
+    LevelArgumentGivenForLocalVariable(Identifier),
 
     // ----- ADT declaration errors
     NotASortFamily(TypedTerm),
@@ -37,6 +39,10 @@ pub enum TypeError {
     },
     /// The ADT being defined was referenced from a disallowed location in a constructor
     InvalidLocationForAdtNameInConstructor(AdtIndex),
+    MismatchedAdtParameter {
+        found: TypedTerm,
+        expected: TypedTermKind,
+    },
 
     // ----- Naming errors
     NameAlreadyDefined(Identifier),
@@ -114,6 +120,11 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
                     " takes {expected} level argument(s), but {found} were provided."
                 )
             }
+            TypeError::LevelArgumentGivenForLocalVariable(id) => {
+                write!(out, "Local variable ")?;
+                id.pretty_print(out, context.interner())?;
+                write!(out, " can't take level arguments")
+            }
 
             // ----- ADT declaration errors
             TypeError::NotASortFamily(t) => {
@@ -131,6 +142,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
                 context
                     .environment
                     .get_adt(*expected)
+                    .header
                     .name
                     .pretty_print(out, context.interner())?;
                 write!(out, ", but it results in ")?;
@@ -140,6 +152,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
                 context
                     .environment
                     .get_adt(*id)
+                    .header
                     .name
                     .pretty_print(out, context.interner())?;
                 write!(out, " cannot be referenced here. ")?;
@@ -147,6 +160,12 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
                     out,
                     "The inductive datatype being constructed can only be referenced in strictly positive positions. "
                 )
+            }
+            TypeError::MismatchedAdtParameter { found, expected } => {
+                write!(out, "Mismatched inductive type parameter. Found ")?;
+                found.term.pretty_print(out, context)?;
+                write!(out, ", expected ")?;
+                expected.pretty_print(out, context)
             }
 
             // ----- Naming errors
@@ -156,6 +175,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
                 write!(out, " has already been defined.")
             }
 
+            #[expect(unreachable_patterns)]
             _ => todo!(),
         }
     }

@@ -32,6 +32,12 @@ impl<T> ParseResult<T> {
         }
     }
 
+    pub fn unwrap(self) -> T {
+        assert!(self.errors.is_empty());
+        assert!(self.warnings.is_empty());
+        self.value
+    }
+
     fn take_errors_from<U>(&mut self, mut other: ParseResult<U>) -> U {
         self.errors.append(&mut other.errors);
         self.warnings.append(&mut other.warnings);

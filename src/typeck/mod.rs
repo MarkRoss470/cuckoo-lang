@@ -3,6 +3,7 @@ mod error;
 mod level;
 mod namespace;
 mod term;
+mod context;
 
 pub use error::TypeError;
 
@@ -12,7 +13,7 @@ use crate::parser::ast::item::{Item, LevelParameters};
 use crate::parser::ast::term::Term;
 use crate::parser::atoms::ident::{Identifier, Path};
 use crate::parser::{Interner, PrettyPrint};
-use crate::typeck::data::Adt;
+use crate::typeck::data::{Adt, AdtConstructor, AdtHeader};
 use crate::typeck::level::LevelArgs;
 use crate::typeck::namespace::Namespace;
 use crate::typeck::term::{TypedBinder, TypedTerm, TypedTermKind};
@@ -52,7 +53,7 @@ impl<'a> TypingEnvironment<'a> {
         for item in &ast.items {
             match item {
                 Item::DataDefinition(dd) => {
-                    self.resolve_data_definition(dd)?;
+                    self.resolve_adt(dd)?;
                 }
                 Item::Class => {}
                 Item::Instance => {}
@@ -96,8 +97,6 @@ impl<'a> TypingEnvironment<'a> {
         // Set the level parameters for this item
         self.set_level_params(&ast.level_params)?;
 
-        // TODO: validate level parameters (do this for def statements too)
-
         // Desugar `def` parameters to pi types and lambda expressions
         for binder in ast.binders.iter().rev() {
             ty = Term::PiType {
@@ -139,28 +138,46 @@ impl<'a> TypingEnvironment<'a> {
 #[derive(Debug, Copy, Clone)]
 enum TypingContext<'a> {
     Root(&'a TypingEnvironment<'a>),
-    Binder {
-        binder: &'a TypedBinder,
+    Binders {
+        /// The binders applied by this context. These are in source order, so later ones may
+        /// depend on earlier ones.
+        binders: &'a [TypedBinder],
         parent: &'a TypingContext<'a>,
     },
 }
 
 impl<'a> TypingContext<'a> {
+    pub fn with_binder(&'a self, binder: &'a TypedBinder) -> Self {
+        Self::Binders {
+            binders: std::slice::from_ref(binder),
+            parent: self,
+        }
+    }
+
+    pub fn with_binders(&'a self, binders: &'a [TypedBinder]) -> Self {
+        Self::Binders {
+            binders,
+            parent: self,
+        }
+    }
+
     fn environment(&self) -> &TypingEnvironment {
         match self {
             TypingContext::Root(env) => env,
-            TypingContext::Binder { binder: _, parent } => parent.environment(),
+            TypingContext::Binders { binders: _, parent } => parent.environment(),
         }
     }
 
     fn get_binder(&self, index: usize) -> Option<&'a TypedBinder> {
         match self {
             TypingContext::Root(_) => None,
-            TypingContext::Binder { binder, parent } => {
-                if index == 0 {
-                    Some(binder)
+            TypingContext::Binders { binders, parent } => {
+                if index < binders.len() {
+                    // Outer binders are before inner ones in this list,
+                    // so binder 0 is the last one, 1 is the second last, etc.
+                    Some(&binders[binders.len() - index - 1])
                 } else {
-                    parent.get_binder(index - 1)
+                    parent.get_binder(index - binders.len())
                 }
             }
         }
@@ -214,6 +231,7 @@ impl<'a> TypingEnvironment<'a> {
         }
 
         self.root.pretty_print(&mut stdout, context).unwrap();
+        writeln!(stdout).unwrap();
     }
 
     pub fn pretty_print_val(&'a self, val: &impl PrettyPrint<PrettyPrintContext<'a>>) {
@@ -232,36 +250,6 @@ impl<'a> TypingEnvironment<'a> {
         val.pretty_print(&mut stdout, context).unwrap();
 
         writeln!(stdout).unwrap();
-    }
-}
-
-impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Adt {
-    fn pretty_print(
-        &self,
-        out: &mut dyn Write,
-        context: PrettyPrintContext<'a>,
-    ) -> std::io::Result<()> {
-        write!(out, "data ")?;
-        self.name.pretty_print(out, context.interner())?;
-        write!(out, " : ")?;
-
-        for index in &self.indices {
-            index.pretty_print(out, context)?;
-            write!(out, " -> ")?;
-        }
-        self.sort.pretty_print(out, context)?;
-
-        writeln!(out, " where")?;
-
-        for constructor in &self.constructors {
-            write!(out, "  ")?;
-            constructor.name.pretty_print(out, context.interner())?;
-            write!(out, " : ")?;
-            constructor.ty.pretty_print(out, context)?;
-            writeln!(out)?;
-        }
-
-        writeln!(out)
     }
 }
 

@@ -1,5 +1,4 @@
 use crate::parser::PrettyPrint;
-use crate::parser::ast::term::{Binder, LevelExpr, Term, binder};
 use crate::parser::atoms::ident::{Identifier, OwnedPath, Path};
 use crate::typeck::level::{Level, LevelArgs};
 use crate::typeck::{AdtIndex, PrettyPrintContext, TypeError, TypingContext};
@@ -7,7 +6,7 @@ use std::io::Write;
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
-#[cfg_attr(test, derive(PartialEq, Eq))]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct TypedTerm {
     pub(super) level: Rc<Level>,
     pub(super) ty: TypedTermKind,
@@ -23,8 +22,75 @@ impl TypedTerm {
         }
     }
 
+    pub(super) fn get_type(&self) -> TypedTerm {
+        TypedTerm {
+            level: self.level.succ(),
+            ty: TypedTermKind::SortLiteral(self.level.clone()),
+            term: self.ty.clone(),
+        }
+    }
+
+    pub(super) fn sort_literal(level: Rc<Level>) -> TypedTerm {
+        TypedTerm {
+            level: level.succ().succ(),
+            ty: TypedTermKind::SortLiteral(level.succ()),
+            term: TypedTermKind::SortLiteral(level),
+        }
+    }
+    
+    pub(super) fn bound_variable(index: usize, name: Identifier, ty: TypedTerm) -> TypedTerm {
+        TypedTerm {
+            level: ty.check_is_ty().unwrap(),
+            ty: ty.term,
+            term: TypedTermKind::BoundVariable { index, name },
+        }
+    }
+
+    pub(super) fn make_pi_type(binder: TypedBinder, output: TypedTerm) -> TypedTerm {
+        let level = binder
+            .ty
+            .check_is_ty()
+            .unwrap()
+            .smart_imax(&output.ty.check_is_sort().unwrap());
+
+        TypedTerm {
+            level: level.succ(),
+            ty: TypedTermKind::SortLiteral(level),
+            term: TypedTermKind::PiType {
+                binder: Box::new(binder),
+                output: Box::new(output),
+            },
+        }
+    }
+
+    pub(super) fn make_lambda(binder: TypedBinder, body: TypedTerm) -> TypedTerm {
+        let level = binder.ty.check_is_ty().unwrap().smart_imax(&body.level);
+
+        TypedTerm {
+            level,
+            ty: TypedTermKind::PiType {
+                binder: Box::new(binder.clone()),
+                output: Box::new(TypedTerm {
+                    level: body.level.succ(),
+                    ty: TypedTermKind::SortLiteral(body.level.clone()),
+                    term: body.ty.clone(),
+                }),
+            },
+            term: TypedTermKind::Lambda {
+                binder: Box::new(binder),
+                body: Box::new(body),
+            },
+        }
+    }
+
+    pub(super) fn make_telescope(binders: Vec<TypedBinder>, output: TypedTerm) -> TypedTerm {
+        binders
+            .into_iter()
+            .rfold(output, |acc, binder| TypedTerm::make_pi_type(binder, acc))
+    }
+
     /// Decomposes a term as a telescope of pi types, returning the binders and the final output
-    pub(super) fn into_telescope(mut self) -> (Vec<TypedBinder>, TypedTerm) {
+    pub(super) fn decompose_telescope(mut self) -> (Vec<TypedBinder>, TypedTerm) {
         let mut indices = Vec::new();
 
         loop {
@@ -48,7 +114,7 @@ impl TypedTerm {
     }
 
     /// Decomposes a term as a stack of function applications, returning the underlying function and the arguments.
-    pub(super) fn into_application_stack(mut self) -> (TypedTerm, Vec<TypedTerm>) {
+    pub(super) fn decompose_application_stack(mut self) -> (TypedTerm, Vec<TypedTerm>) {
         let mut args_reversed = Vec::new();
 
         loop {
@@ -106,7 +172,7 @@ impl TypedTerm {
 }
 
 // TODO: convert boxes to Rcs and clone less
-#[cfg_attr(test, derive(PartialEq, Eq))]
+#[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug, Clone)]
 pub enum TypedTermKind {
     /// The keywords `Sort n`, `Prop` or `Type n`
@@ -404,7 +470,7 @@ impl TypedTermKind {
 }
 
 #[derive(Debug, Clone)]
-#[cfg_attr(test, derive(PartialEq, Eq))]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct TypedBinder {
     pub name: Option<Identifier>,
     pub ty: TypedTerm,
@@ -440,208 +506,6 @@ impl TypedBinder {
     }
 }
 
-impl<'a> TypingContext<'a> {
-    pub(super) fn resolve_term(&self, term: &Term) -> Result<TypedTerm, TypeError> {
-        match term {
-            Term::Sort(u) => {
-                let u = self.resolve_level(u)?;
-                let us = Rc::new(Level::Succ(u.clone()));
-                let uss = Rc::new(Level::Succ(us.clone()));
-
-                Ok(TypedTerm {
-                    level: uss,
-                    ty: TypedTermKind::SortLiteral(us),
-                    term: TypedTermKind::SortLiteral(u.clone()),
-                })
-            }
-            Term::Path(id, level_args) => {
-                self.resolve_path(id.borrow(), &self.resolve_level_args(level_args)?)
-            }
-            Term::Application { function, argument } => {
-                self.resolve_application(function, argument)
-            }
-            Term::PiType { binder, output } => self.resolve_pi_type(binder, output),
-            Term::Lambda { binder, body } => self.resolve_lambda(binder, body),
-        }
-    }
-
-    /// Resolves an identifier in the context. On success, returns the associated term as well as the number of
-    /// binders between that binder's introduction and the current context - the binders in the term need to be
-    /// increased by this number, which is done in [`resolve_identifier`][Self::resolve_identifier]
-    fn resolve_path_inner(
-        &self,
-        path: Path,
-        level_args: &LevelArgs,
-    ) -> Result<(TypedTerm, usize), TypeError> {
-        match self {
-            TypingContext::Root(env) => env.resolve_path(path, level_args).map(|t| (t, 0)),
-            TypingContext::Binder { binder, parent } => {
-                let (first, rest) = path.split_first();
-
-                // Check whether the identifier matches the binder
-                if let Some(name) = binder.name {
-                    if first == name {
-                        // If the identifier resolved to the local variable but there are more segments in the path, give an error
-                        if rest.is_some() {
-                            return Err(TypeError::LocalVariableIsNotANamespace(
-                                OwnedPath::from_id(first),
-                            ));
-                        }
-
-                        let level = binder
-                            .ty
-                            .ty
-                            .check_is_sort()
-                            .expect("Binder type should have been a type");
-
-                        return Ok((
-                            TypedTerm {
-                                level,
-                                ty: binder.ty.term.clone(),
-                                term: TypedTermKind::BoundVariable {
-                                    index: 0,
-                                    name: first,
-                                },
-                            },
-                            0,
-                        ));
-                    }
-                }
-
-                parent
-                    .resolve_path_inner(path, level_args)
-                    .map(|(t, i)| (t, i + 1))
-            }
-        }
-    }
-
-    /// Resolves a path in the current context
-    fn resolve_path(&self, path: Path, level_args: &LevelArgs) -> Result<TypedTerm, TypeError> {
-        self.resolve_path_inner(path, level_args).map(|(mut t, i)| {
-            // The term includes its own binder while the type doesn't, so the type needs to be incremented by one more than the term
-            t.ty.increment_binders_above(0, i + 1);
-            t.term.increment_binders_above(0, i);
-            t
-        })
-    }
-
-    fn resolve_application(
-        &self,
-        function: &Term,
-        argument: &Term,
-    ) -> Result<TypedTerm, TypeError> {
-        // Type check the function and argument
-        let mut function = self.resolve_term(function)?;
-        let mut argument = self.resolve_term(argument)?;
-
-        // Reduce the type of the function
-        function.ty.reduce_root();
-
-        // println!("Function and argument:");
-        // self.environment().pretty_println_val(&function.term);
-        // self.environment().pretty_println_val(&function.ty);
-        // self.environment().pretty_println_val(&argument.term);
-        // self.environment().pretty_println_val(&argument.ty);
-        // println!();
-
-        // Check that the function has a function type
-        let TypedTermKind::PiType { binder, output } = &mut function.ty else {
-            return Err(TypeError::NotAFunction(function));
-        };
-
-        // Check that the type of the argument matches the input type of the function
-        // TODO: do this check without cloning
-        if !binder.ty.term.clone().def_eq(argument.ty.clone()) {
-            return Err(TypeError::MismatchedTypes {
-                term: argument,
-                expected: binder.ty.clone(),
-            });
-        }
-
-        // Replace instances of the binder in the output type with the argument
-        let output_ty = output.term.replace_binder(0, &argument);
-
-        Ok(TypedTerm {
-            level: output.level.clone(),
-            ty: output_ty,
-            term: TypedTermKind::Application {
-                function: Box::new(function),
-                argument: Box::new(argument),
-            },
-        })
-    }
-
-    fn resolve_pi_type(&self, binder: &Binder, output: &Term) -> Result<TypedTerm, TypeError> {
-        // Resolve the type of the binder, and check that it actually is a type
-        let binder_ty = self.resolve_term(&binder.ty)?;
-        let binder_level = binder_ty.check_is_ty()?;
-        let binder = TypedBinder {
-            name: binder.name,
-            ty: binder_ty,
-        };
-
-        // Construct a new typing context which includes the new binder
-        let c = TypingContext::Binder {
-            binder: &binder,
-            parent: self,
-        };
-
-        // Resolve the output type in this new context
-        let output = c.resolve_term(&output)?;
-        let output_level = output.check_is_ty()?;
-
-        // Calculate the level of the new type
-        let level = binder_level.smart_imax(&output_level);
-
-        Ok(TypedTerm {
-            level: level.succ(),
-            ty: TypedTermKind::SortLiteral(level),
-            term: TypedTermKind::PiType {
-                binder: Box::new(binder),
-                output: Box::new(output),
-            },
-        })
-    }
-
-    fn resolve_lambda(&self, binder: &Binder, body: &Term) -> Result<TypedTerm, TypeError> {
-        // Resolve the type of the binder, and check that it actually is a type
-        let binder_ty = self.resolve_term(&binder.ty)?;
-        let binder_level = binder_ty.check_is_ty()?;
-        let binder = TypedBinder {
-            name: binder.name,
-            ty: binder_ty,
-        };
-
-        // Construct a new typing context which includes the new binder
-        let c = TypingContext::Binder {
-            binder: &binder,
-            parent: self,
-        };
-
-        // Resolve the output type in this new context
-        let body = c.resolve_term(&body)?;
-
-        // Calculate the level of the new term
-        let level = binder_level.smart_imax(&body.level);
-
-        Ok(TypedTerm {
-            level,
-            ty: TypedTermKind::PiType {
-                binder: Box::new(binder.clone()),
-                output: Box::new(TypedTerm {
-                    level: body.level.succ(),
-                    ty: TypedTermKind::SortLiteral(body.level.clone()),
-                    term: body.ty.clone(),
-                }),
-            },
-            term: TypedTermKind::Lambda {
-                binder: Box::new(binder),
-                body: Box::new(body),
-            },
-        })
-    }
-}
-
 impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypedTermKind {
     fn pretty_print(
         &self,
@@ -659,6 +523,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypedTermKind {
             AdtName(adt) => context
                 .environment
                 .get_adt(*adt)
+                .header
                 .name
                 .pretty_print(out, context.interner()),
             AdtConstructor(adt, con) => context.environment.get_adt(*adt).constructors[*con]
@@ -668,6 +533,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypedTermKind {
                 context
                     .environment
                     .get_adt(*adt)
+                    .header
                     .name
                     .pretty_print(out, context.interner())?;
                 write!(out, ".rec")
@@ -725,9 +591,6 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypedBinder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::Interner;
-    use crate::parser::ast::Ast;
-    use crate::typeck::TypingEnvironment;
 
     #[test]
     fn test_increment_binders_above() {
@@ -765,25 +628,27 @@ mod tests {
         let tys = ty.succ();
         let tyss = tys.succ();
 
+        let binder = TypedBinder {
+            name: None,
+            ty: TypedTerm {
+                level: tyss.clone(),
+                ty: TypedTermKind::SortLiteral(tys.clone()),
+                term: TypedTermKind::SortLiteral(ty.clone()),
+            },
+        };
+
         {
-            let t = TypedTermKind::PiType {
-                binder: Box::new(TypedBinder {
-                    name: None,
-                    ty: TypedTerm {
-                        level: tyss.clone(),
-                        ty: TypedTermKind::SortLiteral(tys.clone()),
-                        term: TypedTermKind::SortLiteral(ty.clone()),
-                    },
-                }),
-                output: Box::new(TypedTerm {
+            let t = TypedTerm::make_pi_type(
+                binder.clone(),
+                TypedTerm {
                     level: tys.clone(),
                     ty: TypedTermKind::SortLiteral(ty.clone()),
                     term: TypedTermKind::BoundVariable {
                         index: 0,
                         name: Identifier::dummy(),
                     },
-                }),
-            };
+                },
+            );
             assert_eq!(
                 {
                     let mut t = t.clone();
@@ -795,27 +660,21 @@ mod tests {
         }
 
         {
-            let t = TypedTermKind::PiType {
-                binder: Box::new(TypedBinder {
-                    name: None,
-                    ty: TypedTerm {
-                        level: tyss.clone(),
-                        ty: TypedTermKind::SortLiteral(tys.clone()),
-                        term: TypedTermKind::SortLiteral(ty.clone()),
-                    },
-                }),
-                output: Box::new(TypedTerm {
+            let t = TypedTerm::make_pi_type(
+                binder,
+                TypedTerm {
                     level: tys.clone(),
                     ty: TypedTermKind::SortLiteral(ty.clone()),
                     term: TypedTermKind::BoundVariable {
                         index: 1,
                         name: Identifier::dummy(),
                     },
-                }),
-            };
+                },
+            );
+
             assert_eq!(
                 {
-                    let mut t = t.clone();
+                    let mut t = t.term.clone();
                     t.increment_binders_above(0, 5);
                     t
                 },
@@ -964,79 +823,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_resolve_identifier() {
-        let ast = Ast {
-            interner: Interner::new(),
-            items: vec![],
-        };
-        let env = TypingEnvironment::new(&ast);
-
-        let id_t = Identifier::dummy_val(0);
-        let id_x = Identifier::dummy_val(1);
-
-        let context = TypingContext::Root(&env);
-
-        let ty = Level::constant(1);
-        let tys = ty.succ();
-        let tyss = tys.succ();
-
-        let context = TypingContext::Binder {
-            binder: &TypedBinder {
-                name: Some(id_t),
-                ty: TypedTerm {
-                    level: tyss.clone(),
-                    ty: TypedTermKind::SortLiteral(tys.clone()),
-                    term: TypedTermKind::SortLiteral(ty.clone()),
-                },
-            },
-            parent: &context,
-        };
-
-        let context = TypingContext::Binder {
-            binder: &TypedBinder {
-                name: Some(id_x),
-                ty: TypedTerm {
-                    level: tys.clone(),
-                    ty: TypedTermKind::SortLiteral(ty.clone()),
-                    term: TypedTermKind::BoundVariable {
-                        index: 0,
-                        name: id_t,
-                    },
-                },
-            },
-            parent: &context,
-        };
-
-        assert_eq!(
-            context
-                .resolve_path(Path::from_id(&id_t), &LevelArgs::default())
-                .unwrap(),
-            TypedTerm {
-                level: tys.clone(),
-                ty: TypedTermKind::SortLiteral(ty.clone()),
-                term: TypedTermKind::BoundVariable {
-                    index: 1,
-                    name: id_t
-                },
-            },
-        );
-
-        assert_eq!(
-            context
-                .resolve_path(Path::from_id(&id_x), &LevelArgs::default())
-                .unwrap(),
-            TypedTerm {
-                level: ty.clone(),
-                ty: TypedTermKind::BoundVariable {
-                    index: 1,
-                    name: id_t
-                },
-                term: TypedTermKind::BoundVariable {
-                    index: 0,
-                    name: id_x
-                },
-            },
-        );
-    }
 }

@@ -1,6 +1,6 @@
 use crate::parser::PrettyPrint;
 use crate::parser::ast::item::LevelParameters;
-use crate::parser::atoms::ident::{Identifier, Path};
+use crate::parser::atoms::ident::{Identifier, OwnedPath, Path};
 use crate::typeck::level::LevelArgs;
 use crate::typeck::term::TypedTerm;
 use crate::typeck::{PrettyPrintContext, TypeError};
@@ -29,9 +29,9 @@ impl Namespace {
 
         match rest {
             None => match self.items.get(&id) {
-                None => Err(TypeError::NameNotResolved(id)),
+                None => Err(TypeError::NameNotResolved(path.to_owned())),
                 Some(v) => {
-                    // Check that there are the right number of given level arguments
+                    // Check that there are the right number of level arguments
                     if v.level_params.count() != level_args.count() {
                         Err(TypeError::WrongNumberOfLevelArgs {
                             path: path.to_owned(),
@@ -44,8 +44,12 @@ impl Namespace {
                 }
             },
             Some(rest) => match self.namespaces.get(&id) {
-                None => Err(TypeError::NameAlreadyDefined(id)),
-                Some(n) => n.resolve(rest, level_args),
+                None => Err(TypeError::NameNotResolved(path.to_owned())),
+                //
+                Some(n) => n.resolve(rest.clone(), level_args).map_err(|e| match e {
+                    TypeError::NameNotResolved(p) => TypeError::NameNotResolved(p.prepend(id)),
+                    _ => e,
+                }),
             },
         }
     }
@@ -104,7 +108,7 @@ impl Namespace {
         let ns = self
             .namespaces
             .get_mut(&id)
-            .ok_or(TypeError::NameNotResolved(id))?;
+            .ok_or(TypeError::NameNotResolved(OwnedPath::from_id(id)))?;
 
         match rest {
             None => Ok(ns),
@@ -141,5 +145,15 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Namespace {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_resolve_path() {
+        todo!()
     }
 }

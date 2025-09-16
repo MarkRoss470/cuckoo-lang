@@ -331,3 +331,28 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Binder {
         write!(out, ")")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::tests::{ParseAllExt, setup_context};
+
+    #[test]
+    fn test_pi_type() {
+        setup_context!(context);
+
+        let id_u = Identifier::from_str("u", context.interner);
+        let id_v = Identifier::from_str("v", context.interner);
+
+        assert_eq!(
+            term().parse_all("u -> u", context),
+            Term::PiType {
+                binder: Box::new(Binder {
+                    name: None,
+                    ty: Term::Path(OwnedPath::from_id(id_u), LevelArgs::new())
+                }),
+                output: Box::new(Term::Path(OwnedPath::from_id(id_u), LevelArgs::new()))
+            }
+        )
+    }
+}

@@ -33,7 +33,7 @@ pub(super) fn item() -> impl Parser<Output = Item> {
 
 #[cfg_attr(test, derive(PartialEq, Eq))]
 #[derive(Debug, Clone, Default)]
-pub struct LevelParameters(Vec<Identifier>);
+pub struct LevelParameters(pub Vec<Identifier>);
 
 impl LevelParameters {
     pub fn new(params: &[Identifier]) -> Self {

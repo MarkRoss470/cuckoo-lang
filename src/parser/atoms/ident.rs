@@ -27,6 +27,16 @@ impl OwnedPath {
     pub fn last(&self) -> Identifier {
         *self.0.last().unwrap()
     }
+
+    pub fn append(mut self, id: Identifier) -> Self {
+        self.0.push(id);
+        self
+    }
+
+    pub fn prepend(mut self, id: Identifier) -> Self {
+        self.0.insert(0, id);
+        self
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
