@@ -445,12 +445,14 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Rc<Level> {
             Level::Max(u, v) => {
                 write!(out, "(max ")?;
                 u.pretty_print(out, context)?;
+                write!(out, " ")?;
                 v.pretty_print(out, context)?;
                 write!(out, ")")?;
             }
             Level::IMax(u, v) => {
                 write!(out, "(imax ")?;
                 u.pretty_print(out, context)?;
+                write!(out, " ")?;
                 v.pretty_print(out, context)?;
                 write!(out, ")")?
             }
