@@ -1,5 +1,5 @@
 use crate::parser::PrettyPrint;
-use crate::parser::ast::term::{Binder, Term, LevelExpr, binder};
+use crate::parser::ast::term::{Binder, LevelExpr, Term, binder};
 use crate::parser::atoms::ident::{Identifier, OwnedPath, Path};
 use crate::typeck::level::{Level, LevelArgs};
 use crate::typeck::{AdtIndex, PrettyPrintContext, TypeError, TypingContext};
@@ -483,7 +483,9 @@ impl<'a> TypingContext<'a> {
                     if first == name {
                         // If the identifier resolved to the local variable but there are more segments in the path, give an error
                         if rest.is_some() {
-                            return Err(TypeError::LocalVariableIsNotANamespace(OwnedPath::from_id(first)));
+                            return Err(TypeError::LocalVariableIsNotANamespace(
+                                OwnedPath::from_id(first),
+                            ));
                         }
 
                         let level = binder
@@ -515,13 +517,12 @@ impl<'a> TypingContext<'a> {
 
     /// Resolves a path in the current context
     fn resolve_path(&self, path: Path, level_args: &LevelArgs) -> Result<TypedTerm, TypeError> {
-        self.resolve_path_inner(path, level_args)
-            .map(|(mut t, i)| {
-                // The term includes its own binder while the type doesn't, so the type needs to be incremented by one more than the term
-                t.ty.increment_binders_above(0, i + 1);
-                t.term.increment_binders_above(0, i);
-                t
-            })
+        self.resolve_path_inner(path, level_args).map(|(mut t, i)| {
+            // The term includes its own binder while the type doesn't, so the type needs to be incremented by one more than the term
+            t.ty.increment_binders_above(0, i + 1);
+            t.term.increment_binders_above(0, i);
+            t
+        })
     }
 
     fn resolve_application(

@@ -1,6 +1,5 @@
-pub mod repeat;
 pub mod modifiers;
+pub mod repeat;
 pub mod tuples;
 
-use crate::parser::{parser, ParseResult, Parser};
-
+use crate::parser::{ParseResult, Parser, parser};

@@ -1,13 +1,13 @@
 use crate::parser::ast::item::{LevelParameters, level_params};
 use crate::parser::ast::term::{Binder, Term, bracketed_binder, term};
+use crate::parser::atoms::ident::{OwnedPath, keyword, path};
+use crate::parser::atoms::special_operator;
 use crate::parser::atoms::whitespace::{InBlockExt, whitespace};
 use crate::parser::combinators::modifiers::OptionalExt;
 use crate::parser::combinators::repeat::Repeat0Ext;
 use crate::parser::combinators::tuples::HeterogeneousTupleExt;
 use crate::parser::{Parser, PrettyPrint, PrettyPrintContext};
 use std::io::Write;
-use crate::parser::atoms::ident::{keyword, path, OwnedPath};
-use crate::parser::atoms::special_operator;
 
 #[cfg_attr(test, derive(PartialEq, Eq))]
 #[derive(Debug)]
@@ -31,15 +31,17 @@ pub fn value_definition() -> impl Parser<Output = ValueDefinition> {
             special_operator(":="),
             term().in_block(),
         )
-            .combine_with_whitespace(|(_, path, level_params, binders, _, ty, _, value)| {
-                ValueDefinition {
-                    path,
-                    level_params,
-                    binders,
-                    ty,
-                    value,
+            .combine_with_whitespace(
+                |(_, path, level_params, binders, _, ty, _, value)| {
+                    ValueDefinition {
+                        path,
+                        level_params,
+                        binders,
+                        ty,
+                        value,
+                    }
                 }
-            })
+            )
     )
 }
 

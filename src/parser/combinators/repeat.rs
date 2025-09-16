@@ -32,7 +32,7 @@ pub trait Repeat1Ext: Parser {
 
 impl<P: Parser> Repeat1Ext for P {
     fn repeat_1(self) -> impl Parser<Output = Vec<Self::Output>> {
-        self.repeat_0().verify(|v|!v.is_empty())
+        self.repeat_0().verify(|v| !v.is_empty())
     }
 }
 

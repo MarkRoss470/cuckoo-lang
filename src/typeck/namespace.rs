@@ -1,11 +1,11 @@
 use crate::parser::PrettyPrint;
 use crate::parser::ast::item::LevelParameters;
 use crate::parser::atoms::ident::{Identifier, Path};
+use crate::typeck::level::LevelArgs;
 use crate::typeck::term::TypedTerm;
 use crate::typeck::{PrettyPrintContext, TypeError};
 use std::collections::HashMap;
 use std::io::Write;
-use crate::typeck::level::LevelArgs;
 
 #[derive(Debug)]
 struct NamespaceItem {
@@ -63,7 +63,13 @@ impl Namespace {
                 if self.items.contains_key(&id) {
                     Err(TypeError::NameAlreadyDefined(id))
                 } else {
-                    self.items.insert(id, NamespaceItem { level_params, value });
+                    self.items.insert(
+                        id,
+                        NamespaceItem {
+                            level_params,
+                            value,
+                        },
+                    );
                     Ok(())
                 }
             }

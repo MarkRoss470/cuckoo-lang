@@ -1,6 +1,6 @@
 pub mod ident;
-pub mod whitespace;
 pub mod literal;
+pub mod whitespace;
 
 use crate::parser::combinators::modifiers::{
     IgnoreValExt, MapExt, ReparseExt, VerifyExt, VerifyStrExt,
@@ -77,13 +77,11 @@ mod tests {
     use super::*;
     use crate::parser::tests::{ParseAllExt, setup_context};
 
-
     /// Checks that certain lists are sorted so that binary searches can be correctly performed on them
     #[test]
     fn test_sorted_lists() {
         assert!(RESERVED_OPERATORS.is_sorted());
     }
-
 
     #[test]
     fn test_str_exact() {
@@ -103,5 +101,4 @@ mod tests {
                 .is_none()
         );
     }
-
 }

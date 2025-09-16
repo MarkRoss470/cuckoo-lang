@@ -109,7 +109,10 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
                 found,
             } => {
                 path.pretty_print(out, context.interner())?;
-                write!(out, " takes {expected} level argument(s), but {found} were provided.")
+                write!(
+                    out,
+                    " takes {expected} level argument(s), but {found} were provided."
+                )
             }
 
             // ----- ADT declaration errors

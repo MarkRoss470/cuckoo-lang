@@ -1,4 +1,4 @@
-use crate::parser::atoms::whitespace::{whitespace, SurroundWhitespaceExt};
+use crate::parser::atoms::whitespace::{SurroundWhitespaceExt, whitespace};
 use crate::parser::combinators::modifiers::MapExt;
 use crate::parser::{ParseResult, Parser, parser};
 

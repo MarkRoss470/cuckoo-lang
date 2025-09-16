@@ -8,10 +8,10 @@ pub mod ast;
 pub mod atoms;
 mod combinators;
 
+use crate::parser::atoms::ident::Identifier;
 use std::io::Write;
 use string_interner::symbol::SymbolU32;
 use string_interner::{DefaultBackend, StringInterner};
-use crate::parser::atoms::ident::Identifier;
 
 #[derive(Debug)]
 pub enum ParseError {}

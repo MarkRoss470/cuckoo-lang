@@ -98,11 +98,15 @@ impl<'a> TypingEnvironment<'a> {
             .insert(ast.name.borrow(), ast.level_params.clone(), adt_name_value)?;
         let adt_namespace = self.root.resolve_namespace_mut(ast.name.borrow())?;
         for (i, constructor) in constructors.iter().enumerate() {
-            adt_namespace.insert(Path::from_id(&constructor.name), ast.level_params.clone(), TypedTerm {
-                level: Rc::new(Level::Zero),
-                ty: constructor.ty.clone(),
-                term: TypedTermKind::AdtConstructor(adt_index, i),
-            })?;
+            adt_namespace.insert(
+                Path::from_id(&constructor.name),
+                ast.level_params.clone(),
+                TypedTerm {
+                    level: Rc::new(Level::Zero),
+                    ty: constructor.ty.clone(),
+                    term: TypedTermKind::AdtConstructor(adt_index, i),
+                },
+            )?;
         }
         self.adts.last_mut().unwrap().constructors = constructors;
 
