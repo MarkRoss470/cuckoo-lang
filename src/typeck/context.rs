@@ -3,22 +3,11 @@ use crate::parser::atoms::ident::{OwnedPath, Path};
 use crate::typeck::level::{Level, LevelArgs};
 use crate::typeck::term::{TypedBinder, TypedTerm, TypedTermKind};
 use crate::typeck::{TypeError, TypingContext};
-use std::rc::Rc;
 
 impl<'a> TypingContext<'a> {
     pub(super) fn resolve_term(&self, term: &Term) -> Result<TypedTerm, TypeError> {
         match term {
-            Term::Sort(u) => {
-                let u = self.resolve_level(u)?;
-                let us = Rc::new(Level::Succ(u.clone()));
-                let uss = Rc::new(Level::Succ(us.clone()));
-
-                Ok(TypedTerm {
-                    level: uss,
-                    ty: TypedTermKind::SortLiteral(us),
-                    term: TypedTermKind::SortLiteral(u.clone()),
-                })
-            }
+            Term::Sort(u) => Ok(TypedTerm::sort_literal(self.resolve_level(u)?)),
             Term::Path(id, level_args) => {
                 self.resolve_path(id.borrow(), &self.resolve_level_args(level_args)?)
             }
@@ -59,23 +48,7 @@ impl<'a> TypingContext<'a> {
                                 return Err(TypeError::LevelArgumentGivenForLocalVariable(name));
                             }
 
-                            let level = binder
-                                .ty
-                                .ty
-                                .check_is_sort()
-                                .expect("Binder type should have been a type");
-
-                            return Ok((
-                                TypedTerm {
-                                    level,
-                                    ty: binder.ty.term.clone(),
-                                    term: TypedTermKind::BoundVariable {
-                                        index: 0,
-                                        name: first,
-                                    },
-                                },
-                                i,
-                            ));
+                            return Ok((TypedTerm::bound_variable(0, first, binder.ty.clone()), i));
                         }
                     }
                 }
@@ -110,13 +83,6 @@ impl<'a> TypingContext<'a> {
         // Reduce the type of the function
         function.ty.reduce_root();
 
-        // println!("Function and argument:");
-        // self.environment().pretty_println_val(&function.term);
-        // self.environment().pretty_println_val(&function.ty);
-        // self.environment().pretty_println_val(&argument.term);
-        // self.environment().pretty_println_val(&argument.ty);
-        // println!();
-
         // Check that the function has a function type
         let TypedTermKind::PiType { binder, output } = &function.ty else {
             return Err(TypeError::NotAFunction(function));
@@ -132,16 +98,9 @@ impl<'a> TypingContext<'a> {
         }
 
         // Replace instances of the binder in the output type with the argument
-        let output_ty = output.term.replace_binder(0, &argument);
+        let output_ty = output.replace_binder(0, &argument);
 
-        Ok(TypedTerm {
-            level: output.level.clone(),
-            ty: output_ty,
-            term: TypedTermKind::Application {
-                function: Box::new(function),
-                argument: Box::new(argument),
-            },
-        })
+        Ok(TypedTerm::make_application(function, argument, output_ty))
     }
 
     fn resolve_pi_type(&self, binder: &Binder, output: &Term) -> Result<TypedTerm, TypeError> {
@@ -201,24 +160,13 @@ mod tests {
 
         let binder = TypedBinder {
             name: Some(id_t),
-            ty: TypedTerm {
-                level: tyss.clone(),
-                ty: TypedTermKind::SortLiteral(tys.clone()),
-                term: TypedTermKind::SortLiteral(ty.clone()),
-            },
+            ty: TypedTerm::sort_literal(ty.clone()),
         };
         let context = context.with_binder(&binder);
 
         let binder = TypedBinder {
             name: Some(id_x),
-            ty: TypedTerm {
-                level: tys.clone(),
-                ty: TypedTermKind::SortLiteral(ty.clone()),
-                term: TypedTermKind::BoundVariable {
-                    index: 0,
-                    name: id_t,
-                },
-            },
+            ty: TypedTerm::bound_variable(0, id_t, TypedTerm::sort_literal(ty.clone())),
         };
         let context = context.with_binder(&binder);
 
@@ -226,31 +174,18 @@ mod tests {
             context
                 .resolve_path(Path::from_id(&id_t), &LevelArgs::default())
                 .unwrap(),
-            TypedTerm {
-                level: tys.clone(),
-                ty: TypedTermKind::SortLiteral(ty.clone()),
-                term: TypedTermKind::BoundVariable {
-                    index: 1,
-                    name: id_t
-                },
-            },
+            TypedTerm::bound_variable(1, id_t, TypedTerm::sort_literal(ty.clone()))
         );
 
         assert_eq!(
             context
                 .resolve_path(Path::from_id(&id_x), &LevelArgs::default())
                 .unwrap(),
-            TypedTerm {
-                level: ty.clone(),
-                ty: TypedTermKind::BoundVariable {
-                    index: 1,
-                    name: id_t
-                },
-                term: TypedTermKind::BoundVariable {
-                    index: 0,
-                    name: id_x
-                },
-            },
+            TypedTerm::bound_variable(
+                0,
+                id_x,
+                TypedTerm::bound_variable(1, id_t, TypedTerm::sort_literal(ty.clone()))
+            )
         );
     }
 
@@ -333,14 +268,7 @@ mod tests {
             context
                 .resolve_path(path_y.borrow(), &LevelArgs::default())
                 .unwrap(),
-            TypedTerm {
-                level: Level::constant(2),
-                ty: TypedTermKind::SortLiteral(Level::constant(1)),
-                term: TypedTermKind::BoundVariable {
-                    index: 1,
-                    name: id_y
-                },
-            }
+            TypedTerm::bound_variable(1, id_y, TypedTerm::sort_literal(Level::constant(1)))
         );
         assert_eq!(
             context
@@ -356,7 +284,5 @@ mod tests {
                 .unwrap_err(),
             TypeError::LevelArgumentGivenForLocalVariable(id_y),
         );
-
-
     }
 }

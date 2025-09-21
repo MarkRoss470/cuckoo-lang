@@ -39,7 +39,7 @@ impl OwnedPath {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Path<'a>(&'a [Identifier]);
 
 impl<'a> Path<'a> {

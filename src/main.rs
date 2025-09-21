@@ -17,15 +17,15 @@ fn main() {
     ast.pretty_print();
 
     let mut env = TypingEnvironment::new(&ast);
-    match env.resolve_file(&ast) {
-        Ok(()) => {}
+    let res = env.resolve_file(&ast);
+    env.pretty_print();
+    println!();
+    match res {
+        Ok(()) => {
+            println!("Success!")
+        }
         Err(e) => {
             env.pretty_println_val(&e);
-            println!();
-            println!();
         }
     };
-
-    // println!("{env:#?}")
-    env.pretty_print()
 }

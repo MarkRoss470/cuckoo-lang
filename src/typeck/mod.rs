@@ -1,9 +1,9 @@
+mod context;
 mod data;
 mod error;
 mod level;
 mod namespace;
 mod term;
-mod context;
 
 pub use error::TypeError;
 
@@ -74,19 +74,10 @@ impl<'a> TypingEnvironment<'a> {
             .into_iter()
             .rev()
             .try_fold(output, |out, (name, param)| {
-                let param_level = param.check_is_ty()?;
-                let output_level = out.check_is_ty()?;
-
-                let pi_level = param_level.smart_max(&output_level);
-
-                Ok(TypedTerm {
-                    level: pi_level.succ(),
-                    ty: TypedTermKind::SortLiteral(pi_level),
-                    term: TypedTermKind::PiType {
-                        binder: Box::new(TypedBinder { name, ty: param }),
-                        output: Box::new(out),
-                    },
-                })
+                Ok(TypedTerm::make_pi_type(
+                    TypedBinder { name, ty: param },
+                    out,
+                ))
             })
     }
 
@@ -266,6 +257,18 @@ mod tests {
             let mut $env = $crate::typeck::TypingEnvironment::new(&ast);
         };
     }
-
     pub(in crate::typeck) use setup_env;
+
+    macro_rules! assert_type_error {
+        ($source: expr, $error: expr) => {{
+            let ast = $crate::parser::ast::parse_file($source).unwrap();
+            let mut env = $crate::typeck::TypingEnvironment::new(&ast);
+
+            let err = env.resolve_file(&ast)
+                .expect_err("Code should have failed to type check");
+
+            assert_eq!(err, $error);
+        }};
+    }
+    pub(in crate::typeck) use assert_type_error;
 }

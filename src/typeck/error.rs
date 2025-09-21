@@ -1,8 +1,10 @@
 use crate::parser::PrettyPrint;
 use crate::parser::atoms::ident::{Identifier, OwnedPath};
+use crate::typeck::level::Level;
+use crate::typeck::term::TypedTermKind;
 use crate::typeck::{AdtIndex, PrettyPrintContext, TypedTerm};
 use std::io::Write;
-use crate::typeck::term::TypedTermKind;
+use std::rc::Rc;
 
 // TODO: track error locations
 #[cfg_attr(test, derive(PartialEq))]
@@ -31,6 +33,7 @@ pub enum TypeError {
 
     // ----- ADT declaration errors
     NotASortFamily(TypedTerm),
+    MayOrMayNotBeProp(Rc<Level>),
     /// The resultant type for a constructor was not the ADT it was associated with
     IncorrectConstructorResultantType {
         name: Identifier,
@@ -42,6 +45,10 @@ pub enum TypeError {
     MismatchedAdtParameter {
         found: TypedTerm,
         expected: TypedTermKind,
+    },
+    InvalidConstructorParameterLevel {
+        ty: TypedTerm,
+        adt_level: Rc<Level>,
     },
 
     // ----- Naming errors
@@ -131,6 +138,13 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
                 t.term.pretty_print(out, context)?;
                 write!(out, " is not a sort or family of sorts.")
             }
+            TypeError::MayOrMayNotBeProp(level) => {
+                write!(out, "Inductive types must either always be in Prop or always not be in Prop, but the level ")?;
+                context.borrow_indented().newline(out)?;
+                level.pretty_print(out, context.borrow_indented())?;
+                context.newline(out)?;
+                write!(out, "could be either.")
+            }
             TypeError::IncorrectConstructorResultantType {
                 name,
                 found,
@@ -167,6 +181,20 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
                 write!(out, ", expected ")?;
                 expected.pretty_print(out, context)
             }
+            TypeError::InvalidConstructorParameterLevel { ty, adt_level } => {
+                write!(out, "Invalid level for constructor parameter - this parameter is of type")?;
+                context.borrow_indented().newline(out)?;
+                ty.term.pretty_print(out, context.borrow_indented())?;
+                context.newline(out)?;
+                write!(out, "at level")?;
+                context.borrow_indented().newline(out)?;
+                ty.check_is_ty().unwrap().pretty_print(out, context.borrow_indented())?;
+                context.newline(out)?;
+                write!(out, "which is not less than or equal to the inductive type's level")?;
+                context.borrow_indented().newline(out)?;
+                adt_level.pretty_print(out, context.borrow_indented())?;
+                writeln!(out)
+            },
 
             // ----- Naming errors
             TypeError::NameAlreadyDefined(id) => {

@@ -1,7 +1,6 @@
 use crate::parser::PrettyPrint;
 use crate::parser::ast::item::LevelParameters;
 use crate::parser::ast::item::data::DataDefinition;
-use crate::parser::ast::term::LevelExpr;
 use crate::parser::atoms::ident::{Identifier, OwnedPath, Path};
 use crate::typeck::level::Level;
 use crate::typeck::term::{TypedBinder, TypedTerm, TypedTermKind};
@@ -10,26 +9,94 @@ use std::io::Write;
 use std::rc::Rc;
 
 #[derive(Debug)]
-pub struct Adt {
-    pub header: AdtHeader,
-    pub constructors: Vec<AdtConstructor>,
-}
-
-#[derive(Debug)]
 pub struct AdtHeader {
     pub index: AdtIndex,
     pub name: OwnedPath,
     pub level_params: LevelParameters,
     pub parameters: Vec<TypedBinder>,
+    /// The type's family, i.e. everything in the header after the colon. This does not include the
+    /// ADT's parameters, but it may reference them as bound variables.
     pub family: TypedTerm,
+    /// The indices of the ADT's family
     pub indices: Vec<TypedBinder>,
+    /// The level in which the ADT lives
     pub sort: Rc<Level>,
+    /// Whether the ADT is a proposition
+    pub is_prop: bool,
+}
+
+#[derive(Debug)]
+pub struct Adt {
+    pub header: AdtHeader,
+    pub constructors: Vec<AdtConstructor>,
+    /// Whether the ADT's recursor should allow eliminating to types at any level. This is true of
+    /// non-propositions, and 'subsingleton' propositions with only one constructor where all the
+    /// constructor's non-recursive non-proposition parameters are mentioned in the output type.
+    /// This is because all values of a proposition type are equal, so they can only soundly
+    /// eliminate to non-Prop types when the proposition type is guaranteed to only have at most
+    /// one value.
+    pub is_large_eliminating: bool,
+}
+
+impl AdtHeader {
+    fn type_constructor(&self) -> TypedTerm {
+        TypedTerm::value_of_type(
+            TypedTermKind::AdtName(self.index),
+            TypedTerm::make_telescope(self.parameters.clone(), self.family.clone()),
+        )
+    }
+
+    fn constructor(&self, index: usize, constructor: &AdtConstructor) -> TypedTerm {
+        TypedTerm::adt_constructor(
+            self.index,
+            index,
+            TypedTerm::make_telescope(self.parameters.clone(), constructor.ty.clone()),
+        )
+    }
+}
+
+impl Adt {
+    // Calculates and stores whether the ADT is large eliminating
+    fn calculate_large_eliminating(&mut self) {
+        self.is_large_eliminating = !self.header.is_prop || self.is_subsingleton();
+    }
+
+    fn is_subsingleton(&self) -> bool {
+        // If the ADT has no constructors, it is subsingleton
+        if self.constructors.is_empty() {
+            return true;
+        }
+        // If the ADT has more than one constructor, it is not subsingleton
+        if self.constructors.len() > 1 {
+            return false;
+        }
+
+        let constructor = self.constructors.first().unwrap();
+
+        // Check that each non-recursive parameter of the constructor is either a proposition,
+        // or is mentioned in the constructor's indices
+        for (i, parameter) in constructor.params.iter().rev().enumerate() {
+            if let AdtConstructorParamKind::NonInductive(ty) = &parameter.kind {
+                let is_prop = ty.level.def_eq(&Level::zero());
+                let is_referenced = constructor
+                    .indices
+                    .iter()
+                    .any(|t| t.term.references_bound_variable(i));
+
+                if !(is_prop || is_referenced) {
+                    return false;
+                }
+            }
+        }
+
+        true
+    }
 }
 
 #[derive(Debug)]
 pub struct AdtConstructor {
     pub name: Identifier,
-    /// The whole type of the constructor
+    /// The whole type of the constructor, not including the ADT parameters
     pub ty: TypedTerm,
     /// The inputs to the constructor
     pub params: Vec<AdtConstructorParam>,
@@ -61,6 +128,7 @@ impl<'a> TypingEnvironment<'a> {
         // Set the level parameters for this item
         self.set_level_params(&ast.level_params)?;
 
+        // Resolve the header
         let adt_index = AdtIndex(self.adts.len());
         let header = self.resolve_adt_header(ast, adt_index)?;
 
@@ -69,44 +137,60 @@ impl<'a> TypingEnvironment<'a> {
         self.adts.push(Adt {
             header,
             constructors: vec![],
+            is_large_eliminating: false,
         });
         let header = &self.adts.last().unwrap().header;
 
-        let adt_name_ty =
-            TypedTerm::make_telescope(header.parameters.clone(), header.family.clone());
-        // The term that the ADT name should resolve to
-        let adt_name_value = TypedTerm {
-            level: adt_name_ty.check_is_ty()?,
-            ty: adt_name_ty.term,
-            term: TypedTermKind::AdtName(adt_index),
-        };
         // Resolve the constructors
-        let constructors = self.resolve_adt_constructors(&ast, header, &adt_name_value)?;
+        let constructors = self.resolve_adt_constructors(&ast, header)?;
+        let adt = self.adts.last_mut().unwrap();
+        adt.constructors = constructors;
 
-        // Fully add the ADT to the environment
-        self.root.insert_namespace(ast.name.borrow());
-        self.root
-            .insert(ast.name.borrow(), ast.level_params.clone(), adt_name_value)?;
-        let adt_namespace = self.root.resolve_namespace_mut(ast.name.borrow())?;
-        for (i, constructor) in constructors.iter().enumerate() {
-            adt_namespace.insert(
-                Path::from_id(&constructor.name),
-                ast.level_params.clone(),
-                TypedTerm {
-                    level: constructor.ty.check_is_ty()?,
-                    ty: constructor.ty.term.clone(),
-                    term: TypedTermKind::AdtConstructor(adt_index, i),
-                },
-            )?;
-        }
-        self.adts.last_mut().unwrap().constructors = constructors;
+        // Calculate whether the ADT is large eliminating
+        adt.calculate_large_eliminating();
 
-        // let eliminator = self.generate_eliminator(self.adts.last().unwrap());
-        // let adt_namespace = self.root.resolve_namespace_mut(ast.name.borrow())?;
-        // adt_namespace.insert(Path::from_id(&self.ast.interner.kw_rec()), eliminator)?;
+        // Add the ADT's constants to the namespace
+        self.register_last_adt()?;
 
         // Remove the level parameters from the context
         self.clear_level_params();
+
+        Ok(())
+    }
+
+    /// Creates the constants associated with the last ADT in [`self.adts`] - the type constructor,
+    /// constructors, and recursor.
+    ///
+    /// [`self.adts`]: TypingEnvironment::adts
+    fn register_last_adt(&mut self) -> Result<(), TypeError> {
+        let adt = self.adts.last().unwrap();
+        let name = adt.header.name.borrow();
+        let level_parameters = adt.header.level_params.clone();
+
+        // Create the ADT's namespace
+        self.root.insert_namespace(name);
+
+        // Create the type constructor constant
+        self.root.insert(
+            name,
+            level_parameters.clone(),
+            adt.header.type_constructor(),
+        )?;
+
+        // Create the constructor constants
+        let adt_namespace = self.root.resolve_namespace_mut(name)?;
+        for (i, constructor) in adt.constructors.iter().enumerate() {
+            adt_namespace.insert(
+                Path::from_id(&constructor.name),
+                level_parameters.clone(),
+                adt.header.constructor(i, constructor), // TypedTerm::adt_constructor(adt.header.index, i, constructor.ty.clone()),
+            )?;
+        }
+
+        // Create the recursor constants
+        // let eliminator = self.generate_eliminator(self.adts.last().unwrap());
+        // let adt_namespace = self.root.resolve_namespace_mut(ast.name.borrow())?;
+        // adt_namespace.insert(Path::from_id(&self.ast.interner.kw_rec()), eliminator)?;
 
         Ok(())
     }
@@ -142,8 +226,14 @@ impl<'a> TypingEnvironment<'a> {
             return Err(TypeError::NotASortFamily(family));
         };
 
-        // TODO: check that the ADT's level is at least as large as the levels of all parameters,
-        // and larger than the levels of all indices
+        // Check that the ADT is either always in `Prop` or always not in `Prop`
+        let is_prop = if sort.def_eq(&Level::zero()) {
+            true
+        } else if sort.is_geq(&Level::constant(1)) {
+            false
+        } else {
+            return Err(TypeError::MayOrMayNotBeProp(sort));
+        };
 
         Ok(AdtHeader {
             index,
@@ -153,6 +243,7 @@ impl<'a> TypingEnvironment<'a> {
             family,
             indices,
             sort,
+            is_prop,
         })
     }
 
@@ -160,12 +251,13 @@ impl<'a> TypingEnvironment<'a> {
         &self,
         ast: &DataDefinition,
         header: &AdtHeader,
-        adt_name_value: &TypedTerm,
     ) -> Result<Vec<AdtConstructor>, TypeError> {
+        let type_constructor = header.type_constructor();
+
         // Set up a TypingContext to resolve the constructor types in
         let adt_name_binder = TypedBinder {
             name: Some(ast.name.last()),
-            ty: adt_name_value.get_type(),
+            ty: type_constructor.get_type(),
         };
         let root = TypingContext::Root(self);
         let context = root.with_binder(&adt_name_binder);
@@ -177,7 +269,7 @@ impl<'a> TypingEnvironment<'a> {
             let ty = context
                 .resolve_term(&constructor.telescope)?
                 // The binder which refers to the ADT name comes after all the parameter names
-                .replace_binder(header.parameters.len(), adt_name_value);
+                .replace_binder(header.parameters.len(), &type_constructor);
 
             let constructor = self.resolve_adt_constructor(constructor.name, &ty, header)?;
 
@@ -200,10 +292,15 @@ impl<'a> TypingEnvironment<'a> {
         // Check that the output type is legal
         let arguments = self.resolve_adt_constructor_output(output, name, &parameters, header)?;
 
-        // TODO: check that the levels of parameters are legal
+        // Check that the levels of parameters are legal.
+        // This doesn't matter for Prop types as parameters for those can be any level.
+        if !header.is_prop {
+            for param in &parameters {
+                self.check_adt_parameter_levels(param, &header.sort)?;
+            }
+        }
 
         let mut processed_params = Vec::new();
-
         for param in parameters {
             processed_params.push(self.resolve_adt_constructor_param(name, header.index, param)?);
         }
@@ -214,6 +311,21 @@ impl<'a> TypingEnvironment<'a> {
             params: processed_params,
             indices: arguments,
         })
+    }
+
+    fn check_adt_parameter_levels(
+        &self,
+        param: &TypedBinder,
+        adt_sort: &Rc<Level>,
+    ) -> Result<(), TypeError> {
+        if !adt_sort.is_geq(&param.level()) {
+            Err(TypeError::InvalidConstructorParameterLevel {
+                ty: param.ty.clone(),
+                adt_level: adt_sort.clone(),
+            })
+        } else {
+            Ok(())
+        }
     }
 
     fn resolve_adt_constructor_param(
@@ -234,8 +346,6 @@ impl<'a> TypingEnvironment<'a> {
                 for arg in &args {
                     arg.term.forbid_references_to_adt(adt_index)?;
                 }
-
-                // TODO: check ADT parameters are the same as definition
 
                 AdtConstructorParamKind::Inductive {
                     parameters,
@@ -286,9 +396,7 @@ impl<'a> TypingEnvironment<'a> {
             let expected = TypedTermKind::BoundVariable {
                 // The binders for ADT parameters come after the constructor parameters,
                 // and earlier parameters have higher indices
-                index: constructor_params.len() + header.parameters.len()
-                    - i
-                    - 1,
+                index: constructor_params.len() + header.parameters.len() - i - 1,
                 name,
             };
 
@@ -384,7 +492,8 @@ mod tests {
     use super::*;
     use crate::parser::ast::item::Item;
     use crate::typeck::level::LevelArgs;
-    use crate::typeck::tests::setup_env;
+    use crate::typeck::tests::{assert_type_error, setup_env};
+    use crate::typeck::TypeError::LevelArgumentGivenForLocalVariable;
 
     macro_rules! resolve_adt {
         ($source: expr, $ast: ident, $env: ident, $res: ident, ) => {
@@ -421,17 +530,18 @@ mod tests {
             res.header.family,
             TypedTerm::sort_literal(Level::constant(1))
         );
+        assert_eq!(res.header.is_prop, false);
+        assert_eq!(res.is_large_eliminating, true);
 
         // Check the constructors
         let [zero, succ] = res.constructors.as_slice() else {
             panic!("Wrong number of constructors");
         };
 
-        let nat = TypedTerm {
-            level: Level::constant(2),
-            ty: TypedTermKind::SortLiteral(Level::constant(1)),
-            term: TypedTermKind::AdtName(res.header.index),
-        };
+        let nat = TypedTerm::adt_name(
+            res.header.index,
+            TypedTerm::sort_literal(Level::constant(1)),
+        );
 
         assert!(zero.params.is_empty());
         assert!(zero.indices.is_empty());
@@ -464,14 +574,7 @@ mod tests {
             .resolve_path(id_nat.borrow(), &LevelArgs::default())
             .unwrap();
 
-        assert_eq!(
-            type_constructor,
-            TypedTerm {
-                level: Level::constant(2),
-                ty: TypedTermKind::SortLiteral(Level::constant(1)),
-                term: TypedTermKind::AdtName(res.header.index),
-            }
-        );
+        assert_eq!(type_constructor, nat);
 
         let zero_const = env
             .resolve_path(
@@ -482,11 +585,7 @@ mod tests {
 
         assert_eq!(
             zero_const,
-            TypedTerm {
-                level: Level::constant(1),
-                ty: TypedTermKind::AdtName(res.header.index),
-                term: TypedTermKind::AdtConstructor(res.header.index, 0),
-            }
+            TypedTerm::adt_constructor(res.header.index, 0, nat.clone())
         );
 
         let succ_const = env
@@ -498,18 +597,17 @@ mod tests {
 
         assert_eq!(
             succ_const,
-            TypedTerm {
-                level: Level::constant(1),
-                ty: TypedTerm::make_pi_type(
+            TypedTerm::adt_constructor(
+                res.header.index,
+                1,
+                TypedTerm::make_pi_type(
                     TypedBinder {
                         name: None,
                         ty: nat.clone()
                     },
                     nat.clone()
                 )
-                .term,
-                term: TypedTermKind::AdtConstructor(res.header.index, 1),
-            }
+            )
         );
 
         // TODO: check the type of the recursor
@@ -530,22 +628,134 @@ mod tests {
             panic!("Wrong number of level parameters");
         };
         let id_t = ast.parameters[0].name.unwrap();
+        let id_list = ast.name.clone();
 
+        let level_u = Level::parameter(0, *id_u);
+        let type_u = TypedTerm::sort_literal(level_u.succ());
+
+        // Check the header
         assert_eq!(ast.name, res.header.name);
         assert_eq!(res.header.level_params, LevelParameters::new(&[*id_u]));
-        let type_u = Level::parameter(0, *id_u).succ();
         assert_eq!(
             res.header.parameters,
             vec![TypedBinder {
                 name: Some(id_t),
-                ty: TypedTerm::sort_literal(type_u.clone())
+                ty: type_u.clone()
             }]
         );
         assert_eq!(res.header.indices, vec![]);
-        assert_eq!(res.header.sort, type_u);
+        assert_eq!(res.header.sort, level_u.succ());
+        assert_eq!(res.header.family, type_u.clone());
+        assert_eq!(res.header.is_prop, false);
+        assert_eq!(res.is_large_eliminating, true);
+
+        // Check the constructors
+        let [nil, cons] = res.constructors.as_slice() else {
+            panic!("Wrong number of constructors");
+        };
+
+        assert!(nil.params.is_empty());
         assert_eq!(
-            res.header.family,
-            TypedTerm::sort_literal(Level::parameter(0, *id_u).succ())
+            nil.indices,
+            vec![TypedTerm::bound_variable(0, id_t, type_u.clone())]
+        );
+
+        assert_eq!(
+            cons.params,
+            vec![
+                AdtConstructorParam {
+                    name: None,
+                    kind: AdtConstructorParamKind::NonInductive(TypedTerm::bound_variable(
+                        0,
+                        id_t,
+                        type_u.clone()
+                    ))
+                },
+                AdtConstructorParam {
+                    name: None,
+                    kind: AdtConstructorParamKind::Inductive {
+                        parameters: vec![],
+                        indices: vec![TypedTerm::bound_variable(1, id_t, type_u.clone())]
+                    }
+                }
+            ]
+        );
+        assert_eq!(
+            cons.indices,
+            vec![TypedTerm::bound_variable(2, id_t, type_u.clone())]
+        );
+
+        let args_u = LevelArgs(vec![level_u.clone()]);
+
+        // Check the generated constants
+        let list_ty = TypedTerm::make_pi_type(
+            TypedBinder {
+                name: Some(id_t),
+                ty: type_u.clone(),
+            },
+            type_u.clone(),
+        );
+        let list = TypedTerm::adt_name(res.header.index, list_ty);
+        let list_t = |i| {
+            TypedTerm::make_application(
+                list.clone(),
+                TypedTerm::bound_variable(i, id_t, type_u.clone()),
+                type_u.clone(),
+            )
+        };
+
+        let type_constructor = env.resolve_path(id_list.borrow(), &args_u).unwrap();
+
+        assert_eq!(type_constructor, list);
+
+        let nil_const = env
+            .resolve_path(id_list.clone().append(nil.name).borrow(), &args_u)
+            .unwrap();
+
+        assert_eq!(
+            nil_const,
+            TypedTerm::adt_constructor(
+                res.header.index,
+                0,
+                TypedTerm::make_pi_type(
+                    TypedBinder {
+                        name: Some(id_t),
+                        ty: type_u.clone()
+                    },
+                    list_t(0)
+                )
+            )
+        );
+
+        let succ_const = env
+            .resolve_path(id_list.clone().append(cons.name).borrow(), &args_u)
+            .unwrap();
+
+        assert_eq!(
+            succ_const,
+            TypedTerm::adt_constructor(
+                res.header.index,
+                1,
+                TypedTerm::make_pi_type(
+                    TypedBinder {
+                        name: Some(id_t),
+                        ty: type_u.clone()
+                    },
+                    TypedTerm::make_pi_type(
+                        TypedBinder {
+                            name: None,
+                            ty: TypedTerm::bound_variable(0, id_t, type_u.clone())
+                        },
+                        TypedTerm::make_pi_type(
+                            TypedBinder {
+                                name: None,
+                                ty: list_t(1)
+                            },
+                            list_t(2)
+                        )
+                    )
+                )
+            )
         );
 
         // TODO: check the type of the recursor
@@ -568,25 +778,200 @@ mod tests {
         let id_t = ast.parameters[0].name.unwrap();
         let id_x = ast.parameters[1].name.unwrap();
 
+        let level_u = Level::parameter(0, *id_u);
+        let sort_u = TypedTerm::sort_literal(level_u.clone());
+        let type_t = TypedTerm::bound_variable(1, id_t, sort_u.clone());
+        let prop = TypedTerm::sort_literal(Level::zero());
+
+        // Check the header
+        assert_eq!(res.header.level_params, LevelParameters(vec![*id_u]));
+        assert_eq!(
+            res.header.parameters,
+            vec![
+                TypedBinder {
+                    name: Some(id_t),
+                    ty: sort_u.clone()
+                },
+                TypedBinder {
+                    name: Some(id_x),
+                    ty: TypedTerm::bound_variable(0, id_t, sort_u.clone()),
+                }
+            ]
+        );
+        assert_eq!(
+            res.header.indices,
+            vec![TypedBinder {
+                name: None,
+                ty: type_t.clone()
+            }]
+        );
+        assert_eq!(res.header.sort, Level::zero());
+        let t_to_prop = |t| {
+            TypedTerm::make_pi_type(
+                TypedBinder {
+                    name: None,
+                    ty: TypedTerm::bound_variable(t, id_t, sort_u.clone()),
+                },
+                prop.clone(),
+            )
+        };
+        assert_eq!(res.header.family, t_to_prop(1));
+        assert_eq!(res.header.is_prop, true);
+        assert_eq!(res.is_large_eliminating, true);
+
+        // Check the constructor
+        let [refl] = res.constructors.as_slice() else {
+            panic!("Wrong number of constructors");
+        };
+
+        assert!(refl.params.is_empty());
+        assert_eq!(
+            refl.indices,
+            vec![
+                type_t.clone(),
+                TypedTerm::bound_variable(0, id_x, type_t.clone()),
+                TypedTerm::bound_variable(0, id_x, type_t.clone()),
+            ]
+        );
+
+        // Check the generated constants
+        let args_u = LevelArgs(vec![level_u.clone()]);
+        let type_constructor = env.resolve_path(ast.name.borrow(), &args_u).unwrap();
+        let x_to_t_to_prop = |t| {
+            TypedTerm::make_pi_type(
+                TypedBinder {
+                    name: Some(id_x),
+                    ty: TypedTerm::bound_variable(t, id_t, sort_u.clone()),
+                },
+                t_to_prop(t + 1).clone(),
+            )
+        };
+        let t_to_x_to_t_to_prop = TypedTerm::make_pi_type(
+            TypedBinder {
+                name: Some(id_t),
+                ty: sort_u.clone(),
+            },
+            x_to_t_to_prop(0).clone(),
+        );
+        assert_eq!(
+            type_constructor,
+            TypedTerm::adt_name(res.header.index, t_to_x_to_t_to_prop)
+        );
+
+        let refl_const = env
+            .resolve_path(ast.name.clone().append(refl.name).borrow(), &args_u)
+            .unwrap();
+
+        let eq_t_x_x = TypedTerm::make_application(
+            TypedTerm::make_application(
+                TypedTerm::make_application(
+                    type_constructor,
+                    TypedTerm::bound_variable(1, id_t, sort_u.clone()),
+                    x_to_t_to_prop(1),
+                ),
+                TypedTerm::bound_variable(0, id_x, type_t.clone()),
+                t_to_prop(1),
+            ),
+            TypedTerm::bound_variable(0, id_x, type_t.clone()),
+            prop,
+        );
+
+        let refl_const_expected = TypedTerm::adt_constructor(
+            res.header.index,
+            0,
+            TypedTerm::make_pi_type(
+                TypedBinder {
+                    name: Some(id_t),
+                    ty: sort_u.clone(),
+                },
+                TypedTerm::make_pi_type(
+                    TypedBinder {
+                        name: Some(id_x),
+                        ty: TypedTerm::bound_variable(0, id_t, sort_u.clone()),
+                    },
+                    eq_t_x_x,
+                ),
+            ),
+        );
+
+        env.pretty_println_val(&refl_const.ty);
+        env.pretty_println_val(&refl_const_expected.ty);
+
+        assert_eq!(refl_const, refl_const_expected);
+
         // TODO: check the type of the recursor
     }
 
     #[test]
-    fn test_resolve_adt_constructor_output() {
-        setup_env!(env);
+    fn test_invalid_adt_definitions() {
+        assert_type_error!(
+            "data False : Prop where
+            
+            data Ty : False where",
+            TypeError::NotASortFamily(TypedTerm::adt_name(
+                AdtIndex(0),
+                TypedTerm::sort_literal(Level::zero())
+            ))
+        );
 
-        let name = OwnedPath::from_id(Identifier::dummy_val(0));
-        //
-        // let header = AdtHeader {
-        //     index: AdtIndex(0),
-        //     name: name.clone(),
-        //     level_params: Default::default(),
-        //     parameters: vec![],
-        //     family: TypedTerm {},
-        //     indices: vec![],
-        //     sort: Rc::new(Level::Zero),
-        // };
-        //
-        // env.resolve_adt_constructor_output();
+        assert_type_error!(
+            "data Ty.{u} : Sort u where",
+            TypeError::MayOrMayNotBeProp(Level::parameter(0, Identifier::dummy()))
+        );
+
+        assert_type_error!(
+            "data Ty : Type where
+               | c : Prop
+            ",
+            TypeError::IncorrectConstructorResultantType {
+                name: Identifier::dummy_val(7),
+                found: TypedTerm::sort_literal(Level::zero()),
+                expected: AdtIndex(0),
+            }
+        );
+
+        assert_type_error!(
+            "data False : Prop where
+            
+            data Ty : Prop where
+               | c : (Ty -> Prop) -> Ty",
+            TypeError::InvalidLocationForAdtNameInConstructor(AdtIndex(1))
+        );
+
+        assert_type_error!(
+            "data False : Prop where
+
+            data Ty : Prop -> Prop where
+               | c : Ty (Ty False)",
+            TypeError::InvalidLocationForAdtNameInConstructor(AdtIndex(1))
+        );
+
+        assert_type_error!(
+            "data False : Type where
+            
+            data Ty (T : Type) : Type where
+               | constructor : Ty False",
+            TypeError::MismatchedAdtParameter {
+                found: TypedTerm::adt_name(
+                    AdtIndex(0),
+                    TypedTerm::sort_literal(Level::constant(1))
+                ),
+                expected: TypedTerm::bound_variable(
+                    0,
+                    Identifier::dummy_val(9),
+                    TypedTerm::sort_literal(Level::constant(1))
+                )
+                .term
+            }
+        );
+
+        assert_type_error!(
+            "data Ty : Type where
+               | c : Type -> Ty",
+            TypeError::InvalidConstructorParameterLevel {
+                ty: TypedTerm::sort_literal(Level::constant(1)),
+                adt_level: Level::constant(1)
+            }
+        );
     }
 }

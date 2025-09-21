@@ -11,15 +11,15 @@ pub struct TypedTerm {
     pub(super) level: Rc<Level>,
     pub(super) ty: TypedTermKind,
     pub(super) term: TypedTermKind,
+    _priv: (),
 }
 
 impl TypedTerm {
     /// Checks that the term represents a type. If it is, returns what level it is in.
     pub(super) fn check_is_ty(&self) -> Result<Rc<Level>, TypeError> {
-        match &self.ty {
-            TypedTermKind::SortLiteral(u) => Ok(u.clone()),
-            _ => Err(TypeError::NotAType(self.clone())),
-        }
+        self.ty
+            .check_is_sort()
+            .map_err(|_| TypeError::NotAType(self.clone()))
     }
 
     pub(super) fn get_type(&self) -> TypedTerm {
@@ -27,6 +27,7 @@ impl TypedTerm {
             level: self.level.succ(),
             ty: TypedTermKind::SortLiteral(self.level.clone()),
             term: self.ty.clone(),
+            _priv: (),
         }
     }
 
@@ -35,23 +36,51 @@ impl TypedTerm {
             level: level.succ().succ(),
             ty: TypedTermKind::SortLiteral(level.succ()),
             term: TypedTermKind::SortLiteral(level),
+            _priv: (),
         }
     }
-    
+
     pub(super) fn bound_variable(index: usize, name: Identifier, ty: TypedTerm) -> TypedTerm {
         TypedTerm {
-            level: ty.check_is_ty().unwrap(),
+            level: ty.check_is_ty().expect("`ty` should have been a type"),
             ty: ty.term,
             term: TypedTermKind::BoundVariable { index, name },
+            _priv: (),
+        }
+    }
+
+    pub(super) fn adt_name(adt_index: AdtIndex, ty: TypedTerm) -> TypedTerm {
+        TypedTerm {
+            level: ty.check_is_ty().expect("`ty` should have been a type"),
+            ty: ty.term,
+            term: TypedTermKind::AdtName(adt_index),
+            _priv: (),
+        }
+    }
+
+    pub(super) fn adt_constructor(
+        adt_index: AdtIndex,
+        constructor: usize,
+        ty: TypedTerm,
+    ) -> TypedTerm {
+        TypedTerm {
+            level: ty.check_is_ty().expect("`ty` should have been a type"),
+            ty: ty.term,
+            term: TypedTermKind::AdtConstructor(adt_index, constructor),
+            _priv: (),
         }
     }
 
     pub(super) fn make_pi_type(binder: TypedBinder, output: TypedTerm) -> TypedTerm {
-        let level = binder
+        let binder_level = binder
             .ty
             .check_is_ty()
-            .unwrap()
-            .smart_imax(&output.ty.check_is_sort().unwrap());
+            .expect("`binder.ty` should have been a type");
+        let output_level = output
+            .ty
+            .check_is_sort()
+            .expect("`output` should have been a type");
+        let level = binder_level.smart_imax(&output_level);
 
         TypedTerm {
             level: level.succ(),
@@ -60,6 +89,32 @@ impl TypedTerm {
                 binder: Box::new(binder),
                 output: Box::new(output),
             },
+            _priv: (),
+        }
+    }
+
+    pub(super) fn make_application(
+        function: TypedTerm,
+        argument: TypedTerm,
+        output: TypedTerm,
+    ) -> TypedTerm {
+        TypedTerm {
+            level: output.ty.check_is_sort().unwrap(),
+            ty: output.term,
+            term: TypedTermKind::Application {
+                function: Box::new(function),
+                argument: Box::new(argument),
+            },
+            _priv: (),
+        }
+    }
+
+    pub(super) fn value_of_type(value: TypedTermKind, ty: TypedTerm) -> TypedTerm {
+        TypedTerm {
+            level: ty.check_is_ty().unwrap(),
+            ty: ty.term,
+            term: value,
+            _priv: (),
         }
     }
 
@@ -68,18 +123,12 @@ impl TypedTerm {
 
         TypedTerm {
             level,
-            ty: TypedTermKind::PiType {
-                binder: Box::new(binder.clone()),
-                output: Box::new(TypedTerm {
-                    level: body.level.succ(),
-                    ty: TypedTermKind::SortLiteral(body.level.clone()),
-                    term: body.ty.clone(),
-                }),
-            },
+            ty: TypedTerm::make_pi_type(binder.clone(), body.get_type()).term,
             term: TypedTermKind::Lambda {
                 binder: Box::new(binder),
                 body: Box::new(body),
             },
+            _priv: (),
         }
     }
 
@@ -144,6 +193,7 @@ impl TypedTerm {
             level: self.level.clone(),
             ty: self.ty.replace_binder(id, expr),
             term: self.term.replace_binder(id, expr),
+            _priv: (),
         }
     }
 
@@ -152,6 +202,7 @@ impl TypedTerm {
             level: self.level.instantiate_parameters(level_args),
             ty: self.ty.instantiate(level_args),
             term: self.term.instantiate(level_args),
+            _priv: (),
         }
     }
 
@@ -161,6 +212,7 @@ impl TypedTerm {
             level: self.level.clone(),
             ty: self.ty.clone_incrementing(limit, inc),
             term: self.term.clone_incrementing(limit, inc),
+            _priv: (),
         }
     }
 
@@ -238,6 +290,30 @@ impl TypedTermKind {
                     }
                 }
                 _ => break,
+            }
+        }
+    }
+
+    pub(super) fn references_bound_variable(&self, id: usize) -> bool {
+        match self {
+            TypedTermKind::SortLiteral(_)
+            | TypedTermKind::AdtName(_)
+            | TypedTermKind::AdtConstructor(_, _)
+            | TypedTermKind::AdtRecursor(_)
+            | TypedTermKind::FreeVariable(_) => false,
+
+            TypedTermKind::BoundVariable { index, name } => *index == id,
+            TypedTermKind::Application { function, argument } => {
+                function.term.references_bound_variable(id)
+                    || argument.term.references_bound_variable(id)
+            }
+            TypedTermKind::PiType { binder, output } => {
+                binder.ty.term.references_bound_variable(id)
+                    || output.term.references_bound_variable(id + 1)
+            }
+            TypedTermKind::Lambda { binder, body } => {
+                binder.ty.term.references_bound_variable(id)
+                    || body.term.references_bound_variable(id + 1)
             }
         }
     }
@@ -477,6 +553,10 @@ pub struct TypedBinder {
 }
 
 impl TypedBinder {
+    pub fn level(&self) -> Rc<Level> {
+        self.ty.check_is_ty().unwrap()
+    }
+
     /// Replaces the binder with de Bruijn index `id` with the given term
     pub(super) fn replace_binder(&self, id: usize, expr: &TypedTerm) -> Self {
         Self {
@@ -503,6 +583,20 @@ impl TypedBinder {
     /// Increments all bound variable indices which refer to variables of index `limit` or higher by amount `inc`
     fn increment_binders_above(&mut self, limit: usize, inc: usize) {
         self.ty.increment_binders_above(limit, inc);
+    }
+}
+
+impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypedTerm {
+    fn pretty_print(
+        &self,
+        out: &mut dyn Write,
+        context: PrettyPrintContext,
+    ) -> std::io::Result<()> {
+        // write!(out, "<")?;
+        self.term.pretty_print(out, context)
+        // write!(out, " # ")?;
+        // self.ty.pretty_print(out, context)?;
+        // write!(out, ">")
     }
 }
 
@@ -545,9 +639,9 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypedTermKind {
             }
             Application { function, argument } => {
                 write!(out, "(")?;
-                function.term.pretty_print(out, context)?;
+                function.pretty_print(out, context)?;
                 write!(out, " ")?;
-                argument.term.pretty_print(out, context)?;
+                argument.pretty_print(out, context)?;
                 write!(out, ")")
             }
             PiType { binder, output } => {
@@ -625,29 +719,20 @@ mod tests {
         );
 
         let ty = Level::constant(1);
-        let tys = ty.succ();
-        let tyss = tys.succ();
 
         let binder = TypedBinder {
             name: None,
-            ty: TypedTerm {
-                level: tyss.clone(),
-                ty: TypedTermKind::SortLiteral(tys.clone()),
-                term: TypedTermKind::SortLiteral(ty.clone()),
-            },
+            ty: TypedTerm::sort_literal(ty.clone()),
         };
 
         {
             let t = TypedTerm::make_pi_type(
                 binder.clone(),
-                TypedTerm {
-                    level: tys.clone(),
-                    ty: TypedTermKind::SortLiteral(ty.clone()),
-                    term: TypedTermKind::BoundVariable {
-                        index: 0,
-                        name: Identifier::dummy(),
-                    },
-                },
+                TypedTerm::bound_variable(
+                    0,
+                    Identifier::dummy(),
+                    TypedTerm::sort_literal(ty.clone()),
+                ),
             );
             assert_eq!(
                 {
@@ -662,14 +747,11 @@ mod tests {
         {
             let t = TypedTerm::make_pi_type(
                 binder,
-                TypedTerm {
-                    level: tys.clone(),
-                    ty: TypedTermKind::SortLiteral(ty.clone()),
-                    term: TypedTermKind::BoundVariable {
-                        index: 1,
-                        name: Identifier::dummy(),
-                    },
-                },
+                TypedTerm::bound_variable(
+                    1,
+                    Identifier::dummy(),
+                    TypedTerm::sort_literal(ty.clone()),
+                ),
             );
 
             assert_eq!(
@@ -678,149 +760,75 @@ mod tests {
                     t.increment_binders_above(0, 5);
                     t
                 },
-                TypedTermKind::PiType {
-                    binder: Box::new(TypedBinder {
+                TypedTerm::make_pi_type(
+                    TypedBinder {
                         name: None,
-                        ty: TypedTerm {
-                            level: tyss.clone(),
-                            ty: TypedTermKind::SortLiteral(tys.clone()),
-                            term: TypedTermKind::SortLiteral(ty.clone()),
-                        },
-                    }),
-                    output: Box::new(TypedTerm {
-                        level: tys.clone(),
-                        ty: TypedTermKind::SortLiteral(ty.clone()),
-                        term: TypedTermKind::BoundVariable {
-                            index: 6,
-                            name: Identifier::dummy(),
-                        },
-                    }),
-                }
+                        ty: TypedTerm::sort_literal(ty.clone()),
+                    },
+                    TypedTerm::bound_variable(
+                        6,
+                        Identifier::dummy(),
+                        TypedTerm::sort_literal(ty.clone())
+                    )
+                )
+                .term
             );
         }
     }
 
     #[test]
     fn test_replace_binder() {
-        let ty = Level::constant(1);
-        let tys = ty.succ();
-        let tyss = tys.succ();
+        let sort_0 = TypedTerm::sort_literal(Level::constant(0));
+        let adt_0 = TypedTerm::adt_name(AdtIndex(0), sort_0.clone());
 
         assert_eq!(
-            TypedTermKind::BoundVariable {
-                index: 0,
-                name: Identifier::dummy()
-            }
-            .replace_binder(
-                0,
-                &TypedTerm {
-                    level: tys.clone(),
-                    ty: TypedTermKind::SortLiteral(ty.clone()),
-                    term: TypedTermKind::AdtName(AdtIndex(0))
-                }
-            ),
-            TypedTermKind::AdtName(AdtIndex(0))
+            TypedTerm::bound_variable(0, Identifier::dummy(), sort_0.clone())
+                .replace_binder(0, &adt_0),
+            adt_0
         );
 
         assert_eq!(
-            TypedTermKind::PiType {
-                binder: Box::new(TypedBinder {
+            TypedTerm::make_pi_type(
+                TypedBinder {
                     name: None,
-                    ty: TypedTerm {
-                        level: tys.clone(),
-                        ty: TypedTermKind::SortLiteral(ty.clone()),
-                        term: TypedTermKind::AdtName(AdtIndex(0)),
-                    }
-                }),
-                output: Box::new(TypedTerm {
-                    level: tys.clone(),
-                    ty: TypedTermKind::SortLiteral(ty.clone()),
-                    term: TypedTermKind::BoundVariable {
-                        index: 1,
-                        name: Identifier::dummy()
-                    }
-                }),
-            }
+                    ty: adt_0.clone()
+                },
+                TypedTerm::bound_variable(1, Identifier::dummy(), sort_0.clone())
+            )
             .replace_binder(
                 0,
-                &TypedTerm {
-                    level: tys.clone(),
-                    ty: TypedTermKind::SortLiteral(ty.clone()),
-                    term: TypedTermKind::BoundVariable {
-                        index: 1,
-                        name: Identifier::dummy()
-                    }
-                }
+                &TypedTerm::bound_variable(1, Identifier::dummy(), sort_0.clone())
             ),
-            TypedTermKind::PiType {
-                binder: Box::new(TypedBinder {
+            TypedTerm::make_pi_type(
+                TypedBinder {
                     name: None,
-                    ty: TypedTerm {
-                        level: tys.clone(),
-                        ty: TypedTermKind::SortLiteral(ty.clone()),
-                        term: TypedTermKind::AdtName(AdtIndex(0)),
-                    }
-                }),
-                output: Box::new(TypedTerm {
-                    level: tys.clone(),
-                    ty: TypedTermKind::SortLiteral(ty.clone()),
-                    term: TypedTermKind::BoundVariable {
-                        index: 2,
-                        name: Identifier::dummy()
-                    }
-                })
-            }
+                    ty: adt_0.clone()
+                },
+                TypedTerm::bound_variable(2, Identifier::dummy(), sort_0.clone())
+            )
         );
 
         assert_eq!(
-            TypedTermKind::PiType {
-                binder: Box::new(TypedBinder {
+            TypedTerm::make_pi_type(
+                TypedBinder {
                     name: None,
-                    ty: TypedTerm {
-                        level: tys.clone(),
-                        ty: TypedTermKind::SortLiteral(ty.clone()),
-                        term: TypedTermKind::AdtName(AdtIndex(0)),
-                    }
-                }),
-                output: Box::new(TypedTerm {
-                    level: tys.clone(),
-                    ty: TypedTermKind::SortLiteral(ty.clone()),
-                    term: TypedTermKind::BoundVariable {
-                        index: 2,
-                        name: Identifier::dummy()
-                    }
-                }),
-            }
+                    ty: adt_0.clone()
+                },
+                TypedTerm::bound_variable(2, Identifier::dummy(), sort_0.clone())
+            )
             .replace_binder(
                 0,
-                &TypedTerm {
-                    level: tys.clone(),
-                    ty: TypedTermKind::SortLiteral(ty.clone()),
-                    term: TypedTermKind::BoundVariable {
-                        index: 1,
-                        name: Identifier::dummy()
-                    }
-                }
+                &TypedTerm::bound_variable(1, Identifier::dummy(), sort_0.clone())
             ),
-            TypedTermKind::PiType {
-                binder: Box::new(TypedBinder {
+            TypedTerm::make_pi_type(
+                TypedBinder {
                     name: None,
-                    ty: TypedTerm {
-                        level: tys.clone(),
-                        ty: TypedTermKind::SortLiteral(ty.clone()),
-                        term: TypedTermKind::AdtName(AdtIndex(0)),
-                    }
-                }),
-                output: Box::new(TypedTerm {
-                    level: tys.clone(),
-                    ty: TypedTermKind::SortLiteral(ty.clone()),
-                    term: TypedTermKind::BoundVariable {
-                        index: 1,
-                        name: Identifier::dummy()
-                    }
-                })
-            }
+                    ty: adt_0.clone()
+                },
+                TypedTerm::bound_variable(1, Identifier::dummy(), sort_0)
+            )
         );
+
+        // TODO: test when the variable being replaced is in the binder of a Pi / lambda
     }
-
 }

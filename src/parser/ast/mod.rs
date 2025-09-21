@@ -1,10 +1,10 @@
-use crate::parser::PrettyPrint;
-use crate::parser::atoms::whitespace::{SurroundWhitespaceExt, whitespace};
+use crate::parser::atoms::whitespace::SurroundWhitespaceExt;
 use crate::parser::combinators::repeat::Repeat0Ext;
 use crate::parser::combinators::tuples::HeterogeneousTupleExt;
+use crate::parser::PrettyPrint;
 use crate::parser::{Interner, ParseContext, ParseResult};
 use crate::parser::{Parser, PrettyPrintContext};
-use item::{Item, item};
+use item::{item, Item};
 
 pub mod item;
 pub mod term;

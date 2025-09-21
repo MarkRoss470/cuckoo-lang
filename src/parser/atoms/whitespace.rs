@@ -74,3 +74,13 @@ impl<P: Parser> InBlockExt for P {
         parser(move |input, mut context| self.parse(input, context.borrow_indented()))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_whitespace() {
+        todo!("Test whitespace and newline parsing");
+    }
+}
