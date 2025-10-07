@@ -48,18 +48,4 @@ impl Ast {
         }
     }
 
-    pub fn pretty_print_val<T: for<'a> PrettyPrint<PrettyPrintContext<'a>>>(
-        &self,
-        interner: &Interner,
-        val: T,
-    ) {
-        let context = PrettyPrintContext {
-            interner,
-            indent_levels: 0,
-        };
-
-        let mut stdout = std::io::stdout().lock();
-
-        val.pretty_print(&mut stdout, context).unwrap()
-    }
 }
