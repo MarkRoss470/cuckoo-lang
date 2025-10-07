@@ -44,8 +44,8 @@ pub struct Adt {
 
 impl AdtHeader {
     fn type_constructor(&self) -> TypedTerm {
-        TypedTerm::value_of_type(
-            TypedTermKind::AdtName(self.index),
+        TypedTerm::adt_name(
+            self.index,
             TypedTerm::make_telescope(self.parameters.clone(), self.family.clone()),
         )
     }

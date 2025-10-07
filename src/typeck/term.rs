@@ -22,6 +22,15 @@ impl TypedTerm {
             .map_err(|_| TypeError::NotAType(self.clone()))
     }
 
+    fn value_of_type(value: TypedTermKind, ty: TypedTerm) -> TypedTerm {
+        TypedTerm {
+            level: ty.check_is_ty().expect("`ty` should have been a type"),
+            ty: ty.term,
+            term: value,
+            _priv: (),
+        }
+    }
+    
     pub(super) fn get_type(&self) -> TypedTerm {
         TypedTerm {
             level: self.level.succ(),
@@ -47,21 +56,11 @@ impl TypedTerm {
         name: Option<Identifier>,
         ty: TypedTerm,
     ) -> TypedTerm {
-        TypedTerm {
-            level: ty.check_is_ty().expect("`ty` should have been a type"),
-            ty: ty.term,
-            term: TypedTermKind::BoundVariable { index, name },
-            _priv: (),
-        }
+        TypedTerm::value_of_type(TypedTermKind::BoundVariable { index, name }, ty)
     }
 
     pub(super) fn adt_name(adt_index: AdtIndex, ty: TypedTerm) -> TypedTerm {
-        TypedTerm {
-            level: ty.check_is_ty().expect("`ty` should have been a type"),
-            ty: ty.term,
-            term: TypedTermKind::AdtName(adt_index),
-            _priv: (),
-        }
+        TypedTerm::value_of_type(TypedTermKind::AdtName(adt_index), ty)
     }
 
     pub(super) fn adt_constructor(
@@ -69,12 +68,7 @@ impl TypedTerm {
         constructor: usize,
         ty: TypedTerm,
     ) -> TypedTerm {
-        TypedTerm {
-            level: ty.check_is_ty().expect("`ty` should have been a type"),
-            ty: ty.term,
-            term: TypedTermKind::AdtConstructor(adt_index, constructor),
-            _priv: (),
-        }
+        TypedTerm::value_of_type(TypedTermKind::AdtConstructor(adt_index, constructor), ty)
     }
 
     pub(super) fn adt_recursor(adt_index: AdtIndex, ty: TypedTerm) -> TypedTerm {
@@ -108,38 +102,25 @@ impl TypedTerm {
         argument: TypedTerm,
         output: TypedTerm,
     ) -> TypedTerm {
-        TypedTerm {
-            level: output.ty.check_is_sort().unwrap(),
-            ty: output.term,
-            term: TypedTermKind::Application {
+        TypedTerm::value_of_type(
+            TypedTermKind::Application {
                 function: Box::new(function),
                 argument: Box::new(argument),
             },
-            _priv: (),
-        }
+            output,
+        )
     }
 
-    pub(super) fn value_of_type(value: TypedTermKind, ty: TypedTerm) -> TypedTerm {
-        TypedTerm {
-            level: ty.check_is_ty().unwrap(),
-            ty: ty.term,
-            term: value,
-            _priv: (),
-        }
-    }
+
 
     pub(super) fn make_lambda(binder: TypedBinder, body: TypedTerm) -> TypedTerm {
-        let level = binder.ty.check_is_ty().unwrap().smart_imax(&body.level);
-
-        TypedTerm {
-            level,
-            ty: TypedTerm::make_pi_type(binder.clone(), body.get_type()).term,
-            term: TypedTermKind::Lambda {
-                binder: Box::new(binder),
-                body: Box::new(body),
+        TypedTerm::value_of_type(
+            TypedTermKind::Lambda {
+                binder: Box::new(binder.clone()),
+                body: Box::new(body.clone()),
             },
-            _priv: (),
-        }
+            TypedTerm::make_pi_type(binder, body.get_type()),
+        )
     }
 
     pub(super) fn make_telescope(
@@ -802,7 +783,7 @@ mod tests {
     #[test]
     fn test_increment_binders_above() {
         let id_x = Identifier::dummy_val(0);
-        
+
         assert_eq!(
             {
                 let mut t = TypedTermKind::BoundVariable {
@@ -843,11 +824,7 @@ mod tests {
         {
             let t = TypedTerm::make_pi_type(
                 binder.clone(),
-                TypedTerm::bound_variable(
-                    0,
-                    Some(id_x),
-                    TypedTerm::sort_literal(ty.clone()),
-                ),
+                TypedTerm::bound_variable(0, Some(id_x), TypedTerm::sort_literal(ty.clone())),
             );
             assert_eq!(
                 {
@@ -862,11 +839,7 @@ mod tests {
         {
             let t = TypedTerm::make_pi_type(
                 binder,
-                TypedTerm::bound_variable(
-                    1,
-                    Some(id_x),
-                    TypedTerm::sort_literal(ty.clone()),
-                ),
+                TypedTerm::bound_variable(1, Some(id_x), TypedTerm::sort_literal(ty.clone())),
             );
 
             assert_eq!(
@@ -880,11 +853,7 @@ mod tests {
                         name: None,
                         ty: TypedTerm::sort_literal(ty.clone()),
                     },
-                    TypedTerm::bound_variable(
-                        6,
-                        Some(id_x),
-                        TypedTerm::sort_literal(ty.clone())
-                    )
+                    TypedTerm::bound_variable(6, Some(id_x), TypedTerm::sort_literal(ty.clone()))
                 )
                 .term
             );
@@ -897,10 +866,9 @@ mod tests {
         let adt_0 = TypedTerm::adt_name(AdtIndex(0), sort_0.clone());
 
         let id_x = Identifier::dummy_val(0);
-        
+
         assert_eq!(
-            TypedTerm::bound_variable(0, Some(id_x), sort_0.clone())
-                .replace_binder(0, &adt_0),
+            TypedTerm::bound_variable(0, Some(id_x), sort_0.clone()).replace_binder(0, &adt_0),
             adt_0
         );
 
@@ -912,10 +880,7 @@ mod tests {
                 },
                 TypedTerm::bound_variable(1, Some(id_x), sort_0.clone())
             )
-            .replace_binder(
-                0,
-                &TypedTerm::bound_variable(1, Some(id_x), sort_0.clone())
-            ),
+            .replace_binder(0, &TypedTerm::bound_variable(1, Some(id_x), sort_0.clone())),
             TypedTerm::make_pi_type(
                 TypedBinder {
                     name: None,
@@ -933,10 +898,7 @@ mod tests {
                 },
                 TypedTerm::bound_variable(2, Some(id_x), sort_0.clone())
             )
-            .replace_binder(
-                0,
-                &TypedTerm::bound_variable(1, Some(id_x), sort_0.clone())
-            ),
+            .replace_binder(0, &TypedTerm::bound_variable(1, Some(id_x), sort_0.clone())),
             TypedTerm::make_pi_type(
                 TypedBinder {
                     name: None,
