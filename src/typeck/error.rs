@@ -7,7 +7,7 @@ use std::io::Write;
 use std::rc::Rc;
 
 // TODO: track error locations
-#[cfg_attr(test, derive(PartialEq))]
+#[cfg_attr(any(test, debug_assertions), derive(PartialEq))]
 #[derive(Debug)]
 pub enum TypeError {
     // ----- Term resolution errors
@@ -79,7 +79,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
             }
             TypeError::NameNotResolved(id) => {
                 write!(out, "Could not resolve name '")?;
-                id.pretty_print(out, context.interner())?;
+                id.pretty_print(out, &context.interner())?;
                 write!(out, "'.")
             }
             TypeError::MismatchedTypes { term, expected } => {
@@ -93,7 +93,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
             }
             TypeError::LocalVariableIsNotANamespace(path) => {
                 write!(out, "Local variable ")?;
-                path.pretty_print(out, context.interner())?;
+                path.pretty_print(out, &context.interner())?;
                 write!(
                     out,
                     " is not a namespace and cannot be used as the start of a path expression."
@@ -109,11 +109,11 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
             }
             TypeError::DuplicateLevelParameter(id) => {
                 write!(out, "Duplicate level parameter ")?;
-                id.pretty_print(out, context.interner())
+                id.pretty_print(out, &context.interner())
             }
             TypeError::LevelParameterNotFound(p) => {
                 write!(out, "Level ")?;
-                p.pretty_print(out, context.interner())?;
+                p.pretty_print(out, &context.interner())?;
                 write!(out, " not found")
             }
             TypeError::WrongNumberOfLevelArgs {
@@ -121,7 +121,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
                 expected,
                 found,
             } => {
-                path.pretty_print(out, context.interner())?;
+                path.pretty_print(out, &context.interner())?;
                 write!(
                     out,
                     " takes {expected} level argument(s), but {found} were provided."
@@ -129,7 +129,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
             }
             TypeError::LevelArgumentGivenForLocalVariable(id) => {
                 write!(out, "Local variable ")?;
-                id.pretty_print(out, context.interner())?;
+                id.pretty_print(out, &context.interner())?;
                 write!(out, " can't take level arguments")
             }
 
@@ -151,14 +151,14 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
                 expected,
             } => {
                 write!(out, "Invalid resultant type for constructor. Constructor ")?;
-                name.pretty_print(out, context.interner())?;
+                name.pretty_print(out, &context.interner())?;
                 write!(out, " should result in an application of ")?;
                 context
                     .environment
                     .get_adt(*expected)
                     .header
                     .name
-                    .pretty_print(out, context.interner())?;
+                    .pretty_print(out, &context.interner())?;
                 write!(out, ", but it results in ")?;
                 found.term.pretty_print(out, context)
             }
@@ -168,7 +168,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
                     .get_adt(*id)
                     .header
                     .name
-                    .pretty_print(out, context.interner())?;
+                    .pretty_print(out, &context.interner())?;
                 write!(out, " cannot be referenced here. ")?;
                 write!(
                     out,
@@ -199,7 +199,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
             // ----- Naming errors
             TypeError::NameAlreadyDefined(id) => {
                 write!(out, "The name ")?;
-                id.pretty_print(out, context.interner())?;
+                id.pretty_print(out, &context.interner())?;
                 write!(out, " has already been defined.")
             }
 

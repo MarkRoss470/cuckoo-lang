@@ -13,7 +13,7 @@ use crate::parser::{Interner, Parser, PrettyPrint, PrettyPrintContext};
 use std::fs::write;
 use std::io::Write;
 
-#[cfg_attr(test, derive(PartialEq, Eq))]
+#[cfg_attr(any(test, debug_assertions), derive(PartialEq, Eq))]
 #[derive(Debug, Clone)]
 pub enum LevelExpr {
     Literal(usize),
@@ -28,7 +28,7 @@ impl LevelExpr {
     pub const TYPE: Self = LevelExpr::Literal(1);
 }
 
-#[cfg_attr(test, derive(PartialEq, Eq))]
+#[cfg_attr(any(test, debug_assertions), derive(PartialEq, Eq))]
 #[derive(Debug, Clone, Default)]
 pub struct LevelArgs(Vec<LevelExpr>);
 
@@ -42,7 +42,7 @@ impl LevelArgs {
     }
 }
 
-#[cfg_attr(test, derive(PartialEq, Eq))]
+#[cfg_attr(any(test, debug_assertions), derive(PartialEq, Eq))]
 #[derive(Debug, Clone)]
 pub enum Term {
     /// The keywords `Prop` or `Type n`
@@ -66,7 +66,7 @@ pub enum Term {
     },
 }
 
-#[cfg_attr(test, derive(PartialEq, Eq))]
+#[cfg_attr(any(test, debug_assertions), derive(PartialEq, Eq))]
 #[derive(Debug, Clone)]
 pub struct Binder {
     pub name: Option<Identifier>,

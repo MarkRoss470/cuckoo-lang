@@ -12,11 +12,11 @@ fn main() {
 
     println!("errors : {:#?}", parse_res.errors);
     println!("warnings : {:#?}", parse_res.warnings);
-    let ast = parse_res.value;
+    let (interner, ast) = parse_res.value;
 
-    ast.pretty_print();
+    ast.pretty_print(&interner);
 
-    let mut env = TypingEnvironment::new(&ast);
+    let mut env = TypingEnvironment::new(interner);
     let res = env.resolve_file(&ast);
     env.pretty_print();
     println!();

@@ -6,7 +6,7 @@ use std::io::Write;
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
-#[cfg_attr(test, derive(PartialEq))]
+#[cfg_attr(any(test, debug_assertions), derive(PartialEq))]
 pub struct TypedTerm {
     pub(super) level: Rc<Level>,
     pub(super) ty: TypedTermKind,
@@ -40,7 +40,13 @@ impl TypedTerm {
         }
     }
 
-    pub(super) fn bound_variable(index: usize, name: Identifier, ty: TypedTerm) -> TypedTerm {
+    /// Constructs a term referring to a bound variable. The given `ty` is used as-is, so the indices
+    /// in it should be incremented from the type in the variable's binder.
+    pub(super) fn bound_variable(
+        index: usize,
+        name: Option<Identifier>,
+        ty: TypedTerm,
+    ) -> TypedTerm {
         TypedTerm {
             level: ty.check_is_ty().expect("`ty` should have been a type"),
             ty: ty.term,
@@ -69,6 +75,10 @@ impl TypedTerm {
             term: TypedTermKind::AdtConstructor(adt_index, constructor),
             _priv: (),
         }
+    }
+
+    pub(super) fn adt_recursor(adt_index: AdtIndex, ty: TypedTerm) -> TypedTerm {
+        TypedTerm::value_of_type(TypedTermKind::AdtRecursor(adt_index), ty)
     }
 
     pub(super) fn make_pi_type(binder: TypedBinder, output: TypedTerm) -> TypedTerm {
@@ -132,7 +142,10 @@ impl TypedTerm {
         }
     }
 
-    pub(super) fn make_telescope(binders: Vec<TypedBinder>, output: TypedTerm) -> TypedTerm {
+    pub(super) fn make_telescope(
+        binders: impl IntoIterator<IntoIter: DoubleEndedIterator<Item = TypedBinder>>,
+        output: TypedTerm,
+    ) -> TypedTerm {
         binders
             .into_iter()
             .rfold(output, |acc, binder| TypedTerm::make_pi_type(binder, acc))
@@ -160,6 +173,25 @@ impl TypedTerm {
                 }
             }
         }
+    }
+
+    pub(super) fn make_application_stack(
+        function: TypedTerm,
+        params: impl IntoIterator<Item = TypedTermKind>,
+    ) -> TypedTerm {
+        let mut res = function;
+
+        for param in params {
+            let TypedTermKind::PiType { binder, output } = res.ty.clone() else {
+                panic!("`res` should have been a function type")
+            };
+
+            let param = TypedTerm::value_of_type(param, binder.ty);
+            let output = output.replace_binder(0, &param);
+            res = TypedTerm::make_application(res, param, output);
+        }
+
+        res
     }
 
     /// Decomposes a term as a stack of function applications, returning the underlying function and the arguments.
@@ -207,7 +239,7 @@ impl TypedTerm {
     }
 
     /// Clones the value, while incrementing all bound variable indices by `inc`
-    fn clone_incrementing(&self, limit: usize, inc: usize) -> Self {
+    pub(super) fn clone_incrementing(&self, limit: usize, inc: usize) -> Self {
         Self {
             level: self.level.clone(),
             ty: self.ty.clone_incrementing(limit, inc),
@@ -217,14 +249,14 @@ impl TypedTerm {
     }
 
     /// Increments all bound variable indices which refer to variables of index `limit` or higher by amount `inc`
-    fn increment_binders_above(&mut self, limit: usize, inc: usize) {
+    pub(super) fn increment_binders_above(&mut self, limit: usize, inc: usize) {
         self.ty.increment_binders_above(limit, inc);
         self.term.increment_binders_above(limit, inc);
     }
 }
 
 // TODO: convert boxes to Rcs and clone less
-#[cfg_attr(test, derive(PartialEq))]
+#[cfg_attr(any(test, debug_assertions), derive(PartialEq))]
 #[derive(Debug, Clone)]
 pub enum TypedTermKind {
     /// The keywords `Sort n`, `Prop` or `Type n`
@@ -243,7 +275,7 @@ pub enum TypedTermKind {
         index: usize,
         /// The name of the bound variable. This is for pretty printing only, and should not be used
         /// for type checking to avoid captures.
-        name: Identifier,
+        name: Option<Identifier>,
     },
     /// A function application
     Application {
@@ -546,7 +578,7 @@ impl TypedTermKind {
 }
 
 #[derive(Debug, Clone)]
-#[cfg_attr(test, derive(PartialEq))]
+#[cfg_attr(any(test, debug_assertions), derive(PartialEq))]
 pub struct TypedBinder {
     pub name: Option<Identifier>,
     pub ty: TypedTerm,
@@ -593,10 +625,12 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypedTerm {
         context: PrettyPrintContext,
     ) -> std::io::Result<()> {
         // write!(out, "<")?;
-        self.term.pretty_print(out, context)
+        // self.term.pretty_print(out, context)?;
         // write!(out, " # ")?;
         // self.ty.pretty_print(out, context)?;
         // write!(out, ">")
+
+        self.term.pretty_print(out, context)
     }
 }
 
@@ -619,22 +653,25 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypedTermKind {
                 .get_adt(*adt)
                 .header
                 .name
-                .pretty_print(out, context.interner()),
+                .pretty_print(out, &context.interner()),
             AdtConstructor(adt, con) => context.environment.get_adt(*adt).constructors[*con]
                 .name
-                .pretty_print(out, context.interner()),
+                .pretty_print(out, &context.interner()),
             AdtRecursor(adt) => {
                 context
                     .environment
                     .get_adt(*adt)
                     .header
                     .name
-                    .pretty_print(out, context.interner())?;
+                    .pretty_print(out, &context.interner())?;
                 write!(out, ".rec")
             }
-            FreeVariable(name) => name.pretty_print(out, context.interner()),
+            FreeVariable(name) => name.pretty_print(out, &context.interner()),
             BoundVariable { index, name } => {
-                name.pretty_print(out, context.interner())?;
+                match name {
+                    None => write!(out, "_")?,
+                    Some(name) => name.pretty_print(out, &context.interner())?,
+                }
                 write!(out, "?{index}")
             }
             Application { function, argument } => {
@@ -672,7 +709,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypedBinder {
 
         match self.name {
             None => write!(out, "_")?,
-            Some(id) => id.pretty_print(out, context.interner())?,
+            Some(id) => id.pretty_print(out, &context.interner())?,
         };
 
         write!(out, ": ")?;
@@ -685,21 +722,99 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypedBinder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parser::ast::parse_file;
+    use crate::typeck::TypingEnvironment;
+
+    #[test]
+    fn test_make_application_stack() {
+        // let (interner, ast) = parse_file(
+        //     "
+        //     data Eq (T : Type) : T -> T -> Prop where
+        //
+        //     data Nat : Type where
+        //
+        //     data SomeTy (m : Nat) (n : Nat) : Eq T m n -> Type where
+        // ",
+        // )
+        // .unwrap();
+        //
+        // let mut env = TypingEnvironment::new(interner);
+        // env.resolve_file(&ast).unwrap();
+        //
+        // let nat_path = env.adts[1].header.name.borrow();
+        // let nat = env.resolve_path(nat_path, &LevelArgs::default()).unwrap();
+        //
+        // let some_ty_path = env.adts[2].header.name.borrow();
+        // let some_ty = env
+        //     .resolve_path(some_ty_path, &LevelArgs::default())
+        //     .unwrap();
+        //
+        // assert_eq!(
+        //     TypedTerm::make_application_stack(some_ty, vec![nat.term]),
+        //     todo!()
+        // );
+
+        let id_t = Identifier::dummy_val(0);
+        let prop = TypedTerm::sort_literal(Level::zero());
+        let ty = TypedTerm::sort_literal(Level::constant(1));
+
+        let f = TypedTerm::adt_constructor(
+            AdtIndex(0),
+            0,
+            TypedTerm::make_pi_type(
+                TypedBinder {
+                    name: Some(id_t),
+                    ty: ty.clone(),
+                },
+                TypedTerm::make_pi_type(
+                    TypedBinder {
+                        name: None,
+                        ty: TypedTerm::bound_variable(0, Some(id_t), ty.clone()),
+                    },
+                    prop.clone(),
+                ),
+            ),
+        );
+
+        let nat = TypedTerm::adt_name(AdtIndex(1), ty.clone());
+        let zero = TypedTerm::adt_constructor(AdtIndex(1), 0, nat.clone());
+
+        let nat_to_prop = TypedTerm::make_pi_type(
+            TypedBinder {
+                name: None,
+                ty: nat.clone(),
+            },
+            prop.clone(),
+        );
+
+        let args = vec![nat.term.clone(), zero.term.clone()];
+
+        assert_eq!(
+            TypedTerm::make_application_stack(f.clone(), args),
+            TypedTerm::make_application(
+                TypedTerm::make_application(f, nat.clone(), nat_to_prop),
+                zero.clone(),
+                prop.clone()
+            )
+        );
+    }
 
     #[test]
     fn test_increment_binders_above() {
+        let id_x = Identifier::dummy_val(0);
+        
         assert_eq!(
             {
                 let mut t = TypedTermKind::BoundVariable {
                     index: 0,
-                    name: Identifier::dummy(),
+                    name: Some(id_x),
                 };
                 t.increment_binders_above(0, 5);
                 t
             },
             TypedTermKind::BoundVariable {
                 index: 5,
-                name: Identifier::dummy()
+                name: Some(id_x)
             }
         );
 
@@ -707,14 +822,14 @@ mod tests {
             {
                 let mut t = TypedTermKind::BoundVariable {
                     index: 0,
-                    name: Identifier::dummy(),
+                    name: Some(id_x),
                 };
                 t.increment_binders_above(1, 5);
                 t
             },
             TypedTermKind::BoundVariable {
                 index: 0,
-                name: Identifier::dummy()
+                name: Some(id_x)
             }
         );
 
@@ -730,7 +845,7 @@ mod tests {
                 binder.clone(),
                 TypedTerm::bound_variable(
                     0,
-                    Identifier::dummy(),
+                    Some(id_x),
                     TypedTerm::sort_literal(ty.clone()),
                 ),
             );
@@ -749,7 +864,7 @@ mod tests {
                 binder,
                 TypedTerm::bound_variable(
                     1,
-                    Identifier::dummy(),
+                    Some(id_x),
                     TypedTerm::sort_literal(ty.clone()),
                 ),
             );
@@ -767,7 +882,7 @@ mod tests {
                     },
                     TypedTerm::bound_variable(
                         6,
-                        Identifier::dummy(),
+                        Some(id_x),
                         TypedTerm::sort_literal(ty.clone())
                     )
                 )
@@ -781,8 +896,10 @@ mod tests {
         let sort_0 = TypedTerm::sort_literal(Level::constant(0));
         let adt_0 = TypedTerm::adt_name(AdtIndex(0), sort_0.clone());
 
+        let id_x = Identifier::dummy_val(0);
+        
         assert_eq!(
-            TypedTerm::bound_variable(0, Identifier::dummy(), sort_0.clone())
+            TypedTerm::bound_variable(0, Some(id_x), sort_0.clone())
                 .replace_binder(0, &adt_0),
             adt_0
         );
@@ -793,18 +910,18 @@ mod tests {
                     name: None,
                     ty: adt_0.clone()
                 },
-                TypedTerm::bound_variable(1, Identifier::dummy(), sort_0.clone())
+                TypedTerm::bound_variable(1, Some(id_x), sort_0.clone())
             )
             .replace_binder(
                 0,
-                &TypedTerm::bound_variable(1, Identifier::dummy(), sort_0.clone())
+                &TypedTerm::bound_variable(1, Some(id_x), sort_0.clone())
             ),
             TypedTerm::make_pi_type(
                 TypedBinder {
                     name: None,
                     ty: adt_0.clone()
                 },
-                TypedTerm::bound_variable(2, Identifier::dummy(), sort_0.clone())
+                TypedTerm::bound_variable(2, Some(id_x), sort_0.clone())
             )
         );
 
@@ -814,18 +931,18 @@ mod tests {
                     name: None,
                     ty: adt_0.clone()
                 },
-                TypedTerm::bound_variable(2, Identifier::dummy(), sort_0.clone())
+                TypedTerm::bound_variable(2, Some(id_x), sort_0.clone())
             )
             .replace_binder(
                 0,
-                &TypedTerm::bound_variable(1, Identifier::dummy(), sort_0.clone())
+                &TypedTerm::bound_variable(1, Some(id_x), sort_0.clone())
             ),
             TypedTerm::make_pi_type(
                 TypedBinder {
                     name: None,
                     ty: adt_0.clone()
                 },
-                TypedTerm::bound_variable(1, Identifier::dummy(), sort_0)
+                TypedTerm::bound_variable(1, Some(id_x), sort_0)
             )
         );
 

@@ -100,7 +100,7 @@ impl Level {
     /// while performing some simple simplifications.
     pub fn smart_max(self: &Rc<Level>, other: &Rc<Level>) -> Rc<Level> {
         use Level::*;
-        
+
         // If the arguments are the same, just take one
         if self == other {
             self.clone()
@@ -368,8 +368,8 @@ impl Level {
     }
 }
 
-impl<'a> TypingEnvironment<'a> {
-    pub fn set_level_params(&mut self, params: &'a LevelParameters) -> Result<(), TypeError> {
+impl TypingEnvironment {
+    pub fn set_level_params(&mut self, params: LevelParameters) -> Result<(), TypeError> {
         if let Some(id) = params.find_duplicate() {
             Err(TypeError::DuplicateLevelParameter(id))
         } else {
@@ -394,6 +394,7 @@ impl<'a> TypingEnvironment<'a> {
             LevelExpr::Parameter(name) => {
                 let index = self
                     .level_parameters
+                    .as_ref()
                     .unwrap()
                     .lookup(name)
                     .ok_or(TypeError::LevelParameterNotFound(*name))?;
@@ -453,7 +454,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Rc<Level> {
 
         match &*u {
             Level::Zero => write!(out, "0")?,
-            Level::Parameter { name, .. } => name.pretty_print(out, context.interner())?,
+            Level::Parameter { name, .. } => name.pretty_print(out, &context.interner())?,
             Level::Succ(u) => {
                 write!(out, "(succ ")?;
                 u.pretty_print(out, context)?;
@@ -486,8 +487,8 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Rc<Level> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parser::Interner;
     use crate::parser::ast::item::LevelParameters;
-    use crate::typeck::tests::setup_env;
 
     #[test]
     fn test_instantiate_parameters() {
@@ -813,25 +814,25 @@ mod tests {
 
     #[test]
     fn test_set_level_params() {
-        setup_env!(env);
+        let mut env = TypingEnvironment::new(Interner::new());
 
         let id_0 = Identifier::dummy_val(0);
         let id_1 = Identifier::dummy_val(1);
 
         let parameters = LevelParameters::new(&[id_0, id_1]);
-        env.set_level_params(&parameters)
+        env.set_level_params(parameters)
             .expect("Setting parameters should have succeeded");
 
         let parameters = LevelParameters::new(&[id_0, id_1, id_0]);
         assert_eq!(
-            env.set_level_params(&parameters),
+            env.set_level_params(parameters),
             Err(TypeError::DuplicateLevelParameter(id_0))
         );
     }
 
     #[test]
     fn test_resolve_level() {
-        setup_env!(env);
+        let mut env = TypingEnvironment::new(Interner::new());
 
         let id_0 = Identifier::dummy_val(0);
         let id_1 = Identifier::dummy_val(1);
@@ -840,7 +841,7 @@ mod tests {
         let param_1 = Level::parameter(1, id_1);
 
         let parameters = LevelParameters::new(&[id_0, id_1]);
-        env.set_level_params(&parameters).unwrap();
+        env.set_level_params(parameters).unwrap();
 
         // Constants
         assert_eq!(

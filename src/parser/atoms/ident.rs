@@ -12,6 +12,12 @@ use std::io::Write;
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Identifier(pub(in crate::parser) InternKey);
 
+impl Identifier {
+    pub fn from_str(str: &str, interner: &mut Interner) -> Self {
+        Self(interner.get_or_intern(str))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct OwnedPath(Vec<Identifier>);
 
@@ -141,10 +147,6 @@ mod tests {
     use crate::parser::tests::{ParseAllExt, setup_context};
 
     impl Identifier {
-        pub fn from_str(str: &str, interner: &mut Interner) -> Self {
-            Self(interner.get_or_intern(str))
-        }
-
         pub fn dummy() -> Self {
             use string_interner::Symbol;
 

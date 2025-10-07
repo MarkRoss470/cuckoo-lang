@@ -1,21 +1,20 @@
+use crate::parser::PrettyPrint;
 use crate::parser::atoms::whitespace::SurroundWhitespaceExt;
 use crate::parser::combinators::repeat::Repeat0Ext;
 use crate::parser::combinators::tuples::HeterogeneousTupleExt;
-use crate::parser::PrettyPrint;
 use crate::parser::{Interner, ParseContext, ParseResult};
 use crate::parser::{Parser, PrettyPrintContext};
-use item::{item, Item};
+use item::{Item, item};
 
 pub mod item;
 pub mod term;
 
 #[derive(Debug)]
 pub struct Ast {
-    pub interner: Interner,
     pub items: Vec<Item>,
 }
 
-pub fn parse_file(content: &str) -> ParseResult<Ast> {
+pub fn parse_file(content: &str) -> ParseResult<(Interner, Ast)> {
     let mut interner = Interner::new();
     let context = ParseContext {
         interner: &mut interner,
@@ -29,17 +28,16 @@ pub fn parse_file(content: &str) -> ParseResult<Ast> {
         .unwrap();
 
     if !rest.is_empty() {
-        eprintln!("Some content unparsed:");
-        eprintln!("{rest:?}");
+        panic!("Some content unparsed: {rest:?}");
     }
 
-    res.map(|items| Ast { interner, items })
+    res.map(|items| (interner, Ast { items }))
 }
 
 impl Ast {
-    pub fn pretty_print(&self) {
+    pub fn pretty_print(&self, interner: &Interner) {
         let context = PrettyPrintContext {
-            interner: &self.interner,
+            interner,
             indent_levels: 0,
         };
 
@@ -50,9 +48,13 @@ impl Ast {
         }
     }
 
-    pub fn pretty_print_val<T: for<'a> PrettyPrint<PrettyPrintContext<'a>>>(&self, val: T) {
+    pub fn pretty_print_val<T: for<'a> PrettyPrint<PrettyPrintContext<'a>>>(
+        &self,
+        interner: &Interner,
+        val: T,
+    ) {
         let context = PrettyPrintContext {
-            interner: &self.interner,
+            interner,
             indent_levels: 0,
         };
 

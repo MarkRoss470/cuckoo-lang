@@ -48,7 +48,10 @@ impl<'a> TypingContext<'a> {
                                 return Err(TypeError::LevelArgumentGivenForLocalVariable(name));
                             }
 
-                            return Ok((TypedTerm::bound_variable(0, first, binder.ty.clone()), i));
+                            return Ok((
+                                TypedTerm::bound_variable(0, Some(first), binder.ty.clone()),
+                                i,
+                            ));
                         }
                     }
                 }
@@ -141,13 +144,14 @@ impl<'a> TypingContext<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parser::Interner;
     use crate::parser::ast::item::LevelParameters;
     use crate::parser::atoms::ident::Identifier;
-    use crate::typeck::tests::setup_env;
+    use crate::typeck::TypingEnvironment;
 
     #[test]
     fn test_resolve_identifier() {
-        setup_env!(env);
+        let env = TypingEnvironment::new(Interner::new());
 
         let id_t = Identifier::dummy_val(0);
         let id_x = Identifier::dummy_val(1);
@@ -166,7 +170,7 @@ mod tests {
 
         let binder = TypedBinder {
             name: Some(id_x),
-            ty: TypedTerm::bound_variable(0, id_t, TypedTerm::sort_literal(ty.clone())),
+            ty: TypedTerm::bound_variable(0, Some(id_t), TypedTerm::sort_literal(ty.clone())),
         };
         let context = context.with_binder(&binder);
 
@@ -174,7 +178,7 @@ mod tests {
             context
                 .resolve_path(Path::from_id(&id_t), &LevelArgs::default())
                 .unwrap(),
-            TypedTerm::bound_variable(1, id_t, TypedTerm::sort_literal(ty.clone()))
+            TypedTerm::bound_variable(1, Some(id_t), TypedTerm::sort_literal(ty.clone()))
         );
 
         assert_eq!(
@@ -183,15 +187,15 @@ mod tests {
                 .unwrap(),
             TypedTerm::bound_variable(
                 0,
-                id_x,
-                TypedTerm::bound_variable(1, id_t, TypedTerm::sort_literal(ty.clone()))
+                Some(id_x),
+                TypedTerm::bound_variable(1, Some(id_t), TypedTerm::sort_literal(ty.clone()))
             )
         );
     }
 
     #[test]
     fn test_resolve_path() {
-        setup_env!(env);
+        let mut env = TypingEnvironment::new(Interner::new());
 
         let id_x = Identifier::dummy_val(0);
         let id_y = Identifier::dummy_val(1);
@@ -245,7 +249,7 @@ mod tests {
                 },
                 TypedBinder {
                     name: Some(id_z),
-                    ty: TypedTerm::bound_variable(0, id_y, sort_1.clone()),
+                    ty: TypedTerm::bound_variable(0, Some(id_y), sort_1.clone()),
                 },
             ],
             parent: &context,
@@ -268,13 +272,17 @@ mod tests {
             context
                 .resolve_path(path_y.borrow(), &LevelArgs::default())
                 .unwrap(),
-            TypedTerm::bound_variable(1, id_y, TypedTerm::sort_literal(Level::constant(1)))
+            TypedTerm::bound_variable(1, Some(id_y), TypedTerm::sort_literal(Level::constant(1)))
         );
         assert_eq!(
             context
                 .resolve_path(path_z.borrow(), &LevelArgs::default())
                 .unwrap(),
-            TypedTerm::bound_variable(0, id_z, TypedTerm::bound_variable(1, id_y, sort_1.clone()))
+            TypedTerm::bound_variable(
+                0,
+                Some(id_z),
+                TypedTerm::bound_variable(1, Some(id_y), sort_1.clone())
+            )
         );
 
         // Attempting to give level arguments for a local variable gives an error

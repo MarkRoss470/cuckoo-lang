@@ -1,6 +1,7 @@
 pub mod data;
 pub mod def;
 
+use std::hint::unreachable_unchecked;
 use crate::parser::ast::item::data::{DataDefinition, data_definition};
 use crate::parser::ast::item::def::{ValueDefinition, value_definition};
 use crate::parser::ast::term::LevelExpr;
@@ -31,7 +32,7 @@ pub(super) fn item() -> impl Parser<Output = Item> {
         .alt()
 }
 
-#[cfg_attr(test, derive(PartialEq, Eq))]
+#[cfg_attr(any(test, debug_assertions), derive(PartialEq, Eq))]
 #[derive(Debug, Clone, Default)]
 pub struct LevelParameters(pub Vec<Identifier>);
 
@@ -61,6 +62,25 @@ impl LevelParameters {
         }
 
         None
+    }
+
+    /// Finds an identifier based on the given string which is not contained in `self`
+    pub fn unused_ident_from(&self, id: &str, interner: &mut Interner) -> Identifier {
+        let raw = Identifier::from_str(id, interner);
+
+        if self.lookup(&raw).is_none() {
+            return raw;
+        }
+        
+        for x in 1usize.. {
+            let with_tag = Identifier::from_str(&format!("{id}_{x}"), interner);
+
+            if self.lookup(&with_tag).is_none() {
+                return with_tag;
+            }
+        }
+        
+        unreachable!()
     }
 }
 

@@ -1,0 +1,492 @@
+use crate::parser::PrettyPrint;
+use crate::parser::ast::item::LevelParameters;
+use crate::parser::ast::item::data::DataDefinition;
+use crate::parser::atoms::ident::{Identifier, OwnedPath, Path};
+use crate::typeck::level::Level;
+use crate::typeck::term::{TypedBinder, TypedTerm, TypedTermKind};
+use crate::typeck::{AdtIndex, PrettyPrintContext, TypeError, TypingContext, TypingEnvironment};
+use std::io::Write;
+use std::rc::Rc;
+
+mod recursor;
+#[cfg(test)]
+mod tests;
+
+#[derive(Debug)]
+pub struct AdtHeader {
+    pub index: AdtIndex,
+    pub name: OwnedPath,
+    pub level_params: LevelParameters,
+    pub parameters: Vec<TypedBinder>,
+    /// The type's family, i.e. everything in the header after the colon. This does not include the
+    /// ADT's parameters, but it may reference them as bound variables.
+    pub family: TypedTerm,
+    /// The indices of the ADT's family
+    pub indices: Vec<TypedBinder>,
+    /// The level in which the ADT lives
+    pub sort: Rc<Level>,
+    /// Whether the ADT is a proposition
+    pub is_prop: bool,
+}
+
+#[derive(Debug)]
+pub struct Adt {
+    pub header: AdtHeader,
+    pub constructors: Vec<AdtConstructor>,
+    /// Whether the ADT's recursor should allow eliminating to types at any level. This is true of
+    /// non-propositions, and 'subsingleton' propositions with only one constructor where all the
+    /// constructor's non-recursive non-proposition parameters are mentioned in the output type.
+    /// This is because all values of a proposition type are equal, so they can only soundly
+    /// eliminate to non-Prop types when the proposition type is guaranteed to only have at most
+    /// one value.
+    pub is_large_eliminating: bool,
+}
+
+impl AdtHeader {
+    fn type_constructor(&self) -> TypedTerm {
+        TypedTerm::value_of_type(
+            TypedTermKind::AdtName(self.index),
+            TypedTerm::make_telescope(self.parameters.clone(), self.family.clone()),
+        )
+    }
+
+    fn constructor(&self, index: usize, type_without_adt_params: TypedTerm) -> TypedTerm {
+        TypedTerm::adt_constructor(
+            self.index,
+            index,
+            TypedTerm::make_telescope(self.parameters.clone(), type_without_adt_params),
+        )
+    }
+}
+
+impl Adt {
+    // Calculates and stores whether the ADT is large eliminating
+    fn calculate_large_eliminating(&mut self) {
+        self.is_large_eliminating = !self.header.is_prop || self.is_subsingleton();
+    }
+
+    fn is_subsingleton(&self) -> bool {
+        // If the ADT has no constructors, it is subsingleton
+        if self.constructors.is_empty() {
+            return true;
+        }
+        // If the ADT has more than one constructor, it is not subsingleton
+        if self.constructors.len() > 1 {
+            return false;
+        }
+
+        let constructor = self.constructors.first().unwrap();
+
+        // Check that each non-recursive parameter of the constructor is either a proposition,
+        // or is mentioned in the constructor's indices
+        for (i, parameter) in constructor.params.iter().rev().enumerate() {
+            if let AdtConstructorParamKind::NonInductive(ty) = &parameter.kind {
+                let is_prop = ty.level.def_eq(&Level::zero());
+                let is_referenced = constructor
+                    .indices
+                    .iter()
+                    .any(|t| t.term.references_bound_variable(i));
+
+                if !(is_prop || is_referenced) {
+                    return false;
+                }
+            }
+        }
+
+        true
+    }
+}
+
+#[derive(Debug)]
+pub struct AdtConstructor {
+    pub name: Identifier,
+    /// The term referring to this constructor
+    pub constant: TypedTerm,
+    /// The whole type of the constructor, not including the ADT parameters
+    pub type_without_adt_params: TypedTerm,
+    /// The inputs to the constructor
+    pub params: Vec<AdtConstructorParam>,
+    /// The [`indices`] of the ADT produced by the constructor
+    ///
+    /// [`indices`]: Adt::indices
+    pub indices: Vec<TypedTerm>,
+}
+
+#[cfg_attr(any(test, debug_assertions), derive(PartialEq))]
+#[derive(Debug)]
+pub struct AdtConstructorParam {
+    pub name: Option<Identifier>,
+    pub ty: TypedTerm,
+    pub kind: AdtConstructorParamKind,
+}
+
+#[cfg_attr(any(test, debug_assertions), derive(PartialEq))]
+#[derive(Debug)]
+pub enum AdtConstructorParamKind {
+    Inductive {
+        parameters: Vec<TypedBinder>,
+        indices: Vec<TypedTerm>,
+    },
+    NonInductive(TypedTerm),
+}
+
+impl<'a> TypingEnvironment {
+    pub(super) fn resolve_adt(&mut self, ast: &'a DataDefinition) -> Result<(), TypeError> {
+        // Set the level parameters for this item
+        self.set_level_params(ast.level_params.clone())?;
+
+        // Resolve the header
+        let adt_index = AdtIndex(self.adts.len());
+        let header = self.resolve_adt_header(ast, adt_index)?;
+
+        // Add a stub ADT to `self.ads` so that if this ADT shows up in any errors while resolving the constructors,
+        // it can be printed properly
+        self.adts.push(Adt {
+            header,
+            constructors: vec![],
+            is_large_eliminating: false,
+        });
+        let header = &self.adts.last().unwrap().header;
+
+        // Resolve the constructors
+        let constructors = self.resolve_adt_constructors(&ast, header)?;
+        let adt = self.adts.last_mut().unwrap();
+        adt.constructors = constructors;
+
+        // Calculate whether the ADT is large eliminating
+        adt.calculate_large_eliminating();
+
+        // Add the ADT's constants to the namespace
+        self.register_last_adt()?;
+
+        // Remove the level parameters from the context
+        self.clear_level_params();
+
+        Ok(())
+    }
+
+    /// Creates the constants associated with the last ADT in [`self.adts`] - the type constructor,
+    /// constructors, and recursor.
+    ///
+    /// [`self.adts`]: TypingEnvironment::adts
+    fn register_last_adt(&mut self) -> Result<(), TypeError> {
+        let adt = self.adts.last().unwrap();
+        let name = adt.header.name.borrow();
+        let level_parameters = adt.header.level_params.clone();
+
+        // Create the ADT's namespace
+        self.root.insert_namespace(name);
+
+        // Create the type constructor constant
+        self.root.insert(
+            name,
+            level_parameters.clone(),
+            adt.header.type_constructor(),
+        )?;
+
+        // Create the constructor constants
+        let adt_namespace = self.root.resolve_namespace_mut(name)?;
+        for (i, constructor) in adt.constructors.iter().enumerate() {
+            adt_namespace.insert(
+                Path::from_id(&constructor.name),
+                level_parameters.clone(),
+                constructor.constant.clone(),
+            )?;
+        }
+
+        // Create the recursor
+        let (recursor_level_params, recursor) = self.generate_recursor(self.adts.last().unwrap());
+        let adt_namespace = self.root.resolve_namespace_mut(adt.header.name.borrow())?;
+        adt_namespace.insert(
+            Path::from_id(&self.interner.borrow().kw_rec()),
+            recursor_level_params,
+            recursor,
+        )?;
+
+        Ok(())
+    }
+
+    fn resolve_adt_header(
+        &mut self,
+        ast: &'a DataDefinition,
+        index: AdtIndex,
+    ) -> Result<AdtHeader, TypeError> {
+        let root = TypingContext::Root(self);
+
+        let mut parameters = Vec::new();
+        for param in &ast.parameters {
+            let context = root.with_binders(&parameters);
+            let ty = context.resolve_term(&param.ty)?;
+            parameters.push(TypedBinder {
+                name: param.name,
+                ty,
+            })
+        }
+        let context = root.with_binders(&parameters);
+
+        let family = context.resolve_term(&ast.family)?;
+
+        let Ok(_) = family.check_is_ty() else {
+            return Err(TypeError::NotASortFamily(family));
+        };
+
+        // Resolve the type's family as a telescope
+        let (indices, out) = family.clone().decompose_telescope();
+        // Check that the output of the telescope is a sort
+        let Ok(sort) = out.term.check_is_sort() else {
+            return Err(TypeError::NotASortFamily(family));
+        };
+
+        // Check that the ADT is either always in `Prop` or always not in `Prop`
+        let is_prop = if sort.def_eq(&Level::zero()) {
+            true
+        } else if sort.is_geq(&Level::constant(1)) {
+            false
+        } else {
+            return Err(TypeError::MayOrMayNotBeProp(sort));
+        };
+
+        Ok(AdtHeader {
+            index,
+            name: ast.name.clone(),
+            level_params: ast.level_params.clone(),
+            parameters,
+            family,
+            indices,
+            sort,
+            is_prop,
+        })
+    }
+
+    fn resolve_adt_constructors(
+        &self,
+        ast: &DataDefinition,
+        header: &AdtHeader,
+    ) -> Result<Vec<AdtConstructor>, TypeError> {
+        let type_constructor = header.type_constructor();
+
+        // Set up a TypingContext to resolve the constructor types in
+        let adt_name_binder = TypedBinder {
+            name: Some(ast.name.last()),
+            ty: type_constructor.get_type(),
+        };
+        let root = TypingContext::Root(self);
+        let context = root.with_binder(&adt_name_binder);
+        let context = context.with_binders(&header.parameters);
+
+        let mut constructors = Vec::new();
+
+        for (i, constructor) in ast.constructors.iter().enumerate() {
+            let ty = context
+                .resolve_term(&constructor.telescope)?
+                // The binder which refers to the ADT name comes after all the parameter names
+                .replace_binder(header.parameters.len(), &type_constructor);
+
+            let constructor = self.resolve_adt_constructor(constructor.name, i, &ty, header)?;
+
+            constructors.push(constructor);
+        }
+
+        Ok(constructors)
+    }
+
+    fn resolve_adt_constructor(
+        &self,
+        name: Identifier,
+        index: usize,
+        ty: &TypedTerm,
+        header: &AdtHeader,
+    ) -> Result<AdtConstructor, TypeError> {
+        // Check that the constructor is actually a type, and decompose it as a telescope
+        ty.check_is_ty()?;
+        let (parameters, output) = ty.clone().decompose_telescope();
+
+        // Check that the output type is legal
+        let arguments = self.resolve_adt_constructor_output(output, name, &parameters, header)?;
+
+        // Check that the levels of parameters are legal.
+        // This doesn't matter for Prop types as parameters for those can be any level.
+        if !header.is_prop {
+            for param in &parameters {
+                self.check_adt_parameter_levels(param, &header.sort)?;
+            }
+        }
+
+        let mut processed_params = Vec::new();
+        for param in parameters {
+            processed_params.push(self.resolve_adt_constructor_param(name, header.index, param)?);
+        }
+
+        Ok(AdtConstructor {
+            name,
+            constant: header.constructor(index, ty.clone()),
+            type_without_adt_params: ty.clone(),
+            params: processed_params,
+            indices: arguments,
+        })
+    }
+
+    fn resolve_adt_constructor_param(
+        &self,
+        name: Identifier,
+        adt_index: AdtIndex,
+        param: TypedBinder,
+    ) -> Result<AdtConstructorParam, TypeError> {
+        let (parameters, output) = param.ty.clone().decompose_telescope();
+        let (f, args) = output.decompose_application_stack();
+
+        // If f is the ADT being constructed, then this is an inductive parameter
+        let param_kind = match f.term {
+            TypedTermKind::AdtName(id) if id == adt_index => {
+                for binder in &parameters {
+                    binder.ty.term.forbid_references_to_adt(adt_index)?;
+                }
+                for arg in &args {
+                    arg.term.forbid_references_to_adt(adt_index)?;
+                }
+
+                AdtConstructorParamKind::Inductive {
+                    parameters,
+                    indices: args,
+                }
+            }
+
+            // If the type has any other form, then just check that it doesn't contain the ADT at all
+            _ => {
+                param.ty.term.forbid_references_to_adt(adt_index)?;
+
+                AdtConstructorParamKind::NonInductive(param.ty.clone())
+            }
+        };
+
+        Ok(AdtConstructorParam {
+            name: param.name,
+            ty: param.ty,
+            kind: param_kind,
+        })
+    }
+
+    fn resolve_adt_constructor_output(
+        &self,
+        output: TypedTerm,
+        name: Identifier,
+        constructor_params: &[TypedBinder],
+        header: &AdtHeader,
+    ) -> Result<Vec<TypedTerm>, TypeError> {
+        // Decompose the output of the telescope as a series of applications.
+        // The underlying function should be the name of the ADT being constructed
+        let (f, arguments) = output.decompose_application_stack();
+
+        // Check that the underlying function is the correct ADT name
+        match f.term {
+            TypedTermKind::AdtName(id) if id == header.index => (),
+
+            _ => {
+                return Err(TypeError::IncorrectConstructorResultantType {
+                    name,
+                    found: f,
+                    expected: header.index,
+                });
+            }
+        }
+
+        // Check that the parameters are exactly the same as in the ADT header
+        for (i, _) in header.parameters.iter().enumerate() {
+            let expected = TypedTermKind::BoundVariable {
+                // The binders for ADT parameters come after the constructor parameters,
+                // and earlier parameters have higher indices
+                index: constructor_params.len() + header.parameters.len() - i - 1,
+                name: Some(name),
+            };
+
+            // TODO: check this without cloning
+            if !arguments[i].term.clone().def_eq(expected.clone()) {
+                return Err(TypeError::MismatchedAdtParameter {
+                    found: arguments[i].clone(),
+                    expected,
+                });
+            }
+        }
+
+        // Check that the arguments do not include references to the current ADT
+        for argument in &arguments {
+            argument.term.forbid_references_to_adt(header.index)?;
+        }
+
+        Ok(arguments)
+    }
+
+    fn check_adt_parameter_levels(
+        &self,
+        param: &TypedBinder,
+        adt_sort: &Rc<Level>,
+    ) -> Result<(), TypeError> {
+        if !adt_sort.is_geq(&param.level()) {
+            Err(TypeError::InvalidConstructorParameterLevel {
+                ty: param.ty.clone(),
+                adt_level: adt_sort.clone(),
+            })
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Adt {
+    fn pretty_print(
+        &self,
+        out: &mut dyn Write,
+        context: PrettyPrintContext<'a>,
+    ) -> std::io::Result<()> {
+        self.header.pretty_print(out, context)?;
+
+        for constructor in &self.constructors {
+            constructor.pretty_print(out, context)?;
+        }
+
+        writeln!(out)
+    }
+}
+
+impl<'a> PrettyPrint<PrettyPrintContext<'a>> for AdtHeader {
+    fn pretty_print(
+        &self,
+        out: &mut dyn Write,
+        context: PrettyPrintContext<'a>,
+    ) -> std::io::Result<()> {
+        write!(out, "data ")?;
+        self.name.pretty_print(out, &context.interner())?;
+        self.level_params.pretty_print(out, &context.interner())?;
+
+        for parameter in &self.parameters {
+            write!(out, " ")?;
+            parameter.pretty_print(out, context)?;
+        }
+
+        write!(out, " : ")?;
+
+        for index in &self.indices {
+            index.pretty_print(out, context)?;
+            write!(out, " -> ")?;
+        }
+        TypedTermKind::SortLiteral(self.sort.clone()).pretty_print(out, context)?;
+
+        writeln!(out, " where")
+    }
+}
+
+impl<'a> PrettyPrint<PrettyPrintContext<'a>> for AdtConstructor {
+    fn pretty_print(
+        &self,
+        out: &mut dyn Write,
+        context: PrettyPrintContext<'a>,
+    ) -> std::io::Result<()> {
+        write!(out, "  ")?;
+        self.name.pretty_print(out, &context.interner())?;
+        write!(out, " : ")?;
+        self.type_without_adt_params
+            .term
+            .pretty_print(out, context)?;
+        writeln!(out)
+    }
+}

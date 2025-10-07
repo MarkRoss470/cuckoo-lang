@@ -6,6 +6,7 @@ mod namespace;
 mod term;
 
 pub use error::TypeError;
+use std::cell::{Ref, RefCell};
 
 use crate::parser::ast::Ast;
 use crate::parser::ast::item::def::ValueDefinition;
@@ -23,18 +24,18 @@ use std::io::Write;
 pub struct AdtIndex(usize);
 
 #[derive(Debug)]
-pub struct TypingEnvironment<'a> {
-    ast: &'a Ast,
+pub struct TypingEnvironment {
+    interner: RefCell<Interner>,
     adts: Vec<Adt>,
     root: Namespace,
     /// The level parameters of the item currently being type checked
-    level_parameters: Option<&'a LevelParameters>,
+    level_parameters: Option<LevelParameters>,
 }
 
-impl<'a> TypingEnvironment<'a> {
-    pub fn new(ast: &'a Ast) -> Self {
+impl TypingEnvironment {
+    pub fn new(interner: Interner) -> Self {
         Self {
-            ast,
+            interner: RefCell::new(interner),
             adts: vec![],
             root: Namespace::new(),
             level_parameters: None,
@@ -49,7 +50,7 @@ impl<'a> TypingEnvironment<'a> {
         self.root.resolve(path, level_args)
     }
 
-    pub fn resolve_file(&mut self, ast: &'a Ast) -> Result<(), TypeError> {
+    pub fn resolve_file(&mut self, ast: &Ast) -> Result<(), TypeError> {
         for item in &ast.items {
             match item {
                 Item::DataDefinition(dd) => {
@@ -81,12 +82,12 @@ impl<'a> TypingEnvironment<'a> {
             })
     }
 
-    fn resolve_value_definition(&mut self, ast: &'a ValueDefinition) -> Result<(), TypeError> {
+    fn resolve_value_definition(&mut self, ast: &ValueDefinition) -> Result<(), TypeError> {
         let mut ty = ast.ty.clone();
         let mut value = ast.value.clone();
 
         // Set the level parameters for this item
-        self.set_level_params(&ast.level_params)?;
+        self.set_level_params(ast.level_params.clone())?;
 
         // Desugar `def` parameters to pi types and lambda expressions
         for binder in ast.binders.iter().rev() {
@@ -128,7 +129,7 @@ impl<'a> TypingEnvironment<'a> {
 
 #[derive(Debug, Copy, Clone)]
 enum TypingContext<'a> {
-    Root(&'a TypingEnvironment<'a>),
+    Root(&'a TypingEnvironment),
     Binders {
         /// The binders applied by this context. These are in source order, so later ones may
         /// depend on earlier ones.
@@ -177,20 +178,20 @@ impl<'a> TypingContext<'a> {
 
 #[derive(Debug, Copy, Clone)]
 struct PrettyPrintContext<'a> {
-    environment: &'a TypingEnvironment<'a>,
+    environment: &'a TypingEnvironment,
     indent_levels: usize,
 }
 
 impl<'a> PrettyPrintContext<'a> {
-    fn new(environment: &'a TypingEnvironment<'a>) -> Self {
+    fn new(environment: &'a TypingEnvironment) -> Self {
         Self {
             environment,
             indent_levels: 0,
         }
     }
 
-    fn interner(&self) -> &Interner {
-        &self.environment.ast.interner
+    fn interner(&self) -> Ref<Interner> {
+        self.environment.interner.borrow()
     }
 
     fn newline(&self, out: &mut dyn Write) -> std::io::Result<()> {
@@ -211,7 +212,7 @@ impl<'a> PrettyPrintContext<'a> {
     }
 }
 
-impl<'a> TypingEnvironment<'a> {
+impl<'a> TypingEnvironment {
     pub fn pretty_print(&self) {
         let context = PrettyPrintContext::new(self);
 
@@ -246,25 +247,24 @@ impl<'a> TypingEnvironment<'a> {
 
 #[cfg(test)]
 mod tests {
-    macro_rules! setup_env {
-        ($env: ident) => {
-            let ast = $crate::parser::ast::Ast {
-                interner: $crate::parser::Interner::new(),
-                items: Vec::new(),
-            };
+    macro_rules! assert_type_checks {
+        ($source: expr) => {{
+            let (interner, ast) = $crate::parser::ast::parse_file($source).unwrap();
+            let mut env = $crate::typeck::TypingEnvironment::new(interner);
 
-            #[allow(unused_mut)]
-            let mut $env = $crate::typeck::TypingEnvironment::new(&ast);
-        };
+            env.resolve_file(&ast)
+                .expect("Code should have type checked");
+        }};
     }
-    pub(in crate::typeck) use setup_env;
+    pub(in crate::typeck) use assert_type_checks;
 
     macro_rules! assert_type_error {
         ($source: expr, $error: expr) => {{
-            let ast = $crate::parser::ast::parse_file($source).unwrap();
-            let mut env = $crate::typeck::TypingEnvironment::new(&ast);
+            let (interner, ast) = $crate::parser::ast::parse_file($source).unwrap();
+            let mut env = $crate::typeck::TypingEnvironment::new(interner);
 
-            let err = env.resolve_file(&ast)
+            let err = env
+                .resolve_file(&ast)
                 .expect_err("Code should have failed to type check");
 
             assert_eq!(err, $error);

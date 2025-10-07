@@ -9,7 +9,7 @@ use crate::parser::combinators::tuples::HeterogeneousTupleExt;
 use crate::parser::{Parser, PrettyPrint, PrettyPrintContext};
 use std::io::Write;
 
-#[cfg_attr(test, derive(PartialEq, Eq))]
+#[cfg_attr(any(test, debug_assertions), derive(PartialEq, Eq))]
 #[derive(Debug)]
 pub struct DataDefinition {
     pub name: OwnedPath,
@@ -19,7 +19,7 @@ pub struct DataDefinition {
     pub constructors: Vec<DataConstructor>,
 }
 
-#[cfg_attr(test, derive(PartialEq, Eq))]
+#[cfg_attr(any(test, debug_assertions), derive(PartialEq, Eq))]
 #[derive(Debug)]
 pub struct DataConstructor {
     pub name: Identifier,
