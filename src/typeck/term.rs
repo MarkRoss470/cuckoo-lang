@@ -1,14 +1,14 @@
 use crate::parser::PrettyPrint;
-use crate::parser::atoms::ident::{Identifier, OwnedPath, Path};
-use crate::typeck::level::{Level, LevelArgs};
-use crate::typeck::{AdtIndex, PrettyPrintContext, TypeError, TypingContext};
+use crate::parser::atoms::ident::Identifier;
+use crate::typeck::level::Level;
+use crate::typeck::level::LevelArgs;
+use crate::typeck::{AdtIndex, PrettyPrintContext, TypeError};
 use std::io::Write;
-use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 #[cfg_attr(any(test, debug_assertions), derive(PartialEq))]
 pub struct TypedTerm {
-    pub(super) level: Rc<Level>,
+    pub(super) level: Level,
     pub(super) ty: TypedTermKind,
     pub(super) term: TypedTermKind,
     _priv: (),
@@ -16,7 +16,7 @@ pub struct TypedTerm {
 
 impl TypedTerm {
     /// Checks that the term represents a type. If it is, returns what level it is in.
-    pub(super) fn check_is_ty(&self) -> Result<Rc<Level>, TypeError> {
+    pub(super) fn check_is_ty(&self) -> Result<Level, TypeError> {
         self.ty
             .check_is_sort()
             .map_err(|_| TypeError::NotAType(self.clone()))
@@ -30,7 +30,7 @@ impl TypedTerm {
             _priv: (),
         }
     }
-    
+
     pub(super) fn get_type(&self) -> TypedTerm {
         TypedTerm {
             level: self.level.succ(),
@@ -40,7 +40,7 @@ impl TypedTerm {
         }
     }
 
-    pub(super) fn sort_literal(level: Rc<Level>) -> TypedTerm {
+    pub(super) fn sort_literal(level: Level) -> TypedTerm {
         TypedTerm {
             level: level.succ().succ(),
             ty: TypedTermKind::SortLiteral(level.succ()),
@@ -110,8 +110,6 @@ impl TypedTerm {
             output,
         )
     }
-
-
 
     pub(super) fn make_lambda(binder: TypedBinder, body: TypedTerm) -> TypedTerm {
         TypedTerm::value_of_type(
@@ -241,7 +239,7 @@ impl TypedTerm {
 #[derive(Debug, Clone)]
 pub enum TypedTermKind {
     /// The keywords `Sort n`, `Prop` or `Type n`
-    SortLiteral(Rc<Level>),
+    SortLiteral(Level),
     /// The name of an ADT
     AdtName(AdtIndex),
     /// The name of an ADT constructor
@@ -277,7 +275,7 @@ pub enum TypedTermKind {
 
 impl TypedTermKind {
     /// Checks that the term is a sort literal, returning its level
-    pub(super) fn check_is_sort(&self) -> Result<Rc<Level>, ()> {
+    pub(super) fn check_is_sort(&self) -> Result<Level, ()> {
         match self {
             TypedTermKind::SortLiteral(u) => Ok(u.clone()),
             _ => Err(()),
@@ -566,7 +564,7 @@ pub struct TypedBinder {
 }
 
 impl TypedBinder {
-    pub fn level(&self) -> Rc<Level> {
+    pub fn level(&self) -> Level {
         self.ty.check_is_ty().unwrap()
     }
 
@@ -703,8 +701,6 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypedBinder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::ast::parse_file;
-    use crate::typeck::TypingEnvironment;
 
     #[test]
     fn test_make_application_stack() {

@@ -8,9 +8,11 @@ use std::io::Write;
 use std::ops::Index;
 use std::rc::Rc;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Level(Rc<LevelInner>);
+
 #[derive(Debug, Clone, Eq)]
-pub enum Level {
-    // TODO: add a more efficient way to represent finite integer levels
+enum LevelInner {
     Zero,
     /// An index into the level parameters of the item this term is a part of
     Parameter {
@@ -18,15 +20,15 @@ pub enum Level {
         /// The name of the level parameter. For pretty printing only.
         name: Identifier,
     },
-    Succ(Rc<Level>),
-    Max(Rc<Level>, Rc<Level>),
-    IMax(Rc<Level>, Rc<Level>),
+    Succ(Level),
+    Max(Level, Level),
+    IMax(Level, Level),
 }
 
 // Manually implement PartialEq to ignore parameter names when checking equality
-impl PartialEq for Level {
+impl PartialEq for LevelInner {
     fn eq(&self, other: &Self) -> bool {
-        use Level::*;
+        use LevelInner::*;
 
         match (self, other) {
             (Zero, Zero) => true,
@@ -44,7 +46,7 @@ impl PartialEq for Level {
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct LevelArgs(pub Vec<Rc<Level>>);
+pub struct LevelArgs(pub Vec<Level>);
 
 impl LevelArgs {
     pub fn count(&self) -> usize {
@@ -53,7 +55,7 @@ impl LevelArgs {
 }
 
 impl Index<usize> for LevelArgs {
-    type Output = Rc<Level>;
+    type Output = Level;
 
     fn index(&self, index: usize) -> &Self::Output {
         &self.0[index]
@@ -61,27 +63,31 @@ impl Index<usize> for LevelArgs {
 }
 
 impl Level {
-    pub fn zero() -> Rc<Level> {
-        Rc::new(Self::Zero)
+    fn ptr_eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
     }
 
-    pub fn constant(u: usize) -> Rc<Level> {
+    pub fn zero() -> Self {
+        Self(Rc::new(LevelInner::Zero))
+    }
+
+    pub fn constant(u: usize) -> Self {
         if u == 0 {
-            Rc::new(Self::Zero)
+            Self::zero()
         } else {
-            Rc::new(Self::Succ(Self::constant(u - 1)))
+            Self(Rc::new(LevelInner::Succ(Self::constant(u - 1))))
         }
     }
 
-    pub fn parameter(index: usize, name: Identifier) -> Rc<Level> {
-        Rc::new(Self::Parameter { index, name })
+    pub fn parameter(index: usize, name: Identifier) -> Self {
+        Self(Rc::new(LevelInner::Parameter { index, name }))
     }
 
-    pub fn succ(self: &Rc<Level>) -> Rc<Level> {
-        Rc::new(Self::Succ(self.clone()))
+    pub fn succ(&self) -> Self {
+        Self(Rc::new(LevelInner::Succ(self.clone())))
     }
 
-    pub fn offset(self: &Rc<Level>, offset: usize) -> Rc<Level> {
+    pub fn offset(&self, offset: usize) -> Self {
         if offset == 0 {
             self.clone()
         } else {
@@ -91,25 +97,25 @@ impl Level {
 
     /// Wrapper for [`Max`] which handles [`Rc`]s
     ///
-    /// [`Max`]: Level::Max
-    fn max(self: &Rc<Level>, other: &Rc<Level>) -> Rc<Level> {
-        Rc::new(Level::Max(self.clone(), other.clone()))
+    /// [`Max`]: LevelInner::Max
+    fn max(&self, other: &Self) -> Self {
+        Self(Rc::new(LevelInner::Max(self.clone(), other.clone())))
     }
 
     /// Constructs a level representing the maximum of two levels,
     /// while performing some simple simplifications.
-    pub fn smart_max(self: &Rc<Level>, other: &Rc<Level>) -> Rc<Level> {
-        use Level::*;
+    pub fn smart_max(&self, other: &Self) -> Self {
+        use LevelInner::*;
 
         // If the arguments are the same, just take one
         if self == other {
             self.clone()
         } else {
-            match (&**self, &**other) {
+            match (&*self.0, &*other.0) {
                 (Zero, _) => other.clone(),
                 (_, Zero) => self.clone(),
-                (Max(a, b), v) if *v == **a || *v == **b => self.clone(),
-                (u, Max(a, b)) if *u == **a || *u == **b => other.clone(),
+                (Max(a, b), v) if *v == *a.0 || *v == *b.0 => self.clone(),
+                (u, Max(a, b)) if *u == *a.0 || *u == *b.0 => other.clone(),
                 (_, _) => {
                     let (u, ou) = self.to_offset();
                     let (v, ov) = other.to_offset();
@@ -130,19 +136,19 @@ impl Level {
 
     /// Wrapper for [`IMax`] which handles [`Rc`]s
     ///
-    /// [`IMax`]: Level::IMax
-    fn imax(self: &Rc<Level>, other: &Rc<Level>) -> Rc<Level> {
-        Rc::new(Level::IMax(self.clone(), other.clone()))
+    /// [`IMax`]: LevelInner::IMax
+    fn imax(&self, other: &Self) -> Self {
+        Self(Rc::new(LevelInner::IMax(self.clone(), other.clone())))
     }
 
     /// Constructs a level representing the impredicative maximum of two levels,
     /// while performing some simple simplifications.
-    pub fn smart_imax(self: &Rc<Level>, other: &Rc<Level>) -> Rc<Level> {
-        use Level::*;
+    pub fn smart_imax(&self, other: &Self) -> Self {
+        use LevelInner::*;
 
         if other.is_not_zero() {
             self.smart_max(other)
-        } else if **other == Zero {
+        } else if *other.0 == Zero {
             Self::zero()
         } else if *self == Self::zero() || *self == Self::zero().succ() {
             other.clone()
@@ -154,10 +160,10 @@ impl Level {
     }
 
     /// Checks if a level is guaranteed to be non-zero
-    fn is_not_zero(self: &Rc<Level>) -> bool {
-        use Level::*;
+    fn is_not_zero(&self) -> bool {
+        use LevelInner::*;
 
-        match &**self {
+        match &*self.0 {
             Zero | Parameter { .. } => false,
             Succ(_) => true,
             Max(a, b) => a.is_not_zero() || b.is_not_zero(),
@@ -168,10 +174,10 @@ impl Level {
     /// Strips [`Succ`]s from a level, returning the inner level and the constant
     /// offset which has been removed.
     ///
-    /// [`Succ`]: Level::Succ
-    fn to_offset(self: &Rc<Level>) -> (Rc<Level>, usize) {
-        match &**self {
-            Level::Succ(u) => {
+    /// [`Succ`]: LevelInner::Succ
+    fn to_offset(&self) -> (Self, usize) {
+        match &*self.0 {
+            LevelInner::Succ(u) => {
                 let (u, o) = u.to_offset();
                 (u, o + 1)
             }
@@ -179,16 +185,16 @@ impl Level {
         }
     }
 
-    pub fn instantiate_parameters(self: &Rc<Level>, args: &LevelArgs) -> Rc<Level> {
-        use Level::*;
+    pub fn instantiate_parameters(&self, args: &LevelArgs) -> Self {
+        use LevelInner::*;
 
-        match &**self {
+        match &*self.0 {
             Zero => self.clone(),
             Parameter { index: p, .. } => args[*p].clone(),
             Succ(s_old) => {
                 let s = s_old.instantiate_parameters(args);
 
-                if Rc::ptr_eq(&s, s_old) {
+                if s.ptr_eq(s_old) {
                     self.clone()
                 } else {
                     s.succ()
@@ -198,7 +204,7 @@ impl Level {
                 let u = u_old.instantiate_parameters(args);
                 let v = v_old.instantiate_parameters(args);
 
-                if Rc::ptr_eq(&u, u_old) && Rc::ptr_eq(&v, v_old) {
+                if u.ptr_eq(u_old) && v.ptr_eq(v_old) {
                     self.clone()
                 } else {
                     u.smart_max(&v)
@@ -208,7 +214,7 @@ impl Level {
                 let u = u_old.instantiate_parameters(args);
                 let v = v_old.instantiate_parameters(args);
 
-                if Rc::ptr_eq(&u, u_old) && Rc::ptr_eq(&v, v_old) {
+                if u.ptr_eq(u_old) && v.ptr_eq(v_old) {
                     self.clone()
                 } else {
                     u.smart_imax(&v)
@@ -219,26 +225,26 @@ impl Level {
 
     /// A number representing the type of the level
     fn tag(&self) -> usize {
-        match self {
-            Level::Zero => 0,
-            Level::Parameter { .. } => 1,
-            Level::Succ(_) => 2,
-            Level::Max(_, _) => 3,
-            Level::IMax(_, _) => 4,
+        match *self.0 {
+            LevelInner::Zero => 0,
+            LevelInner::Parameter { .. } => 1,
+            LevelInner::Succ(_) => 2,
+            LevelInner::Max(_, _) => 3,
+            LevelInner::IMax(_, _) => 4,
         }
     }
 
-    /// A total order on [`Level`]s, where zero is the initial element and
+    /// A total order on [`LevelInner`]s, where zero is the initial element and
     /// `Succ(u)` is the immediate successor of `u`.
-    fn cmp_norm(self: &Rc<Level>, other: &Rc<Level>) -> Ordering {
-        use Level::*;
+    fn cmp_norm(&self, other: &Self) -> Ordering {
+        use LevelInner::*;
 
         let (u, ou) = self.to_offset();
         let (v, ov) = other.to_offset();
         if u == v {
             ou.cmp(&ov)
         } else {
-            match (&*u, &*v) {
+            match (&*u.0, &*v.0) {
                 (Parameter { index: pu, .. }, Parameter { index: pv, .. }) => pu.cmp(pv),
                 (Max(au, bu), Max(av, bv)) | (IMax(au, bu), IMax(av, bv)) => {
                     if au == av {
@@ -256,11 +262,11 @@ impl Level {
     /// Arguments are normalized, so any level which normalizes to a [`Max`] will have its
     /// arguments collected as well.
     ///
-    /// [`Max`]: Level::Max
-    fn collect_max_args(self: &Rc<Level>, buf: &mut Vec<Rc<Level>>) {
-        use Level::*;
+    /// [`Max`]: LevelInner::Max
+    fn collect_max_args(&self, buf: &mut Vec<Self>) {
+        use LevelInner::*;
 
-        match &**self {
+        match &*self.0 {
             Max(a, b) => {
                 a.normalize().collect_max_args(buf);
                 b.normalize().collect_max_args(buf);
@@ -271,8 +277,8 @@ impl Level {
 
     /// Normalizes a [`Max`] level. A constant offset of `offset` will be added to each argument.
     ///
-    /// [`Max`]: Level::Max
-    fn normalize_max(self: &Rc<Self>, offset: usize) -> Rc<Self> {
+    /// [`Max`]: LevelInner::Max
+    fn normalize_max(&self, offset: usize) -> Self {
         let mut args = Vec::new();
         // Collect the arguments to the `Max`
         self.collect_max_args(&mut args);
@@ -287,7 +293,7 @@ impl Level {
         // If the last argument is a constant, it might be redundant if another argument is guaranteed
         // to be larger than it.
         let (last_arg, last_offset) = args.last().unwrap().to_offset();
-        if *last_arg == Self::Zero && args.len() > 1 {
+        if *last_arg.0 == LevelInner::Zero && args.len() > 1 {
             // Find the largest constant offset among the other arguments
             let largest_offset = args
                 .iter()
@@ -309,12 +315,12 @@ impl Level {
 
     /// Converts a level to a normalized form which is equivalent to it.
     /// Any two equivalent levels will convert to the same normalized form.
-    pub fn normalize(self: &Rc<Self>) -> Rc<Self> {
-        use Level::*;
+    pub fn normalize(&self) -> Self {
+        use LevelInner::*;
 
         let (u, o) = self.to_offset();
 
-        match &*u {
+        match &*u.0 {
             Succ(_) => unreachable!(),
             Zero | Parameter { .. } => self.clone(),
             Max(_, _) => u.normalize_max(o),
@@ -332,32 +338,32 @@ impl Level {
 
     /// Checks whether two levels are definitionally equal i.e. if they are guaranteed to be equal
     /// for any valuation of their parameters
-    pub fn def_eq(self: &Rc<Self>, other: &Rc<Self>) -> bool {
+    pub fn def_eq(&self, other: &Self) -> bool {
         self.normalize() == other.normalize()
     }
 
     /// Checks whether one level is guaranteed to be greater than or equal to another
-    pub fn is_geq(self: &Rc<Self>, other: &Rc<Self>) -> bool {
+    pub fn is_geq(&self, other: &Self) -> bool {
         let u = self.normalize();
         let v = other.normalize();
 
-        if u == v || *v == Level::Zero {
+        if u == v || *v.0 == LevelInner::Zero {
             true
-        } else if let Level::Max(a, b) = &*v {
+        } else if let LevelInner::Max(a, b) = &*v.0 {
             u.is_geq(a) && u.is_geq(b)
-        } else if let Level::Max(a, b) = &*u
+        } else if let LevelInner::Max(a, b) = &*u.0
             && (a.is_geq(&v) || b.is_geq(&v))
         {
             true
-        } else if let Level::IMax(a, b) = &*v {
+        } else if let LevelInner::IMax(a, b) = &*v.0 {
             u.is_geq(&a) && u.is_geq(&b)
-        } else if let Level::IMax(_, b) = &*u {
+        } else if let LevelInner::IMax(_, b) = &*u.0 {
             b.is_geq(&v)
         } else {
             let (u, ou) = u.to_offset();
             let (v, ov) = v.to_offset();
 
-            if u == v || *v == Level::Zero {
+            if u == v || *v.0 == LevelInner::Zero {
                 ou >= ov
             } else if ou == ov && ou > 0 {
                 u.is_geq(&v)
@@ -382,7 +388,7 @@ impl TypingEnvironment {
         self.level_parameters = None;
     }
 
-    pub fn resolve_level(&self, arg: &LevelExpr) -> Result<Rc<Level>, TypeError> {
+    pub fn resolve_level(&self, arg: &LevelExpr) -> Result<Level, TypeError> {
         match arg {
             LevelExpr::Literal(l) => {
                 if *l > 8 {
@@ -419,7 +425,7 @@ impl TypingEnvironment {
 }
 
 impl<'a> TypingContext<'a> {
-    pub fn resolve_level(&self, arg: &LevelExpr) -> Result<Rc<Level>, TypeError> {
+    pub fn resolve_level(&self, arg: &LevelExpr) -> Result<Level, TypeError> {
         match self {
             TypingContext::Root(env) => env.resolve_level(arg),
             TypingContext::Binders { parent, .. } => parent.resolve_level(arg),
@@ -440,7 +446,7 @@ impl<'a> TypingContext<'a> {
     }
 }
 
-impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Rc<Level> {
+impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Level {
     fn pretty_print(
         &self,
         out: &mut dyn Write,
@@ -448,26 +454,26 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Rc<Level> {
     ) -> std::io::Result<()> {
         let (u, o) = self.to_offset();
 
-        if *u == Level::Zero {
+        if *u.0 == LevelInner::Zero {
             return write!(out, "{o}");
         }
 
-        match &*u {
-            Level::Zero => write!(out, "0")?,
-            Level::Parameter { name, .. } => name.pretty_print(out, &context.interner())?,
-            Level::Succ(u) => {
+        match &*u.0 {
+            LevelInner::Zero => write!(out, "0")?,
+            LevelInner::Parameter { name, .. } => name.pretty_print(out, &context.interner())?,
+            LevelInner::Succ(u) => {
                 write!(out, "(succ ")?;
                 u.pretty_print(out, context)?;
                 write!(out, ")")?;
             }
-            Level::Max(u, v) => {
+            LevelInner::Max(u, v) => {
                 write!(out, "(max ")?;
                 u.pretty_print(out, context)?;
                 write!(out, " ")?;
                 v.pretty_print(out, context)?;
                 write!(out, ")")?;
             }
-            Level::IMax(u, v) => {
+            LevelInner::IMax(u, v) => {
                 write!(out, "(imax ")?;
                 u.pretty_print(out, context)?;
                 write!(out, " ")?;
@@ -654,14 +660,21 @@ mod tests {
             param_0.max(&param_1.succ())
         );
         assert_eq!(
-            param_0.imax(&param_1.max(&Level::constant(1))).normalize(),
+            param_0
+                .imax(&param_1.max(&Level::constant(1)))
+                .normalize(),
             Level::constant(1).max(&param_0.max(&param_1))
         );
 
         // Imax becomes zero if the RHS is zero
-        assert_eq!(param_0.imax(&Level::zero()).normalize(), Level::zero());
         assert_eq!(
-            param_0.imax(&Level::zero().max(&Level::zero())).normalize(),
+            param_0.imax(&Level::zero()).normalize(),
+            Level::zero()
+        );
+        assert_eq!(
+            param_0
+                .imax(&Level::zero().max(&Level::zero()))
+                .normalize(),
             Level::zero()
         );
         assert_eq!(

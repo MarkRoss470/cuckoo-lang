@@ -2,7 +2,7 @@ use crate::parser::PrettyPrint;
 use crate::parser::ast::item::LevelParameters;
 use crate::parser::ast::item::data::DataDefinition;
 use crate::parser::atoms::ident::{Identifier, OwnedPath, Path};
-use crate::typeck::level::Level;
+use crate::typeck::level::{Level};
 use crate::typeck::term::{TypedBinder, TypedTerm, TypedTermKind};
 use crate::typeck::{AdtIndex, PrettyPrintContext, TypeError, TypingContext, TypingEnvironment};
 use std::io::Write;
@@ -24,7 +24,7 @@ pub struct AdtHeader {
     /// The indices of the ADT's family
     pub indices: Vec<TypedBinder>,
     /// The level in which the ADT lives
-    pub sort: Rc<Level>,
+    pub sort: Level,
     /// Whether the ADT is a proposition
     pub is_prop: bool,
 }
@@ -419,7 +419,7 @@ impl<'a> TypingEnvironment {
     fn check_adt_parameter_levels(
         &self,
         param: &TypedBinder,
-        adt_sort: &Rc<Level>,
+        adt_sort: &Level,
     ) -> Result<(), TypeError> {
         if !adt_sort.is_geq(&param.level()) {
             Err(TypeError::InvalidConstructorParameterLevel {

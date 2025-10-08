@@ -161,7 +161,7 @@ impl<'a> TypingEnvironment {
 /// eliminating, then the level parameters for the recursor are the same as those for the ADT,
 /// and the motive return type is `Prop`. If the ADT is large eliminating, then an extra level
 /// parameter is added for the motive.
-fn calculate_levels(adt: &Adt, interner: &mut Interner) -> (LevelParameters, Rc<Level>) {
+fn calculate_levels(adt: &Adt, interner: &mut Interner) -> (LevelParameters, Level) {
     // If the ADT is large eliminating, add a level parameter for the level of the motive.
     // Otherwise, just copy the level parameters of the ADT, and the motive must be a Prop.
     let (level_params, motive_output_sort) = if adt.is_large_eliminating {
@@ -180,7 +180,7 @@ fn calculate_levels(adt: &Adt, interner: &mut Interner) -> (LevelParameters, Rc<
 /// Calculates the type of the motive in the recursor of an ADT. The motive is of the form
 /// `<indices> -> <value> -> Sort <motive output sort>>` where `<indices>` are the ADT's indices
 /// and `<value>` is a value of the ADT with those indices.
-fn calculate_motive_type(adt: &Adt, motive_output_sort: Rc<Level>) -> TypedTerm {
+fn calculate_motive_type(adt: &Adt, motive_output_sort: Level) -> TypedTerm {
     let mut motive_params = adt.header.indices.clone();
 
     motive_params.push(TypedBinder {
@@ -324,9 +324,7 @@ fn generate_induction_rules(
                 name: adt.header.parameters[index].name,
             },
             constructor,
-            |threshold, offset, val| {
-                val.clone_incrementing(threshold, offset - threshold + i + 1)
-            },
+            |threshold, offset, val| val.clone_incrementing(threshold, offset - threshold + i + 1),
             |offset, indices, val| motive(offset + i, indices, val),
         );
 

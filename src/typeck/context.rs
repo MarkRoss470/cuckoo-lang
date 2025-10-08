@@ -1,6 +1,6 @@
 use crate::parser::ast::term::{Binder, Term};
 use crate::parser::atoms::ident::{OwnedPath, Path};
-use crate::typeck::level::{Level, LevelArgs};
+use crate::typeck::level::LevelArgs;
 use crate::typeck::term::{TypedBinder, TypedTerm, TypedTermKind};
 use crate::typeck::{TypeError, TypingContext};
 
@@ -148,6 +148,7 @@ mod tests {
     use crate::parser::ast::item::LevelParameters;
     use crate::parser::atoms::ident::Identifier;
     use crate::typeck::TypingEnvironment;
+    use crate::typeck::level::Level;
 
     #[test]
     fn test_resolve_identifier() {
