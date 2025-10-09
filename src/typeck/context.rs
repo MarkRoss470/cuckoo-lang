@@ -66,11 +66,12 @@ impl<'a> TypingContext<'a> {
 
     /// Resolves a path in the current context
     fn resolve_path(&self, path: Path, level_args: &LevelArgs) -> Result<TypedTerm, TypeError> {
-        self.resolve_path_inner(path, level_args).map(|(mut t, i)| {
+        self.resolve_path_inner(path, level_args).map(|(t, i)| {
             // The term includes its own binder while the type doesn't, so the type needs to be incremented by one more than the term
-            t.ty.increment_binders_above(0, i + 1);
-            t.term.increment_binders_above(0, i);
-            t
+            TypedTerm::value_of_type(
+                t.term().clone_incrementing(0, i),
+                t.get_type().clone_incrementing(0, i + 1),
+            )
         })
     }
 
@@ -84,16 +85,15 @@ impl<'a> TypingContext<'a> {
         let argument = self.resolve_term(argument)?;
 
         // Reduce the type of the function
-        function.ty.reduce_root();
+        let function_ty = function.get_type().reduce_root();
 
         // Check that the function has a function type
-        let TypedTermKind::PiType { binder, output } = &function.ty else {
+        let Some((binder, output)) = function_ty.is_pi_type() else {
             return Err(TypeError::NotAFunction(function));
         };
 
         // Check that the type of the argument matches the input type of the function
-        // TODO: do this check without cloning
-        if !binder.ty.term.clone().def_eq(argument.ty.clone()) {
+        if !binder.ty.term().def_eq(&argument.ty()) {
             return Err(TypeError::MismatchedTypes {
                 term: argument,
                 expected: binder.ty.clone(),

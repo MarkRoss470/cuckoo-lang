@@ -2,7 +2,7 @@ use crate::parser::PrettyPrint;
 use crate::parser::ast::item::LevelParameters;
 use crate::parser::ast::item::data::DataDefinition;
 use crate::parser::atoms::ident::{Identifier, OwnedPath, Path};
-use crate::typeck::level::{Level};
+use crate::typeck::level::Level;
 use crate::typeck::term::{TypedBinder, TypedTerm, TypedTermKind};
 use crate::typeck::{AdtIndex, PrettyPrintContext, TypeError, TypingContext, TypingEnvironment};
 use std::io::Write;
@@ -81,11 +81,11 @@ impl Adt {
         // or is mentioned in the constructor's indices
         for (i, parameter) in constructor.params.iter().rev().enumerate() {
             if let AdtConstructorParamKind::NonInductive(ty) = &parameter.kind {
-                let is_prop = ty.level.def_eq(&Level::zero());
+                let is_prop = ty.level().def_eq(&Level::zero());
                 let is_referenced = constructor
                     .indices
                     .iter()
-                    .any(|t| t.term.references_bound_variable(i));
+                    .any(|t| t.term().references_bound_variable(i));
 
                 if !(is_prop || is_referenced) {
                     return false;
@@ -233,7 +233,7 @@ impl<'a> TypingEnvironment {
         // Resolve the type's family as a telescope
         let (indices, out) = family.clone().decompose_telescope();
         // Check that the output of the telescope is a sort
-        let Ok(sort) = out.term.check_is_sort() else {
+        let Ok(sort) = out.term().check_is_sort() else {
             return Err(TypeError::NotASortFamily(family));
         };
 
@@ -336,27 +336,24 @@ impl<'a> TypingEnvironment {
         let (f, args) = output.decompose_application_stack();
 
         // If f is the ADT being constructed, then this is an inductive parameter
-        let param_kind = match f.term {
-            TypedTermKind::AdtName(id) if id == adt_index => {
-                for binder in &parameters {
-                    binder.ty.term.forbid_references_to_adt(adt_index)?;
-                }
-                for arg in &args {
-                    arg.term.forbid_references_to_adt(adt_index)?;
-                }
-
-                AdtConstructorParamKind::Inductive {
-                    parameters,
-                    indices: args,
-                }
+        let param_kind = if let Some(id) = f.is_adt_name()
+            && id == adt_index
+        {
+            for binder in &parameters {
+                binder.ty.term().forbid_references_to_adt(adt_index)?;
+            }
+            for arg in &args {
+                arg.term().forbid_references_to_adt(adt_index)?;
             }
 
-            // If the type has any other form, then just check that it doesn't contain the ADT at all
-            _ => {
-                param.ty.term.forbid_references_to_adt(adt_index)?;
-
-                AdtConstructorParamKind::NonInductive(param.ty.clone())
+            AdtConstructorParamKind::Inductive {
+                parameters,
+                indices: args,
             }
+        } else {
+            param.ty.term().forbid_references_to_adt(adt_index)?;
+
+            AdtConstructorParamKind::NonInductive(param.ty.clone())
         };
 
         Ok(AdtConstructorParam {
@@ -378,9 +375,8 @@ impl<'a> TypingEnvironment {
         let (f, arguments) = output.decompose_application_stack();
 
         // Check that the underlying function is the correct ADT name
-        match f.term {
-            TypedTermKind::AdtName(id) if id == header.index => (),
-
+        match f.is_adt_name() {
+            Some(id) if id == header.index => (),
             _ => {
                 return Err(TypeError::IncorrectConstructorResultantType {
                     name,
@@ -391,26 +387,24 @@ impl<'a> TypingEnvironment {
         }
 
         // Check that the parameters are exactly the same as in the ADT header
-        for (i, _) in header.parameters.iter().enumerate() {
-            let expected = TypedTermKind::BoundVariable {
-                // The binders for ADT parameters come after the constructor parameters,
-                // and earlier parameters have higher indices
-                index: constructor_params.len() + header.parameters.len() - i - 1,
-                name: Some(name),
-            };
+        for (i, param) in header.parameters.iter().enumerate() {
+            let expected = TypedTerm::bound_variable(
+                constructor_params.len() + header.parameters.len() - i - 1,
+                param.name,
+                param.ty.clone_incrementing(0, constructor_params.len() + header.parameters.len() - i),
+            );
 
-            // TODO: check this without cloning
-            if !arguments[i].term.clone().def_eq(expected.clone()) {
+            if !arguments[i].def_eq(&expected) {
                 return Err(TypeError::MismatchedAdtParameter {
                     found: arguments[i].clone(),
-                    expected,
+                    expected: expected.term(),
                 });
             }
         }
 
         // Check that the arguments do not include references to the current ADT
         for argument in &arguments {
-            argument.term.forbid_references_to_adt(header.index)?;
+            argument.term().forbid_references_to_adt(header.index)?;
         }
 
         Ok(arguments)
@@ -465,11 +459,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for AdtHeader {
 
         write!(out, " : ")?;
 
-        for index in &self.indices {
-            index.pretty_print(out, context)?;
-            write!(out, " -> ")?;
-        }
-        TypedTermKind::SortLiteral(self.sort.clone()).pretty_print(out, context)?;
+        self.family.pretty_print(out, context)?;
 
         writeln!(out, " where")
     }
@@ -485,7 +475,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for AdtConstructor {
         self.name.pretty_print(out, &context.interner())?;
         write!(out, " : ")?;
         self.type_without_adt_params
-            .term
+            .term()
             .pretty_print(out, context)?;
         writeln!(out)
     }

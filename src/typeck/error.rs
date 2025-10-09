@@ -65,15 +65,15 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
         match self {
             // ----- Term resolution errors
             TypeError::NotAFunction(t) => {
-                t.term.pretty_print(out, context)?;
+                t.term().pretty_print(out, context)?;
                 write!(out, " is not a function. It has type ")?;
-                t.ty.pretty_print(out, context)?;
+                t.ty().pretty_print(out, context)?;
                 write!(out, ".")
             }
             TypeError::NotAType(t) => {
-                t.term.pretty_print(out, context)?;
+                t.term().pretty_print(out, context)?;
                 write!(out, " is not a type. It has type ")?;
-                t.ty.pretty_print(out, context)?;
+                t.ty().pretty_print(out, context)?;
                 write!(out, ", which is not a sort.")
             }
             TypeError::NameNotResolved(id) => {
@@ -83,11 +83,11 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
             }
             TypeError::MismatchedTypes { term, expected } => {
                 write!(out, "Expected ")?;
-                term.term.pretty_print(out, context)?;
+                term.term().pretty_print(out, context)?;
                 write!(out, " to have type ")?;
-                expected.term.pretty_print(out, context)?;
+                expected.term().pretty_print(out, context)?;
                 write!(out, ", but it has type ")?;
-                term.ty.pretty_print(out, context)?;
+                term.ty().pretty_print(out, context)?;
                 write!(out, ".")
             }
             TypeError::LocalVariableIsNotANamespace(path) => {
@@ -134,7 +134,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
 
             // ----- ADT declaration errors
             TypeError::NotASortFamily(t) => {
-                t.term.pretty_print(out, context)?;
+                t.term().pretty_print(out, context)?;
                 write!(out, " is not a sort or family of sorts.")
             }
             TypeError::MayOrMayNotBeProp(level) => {
@@ -162,7 +162,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
                     .name
                     .pretty_print(out, &context.interner())?;
                 write!(out, ", but it results in ")?;
-                found.term.pretty_print(out, context)
+                found.term().pretty_print(out, context)
             }
             TypeError::InvalidLocationForAdtNameInConstructor(id) => {
                 context
@@ -179,7 +179,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
             }
             TypeError::MismatchedAdtParameter { found, expected } => {
                 write!(out, "Mismatched inductive type parameter. Found ")?;
-                found.term.pretty_print(out, context)?;
+                found.term().pretty_print(out, context)?;
                 write!(out, ", expected ")?;
                 expected.pretty_print(out, context)
             }
@@ -189,7 +189,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
                     "Invalid level for constructor parameter - this parameter is of type"
                 )?;
                 context.borrow_indented().newline(out)?;
-                ty.term.pretty_print(out, context.borrow_indented())?;
+                ty.term().pretty_print(out, context.borrow_indented())?;
                 context.newline(out)?;
                 write!(out, "at level")?;
                 context.borrow_indented().newline(out)?;

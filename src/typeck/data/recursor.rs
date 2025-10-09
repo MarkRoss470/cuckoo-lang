@@ -6,7 +6,6 @@ use crate::typeck::data::{Adt, AdtConstructor, AdtConstructorParamKind};
 use crate::typeck::level::Level;
 use crate::typeck::term::{TypedBinder, TypedTerm, TypedTermKind};
 use std::iter;
-use std::rc::Rc;
 
 impl<'a> TypingEnvironment {
     /// Generates the recursor constant of an ADT. This constant is of the following type:
@@ -192,9 +191,11 @@ fn calculate_motive_type(adt: &Adt, motive_output_sort: Level) -> TypedTerm {
                 .iter()
                 .chain(adt.header.indices.iter())
                 .enumerate()
-                .map(|(i, binder)| TypedTermKind::BoundVariable {
-                    index: adt.header.parameters.len() + adt.header.indices.len() - i - 1,
-                    name: binder.name,
+                .map(|(i, binder)| {
+                    TypedTermKind::bound_variable(
+                        adt.header.parameters.len() + adt.header.indices.len() - i - 1,
+                        binder.name,
+                    )
                 }),
         ),
     });
@@ -220,8 +221,8 @@ fn make_motive(
     val: TypedTerm,
 ) -> TypedTerm {
     debug_assert_eq!(
-        val.get_type().decompose_application_stack().0.term,
-        TypedTermKind::AdtName(adt.header.index)
+        val.get_type().decompose_application_stack().0.term(),
+        TypedTermKind::adt_name(adt.header.index)
     );
     debug_assert_eq!(
         val.get_type().decompose_application_stack().1.len(),
@@ -238,7 +239,7 @@ fn make_motive(
         indices
             .into_iter()
             .chain(iter::once(val))
-            .map(|index| index.term),
+            .map(|index| index.term()),
     )
 }
 
@@ -255,15 +256,9 @@ fn calculate_value_parameter_type(adt: &Adt, num_params: usize) -> TypedTerm {
             .parameters
             .iter()
             .enumerate()
-            .map(|(i, param)| TypedTermKind::BoundVariable {
-                index: num_params - i - 1,
-                name: param.name,
-            })
+            .map(|(i, param)| TypedTermKind::bound_variable(num_params - i - 1, param.name))
             .chain(adt.header.indices.iter().enumerate().map(|(i, index)| {
-                TypedTermKind::BoundVariable {
-                    index: adt.header.indices.len() - i - 1,
-                    name: index.name,
-                }
+                TypedTermKind::bound_variable(adt.header.indices.len() - i - 1, index.name)
             })),
     )
 }
@@ -319,9 +314,11 @@ fn generate_induction_rules(
     for (i, constructor) in adt.constructors.iter().enumerate() {
         let induction_rule = calculate_constructor_induction_rule(
             adt.header.parameters.len(),
-            |index, offset| TypedTermKind::BoundVariable {
-                index: recursor_params.len() - index - 1 + offset,
-                name: adt.header.parameters[index].name,
+            |index, offset| {
+                TypedTermKind::bound_variable(
+                    recursor_params.len() - index - 1 + offset,
+                    adt.header.parameters[index].name,
+                )
             },
             constructor,
             |threshold, offset, val| val.clone_incrementing(threshold, offset - threshold + i + 1),
@@ -384,10 +381,7 @@ fn calculate_constructor_induction_rule(
         &constructor,
         adt_num_params,
         |i| get_adt_param(i, num_params),
-        |i| TypedTermKind::BoundVariable {
-            index: num_params - i - 1,
-            name: constructor.params[i].name,
-        },
+        |i| TypedTermKind::bound_variable(num_params - i - 1, constructor.params[i].name),
         |term| {
             reindex(
                 induction_rule_params.len(),
@@ -509,13 +503,9 @@ fn calculate_inductive_parameter_principle(
     // representing this parameter
     let inductive_val = TypedTerm::make_application_stack(
         param_val(param_params.len()),
-        param_params
-            .iter()
-            .enumerate()
-            .map(|(i, param)| TypedTermKind::BoundVariable {
-                index: param_params.len() - i - 1,
-                name: param.name,
-            }),
+        param_params.iter().enumerate().map(|(i, param)| {
+            TypedTermKind::bound_variable(param_params.len() - i - 1, param.name)
+        }),
     );
 
     let motive = motive(param_params.len(), param_indices, inductive_val);

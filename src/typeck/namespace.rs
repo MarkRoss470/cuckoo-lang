@@ -129,9 +129,9 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Namespace {
             id.pretty_print(out, &context.interner())?;
             item.level_params.pretty_print(out, &context.interner())?;
             write!(out, " : ")?;
-            item.value.ty.pretty_print(out, context)?;
+            item.value.ty().pretty_print(out, context)?;
             write!(out, " := ")?;
-            item.value.term.pretty_print(out, context)?;
+            item.value.term().pretty_print(out, context)?;
         }
 
         for (id, namespace) in &self.namespaces {

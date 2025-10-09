@@ -47,5 +47,24 @@ impl Ast {
             item.pretty_print(&mut stdout, context).unwrap();
         }
     }
+}
 
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+    use crate::parser::ast::term::{Term, term};
+
+    pub fn parse_term(interner: &mut Interner, source: &str) -> ParseResult<Term> {
+        let context = ParseContext {
+            interner,
+            indent_levels: 0,
+        };
+
+        let (rest, term) = term()
+            .parse(source, context)
+            .expect("Term should have parsed");
+        assert!(rest.is_empty(), "Leftover text when parsing term");
+
+        term
+    }
 }

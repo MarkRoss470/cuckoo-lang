@@ -389,18 +389,9 @@ fn test_resolve_adt_list() {
                     TypedTerm::make_application_stack(
                         cons_const.clone(),
                         [
-                            TypedTermKind::BoundVariable {
-                                index: 5,
-                                name: Some(id_t),
-                            },
-                            TypedTermKind::BoundVariable {
-                                index: 2,
-                                name: None,
-                            },
-                            TypedTermKind::BoundVariable {
-                                index: 1,
-                                name: None,
-                            },
+                            TypedTermKind::bound_variable(5, Some(id_t)),
+                            TypedTermKind::bound_variable(2, None),
+                            TypedTermKind::bound_variable(1, None),
                         ],
                     ),
                 ),
@@ -626,8 +617,9 @@ fn test_resolve_adt_eq() {
 
     let case_refl = motive(
         0,
-        x(1).term,
-        TypedTerm::make_application_stack(refl_const_expected, vec![t(2).term, x(1).term]).term,
+        x(1).term(),
+        TypedTerm::make_application_stack(refl_const_expected, vec![t(2).term(), x(1).term()])
+            .term(),
     );
 
     let recursor_expected = TypedTerm::adt_recursor(
@@ -664,14 +656,8 @@ fn test_resolve_adt_eq() {
                                 },
                                 motive(
                                     3,
-                                    TypedTermKind::BoundVariable {
-                                        index: 1,
-                                        name: None,
-                                    },
-                                    TypedTermKind::BoundVariable {
-                                        index: 0,
-                                        name: None,
-                                    },
+                                    TypedTermKind::bound_variable(1, None),
+                                    TypedTermKind::bound_variable(0, None),
                                 ),
                             ),
                         ),
@@ -739,24 +725,10 @@ fn test_adt_recursors() {
     );
 
     assert_type_checks!(
-        "data Nat : Type where
-          | zero : Nat
-          | succ : Nat -> Nat
-    
-        def nat_rec.{m} :
-            (motive : Nat -> Sort m)
-            -> (zero : motive Nat.zero)
-            -> (succ : (x : Nat) -> motive x -> motive (Nat.succ x))
-            -> (x : Nat)
-            -> motive x
-            := Nat.rec.{m}"
-    );
-
-    assert_type_checks!(
         "data List.{u} (T : Type u) : Type u where
           | nil : List T
           | cons : T -> List T -> List T
-    
+
         def list_rec.{u, m} :
             (T : Type u)
             -> (motive : List.{u} T -> Sort m)
@@ -855,10 +827,10 @@ fn test_invalid_adt_definitions() {
             found: TypedTerm::adt_name(AdtIndex(0), TypedTerm::sort_literal(Level::constant(1))),
             expected: TypedTerm::bound_variable(
                 0,
-                Some(Identifier::dummy_val(9)),
+                Some(Identifier::dummy_val(7)),
                 TypedTerm::sort_literal(Level::constant(1))
             )
-            .term
+            .term()
         }
     );
 

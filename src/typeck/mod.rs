@@ -109,8 +109,7 @@ impl TypingEnvironment {
         // Resolve the value of the `def`
         let value = TypingContext::Root(self).resolve_term(&value)?;
 
-        // TODO: do this check without cloning
-        if !ty.term.clone().def_eq(value.ty.clone()) {
+        if !ty.def_eq(&value.get_type()) {
             return Err(TypeError::MismatchedTypes {
                 term: value,
                 expected: ty,
@@ -247,6 +246,10 @@ impl<'a> TypingEnvironment {
 
 #[cfg(test)]
 mod tests {
+    use crate::parser::ast::tests::parse_term;
+    use crate::typeck::term::TypedTerm;
+    use crate::typeck::{TypingContext, TypingEnvironment};
+
     macro_rules! assert_type_checks {
         ($source: expr) => {{
             let (interner, ast) = $crate::parser::ast::parse_file($source).unwrap();
@@ -270,5 +273,13 @@ mod tests {
             assert_eq!(err, $error);
         }};
     }
+
     pub(in crate::typeck) use assert_type_error;
+
+    impl TypingEnvironment {
+        pub fn resolve_term_from_string(&mut self, term: &str) -> TypedTerm {
+            let term = parse_term(&mut self.interner.borrow_mut(), term).unwrap();
+            TypingContext::Root(self).resolve_term(&term).unwrap()
+        }
+    }
 }
