@@ -80,12 +80,14 @@ impl<'a> TypingContext<'a> {
         function: &Term,
         argument: &Term,
     ) -> Result<TypedTerm, TypeError> {
+        let environment = self.environment();
+
         // Type check the function and argument
-        let mut function = self.resolve_term(function)?;
+        let function = self.resolve_term(function)?;
         let argument = self.resolve_term(argument)?;
 
         // Reduce the type of the function
-        let function_ty = function.get_type().reduce_root();
+        let function_ty = environment.reduce_to_whnf(function.get_type());
 
         // Check that the function has a function type
         let Some((binder, output)) = function_ty.is_pi_type() else {
@@ -93,11 +95,8 @@ impl<'a> TypingContext<'a> {
         };
 
         // Check that the type of the argument matches the input type of the function
-        if !binder.ty.term().def_eq(&argument.ty()) {
-            return Err(TypeError::MismatchedTypes {
-                term: argument,
-                expected: binder.ty.clone(),
-            });
+        if !environment.def_eq(binder.ty.clone(), argument.get_type()) {
+            return Err(environment.mismatched_types_error(argument, binder.ty.clone()));
         }
 
         // Replace instances of the binder in the output type with the argument
@@ -126,6 +125,8 @@ impl<'a> TypingContext<'a> {
     fn resolve_lambda(&self, binder: &Binder, body: &Term) -> Result<TypedTerm, TypeError> {
         // Resolve the type of the binder, and check that it actually is a type
         let binder_ty = self.resolve_term(&binder.ty)?;
+        binder_ty.check_is_ty()?;
+
         let binder = TypedBinder {
             name: binder.name,
             ty: binder_ty,

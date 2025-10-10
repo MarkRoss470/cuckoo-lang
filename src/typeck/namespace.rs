@@ -24,33 +24,51 @@ impl Namespace {
         Default::default()
     }
 
-    pub fn resolve(&self, path: Path, level_args: &LevelArgs) -> Result<TypedTerm, TypeError> {
+    fn resolve_inner(&self, path: Path) -> Result<&NamespaceItem, TypeError> {
         let (id, rest) = path.split_first();
 
         match rest {
             None => match self.items.get(&id) {
                 None => Err(TypeError::NameNotResolved(path.to_owned())),
-                Some(v) => {
-                    // Check that there are the right number of level arguments
-                    if v.level_params.count() != level_args.count() {
-                        Err(TypeError::WrongNumberOfLevelArgs {
-                            path: path.to_owned(),
-                            expected: v.level_params.count(),
-                            found: level_args.count(),
-                        })
-                    } else {
-                        Ok(v.value.instantiate(level_args))
-                    }
-                }
+                Some(v) => Ok(v),
             },
             Some(rest) => match self.namespaces.get(&id) {
                 None => Err(TypeError::NameNotResolved(path.to_owned())),
-                //
-                Some(n) => n.resolve(rest.clone(), level_args).map_err(|e| match e {
+                Some(n) => n.resolve_inner(rest.clone()).map_err(|e| match e {
                     TypeError::NameNotResolved(p) => TypeError::NameNotResolved(p.prepend(id)),
                     _ => e,
                 }),
             },
+        }
+    }
+
+    pub fn resolve(&self, path: Path, level_args: &LevelArgs) -> Result<TypedTerm, TypeError> {
+        let item = self.resolve_inner(path)?;
+
+        // Check that there are the right number of level arguments
+        if item.level_params.count() != level_args.count() {
+            Err(TypeError::WrongNumberOfLevelArgs {
+                path: path.to_owned(),
+                expected: item.level_params.count(),
+                found: level_args.count(),
+            })
+        } else {
+            Ok(item.value.instantiate(level_args))
+        }
+    }
+
+    pub fn resolve_ty(&self, path: Path, level_args: &LevelArgs) -> Result<TypedTerm, TypeError> {
+        let item = self.resolve_inner(path)?;
+
+        // Check that there are the right number of level arguments
+        if item.level_params.count() != level_args.count() {
+            Err(TypeError::WrongNumberOfLevelArgs {
+                path: path.to_owned(),
+                expected: item.level_params.count(),
+                found: level_args.count(),
+            })
+        } else {
+            Ok(item.value.get_type().instantiate(level_args))
         }
     }
 
@@ -151,7 +169,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Namespace {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_resolve_path() {
         todo!()

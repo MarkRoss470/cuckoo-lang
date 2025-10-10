@@ -6,6 +6,7 @@ mod namespace;
 mod term;
 
 pub use error::TypeError;
+
 use std::cell::{Ref, RefCell};
 
 use crate::parser::ast::Ast;
@@ -14,10 +15,10 @@ use crate::parser::ast::item::{Item, LevelParameters};
 use crate::parser::ast::term::Term;
 use crate::parser::atoms::ident::{Identifier, Path};
 use crate::parser::{Interner, PrettyPrint};
-use crate::typeck::data::{Adt, AdtConstructor, AdtHeader};
+use crate::typeck::data::Adt;
 use crate::typeck::level::LevelArgs;
 use crate::typeck::namespace::Namespace;
-use crate::typeck::term::{TypedBinder, TypedTerm, TypedTermKind};
+use crate::typeck::term::{TypedBinder, TypedTerm};
 use std::io::Write;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -104,20 +105,21 @@ impl TypingEnvironment {
 
         // Resolve the type of the `def`
         let ty = TypingContext::Root(self).resolve_term(&ty)?;
-        ty.check_is_ty()?;
+        let level = ty.check_is_ty()?;
 
         // Resolve the value of the `def`
         let value = TypingContext::Root(self).resolve_term(&value)?;
 
-        if !ty.def_eq(&value.get_type()) {
-            return Err(TypeError::MismatchedTypes {
-                term: value,
-                expected: ty,
-            });
+        // Check that the value has the right type
+        if !value.level().def_eq(&level) || !self.def_eq(ty.clone(), value.get_type()) {
+            return Err(self.mismatched_types_error(value, ty));
         }
 
-        self.root
-            .insert(ast.path.borrow(), ast.level_params.clone(), value)?;
+        self.root.insert(
+            ast.path.borrow(),
+            ast.level_params.clone(),
+            TypedTerm::value_of_type(value.term(), ty),
+        )?;
 
         // Remove the level parameters from the context
         self.clear_level_params();

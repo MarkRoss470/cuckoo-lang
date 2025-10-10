@@ -10,7 +10,6 @@ use crate::parser::combinators::repeat::FinalSeparatorBehaviour::AllowFinal;
 use crate::parser::combinators::repeat::{Fold1Ext, Repeat1Ext, Repeat1WithSeparatorExt};
 use crate::parser::combinators::tuples::{HeterogeneousTupleExt, HomogeneousTupleExt};
 use crate::parser::{Interner, Parser, PrettyPrint, PrettyPrintContext};
-use std::fs::write;
 use std::io::Write;
 
 #[cfg_attr(any(test, debug_assertions), derive(PartialEq, Eq))]

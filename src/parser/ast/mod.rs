@@ -63,7 +63,7 @@ pub mod tests {
         let (rest, term) = term()
             .parse(source, context)
             .expect("Term should have parsed");
-        assert!(rest.is_empty(), "Leftover text when parsing term");
+        assert!(rest.is_empty(), "Leftover text when parsing term: {rest:?}");
 
         term
     }

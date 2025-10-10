@@ -1,10 +1,8 @@
 pub mod data;
 pub mod def;
 
-use std::hint::unreachable_unchecked;
 use crate::parser::ast::item::data::{DataDefinition, data_definition};
 use crate::parser::ast::item::def::{ValueDefinition, value_definition};
-use crate::parser::ast::term::LevelExpr;
 use crate::parser::atoms::ident::{Identifier, identifier};
 use crate::parser::atoms::whitespace::SurroundWhitespaceExt;
 use crate::parser::atoms::{special_operator, str_exact};
@@ -13,7 +11,6 @@ use crate::parser::combinators::repeat::FinalSeparatorBehaviour::AllowFinal;
 use crate::parser::combinators::repeat::Repeat1WithSeparatorExt;
 use crate::parser::combinators::tuples::{HeterogeneousTupleExt, HomogeneousTupleExt};
 use crate::parser::{Interner, Parser, PrettyPrint, PrettyPrintContext};
-use crate::typeck::TypeError;
 use std::io::Write;
 
 #[derive(Debug)]
@@ -71,7 +68,7 @@ impl LevelParameters {
         if self.lookup(&raw).is_none() {
             return raw;
         }
-        
+
         for x in 1usize.. {
             let with_tag = Identifier::from_str(&format!("{id}_{x}"), interner);
 
@@ -79,7 +76,7 @@ impl LevelParameters {
                 return with_tag;
             }
         }
-        
+
         unreachable!()
     }
 }

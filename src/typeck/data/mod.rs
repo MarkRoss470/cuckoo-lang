@@ -130,6 +130,18 @@ pub enum AdtConstructorParamKind {
     NonInductive(TypedTerm),
 }
 
+impl AdtConstructor {
+    pub fn inductive_params(&self) -> impl Iterator<Item = (usize, &[TypedBinder], &[TypedTerm])> {
+        self.params.iter().enumerate().filter_map(|(i, param)| match &param.kind {
+            AdtConstructorParamKind::Inductive {
+                parameters,
+                indices,
+            } => Some((i, parameters.as_slice(), indices.as_slice())),
+            AdtConstructorParamKind::NonInductive(_) => None,
+        })
+    }
+}
+
 impl<'a> TypingEnvironment {
     pub(super) fn resolve_adt(&mut self, ast: &'a DataDefinition) -> Result<(), TypeError> {
         // Set the level parameters for this item
@@ -391,10 +403,12 @@ impl<'a> TypingEnvironment {
             let expected = TypedTerm::bound_variable(
                 constructor_params.len() + header.parameters.len() - i - 1,
                 param.name,
-                param.ty.clone_incrementing(0, constructor_params.len() + header.parameters.len() - i),
+                param
+                    .ty
+                    .clone_incrementing(0, constructor_params.len() + header.parameters.len() - i),
             );
 
-            if !arguments[i].def_eq(&expected) {
+            if !self.def_eq(arguments[i].clone(), expected.clone()) {
                 return Err(TypeError::MismatchedAdtParameter {
                     found: arguments[i].clone(),
                     expected: expected.term(),

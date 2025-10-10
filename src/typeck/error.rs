@@ -2,7 +2,7 @@ use crate::parser::PrettyPrint;
 use crate::parser::atoms::ident::{Identifier, OwnedPath};
 use crate::typeck::level::Level;
 use crate::typeck::term::TypedTermKind;
-use crate::typeck::{AdtIndex, PrettyPrintContext, TypedTerm};
+use crate::typeck::{AdtIndex, PrettyPrintContext, TypedTerm, TypingEnvironment};
 use std::io::Write;
 
 // TODO: track error locations
@@ -54,6 +54,15 @@ pub enum TypeError {
     NameAlreadyDefined(Identifier),
 }
 
+impl TypingEnvironment {
+    pub fn mismatched_types_error(&self, term: TypedTerm, expected: TypedTerm) -> TypeError {
+        TypeError::MismatchedTypes {
+            term: self.fully_reduce(term),
+            expected: self.fully_reduce(expected),
+        }
+    }
+}
+
 impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
     fn pretty_print(
         &self,
@@ -82,13 +91,13 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
                 write!(out, "'.")
             }
             TypeError::MismatchedTypes { term, expected } => {
-                write!(out, "Expected ")?;
+                write!(out, "Expected\n  ")?;
                 term.term().pretty_print(out, context)?;
-                write!(out, " to have type ")?;
+                write!(out, "\nto have type\n  ")?;
                 expected.term().pretty_print(out, context)?;
-                write!(out, ", but it has type ")?;
+                write!(out, "\nbut it has type\n  ")?;
                 term.ty().pretty_print(out, context)?;
-                write!(out, ".")
+                write!(out, "\n.")
             }
             TypeError::LocalVariableIsNotANamespace(path) => {
                 write!(out, "Local variable ")?;
@@ -186,22 +195,17 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
             TypeError::InvalidConstructorParameterLevel { ty, adt_level } => {
                 write!(
                     out,
-                    "Invalid level for constructor parameter - this parameter is of type"
+                    "Invalid level for constructor parameter - this parameter is of type\n  "
                 )?;
-                context.borrow_indented().newline(out)?;
                 ty.term().pretty_print(out, context.borrow_indented())?;
-                context.newline(out)?;
-                write!(out, "at level")?;
-                context.borrow_indented().newline(out)?;
+                write!(out, "\nat level\n  ")?;
                 ty.check_is_ty()
                     .unwrap()
                     .pretty_print(out, context.borrow_indented())?;
-                context.newline(out)?;
                 write!(
                     out,
-                    "which is not less than or equal to the inductive type's level"
+                    "\nwhich is not less than or equal to the inductive type's level\n  "
                 )?;
-                context.borrow_indented().newline(out)?;
                 adt_level.pretty_print(out, context.borrow_indented())?;
                 writeln!(out)
             }

@@ -52,6 +52,26 @@ impl LevelArgs {
     pub fn count(&self) -> usize {
         self.0.len()
     }
+
+    pub fn from_level_parameters(level_parameters: &LevelParameters) -> Self {
+        Self(
+            level_parameters
+                .0
+                .iter()
+                .enumerate()
+                .map(|(i, id)| Level::parameter(i, *id))
+                .collect(),
+        )
+    }
+
+    pub fn instantiate_parameters(&self, other: &LevelArgs) -> LevelArgs {
+        Self(
+            self.0
+                .iter()
+                .map(|arg| arg.instantiate_parameters(other))
+                .collect(),
+        )
+    }
 }
 
 impl Index<usize> for LevelArgs {
@@ -63,7 +83,7 @@ impl Index<usize> for LevelArgs {
 }
 
 impl Level {
-    fn ptr_eq(&self, other: &Self) -> bool {
+    pub fn ptr_eq(&self, other: &Self) -> bool {
         Rc::ptr_eq(&self.0, &other.0)
     }
 
@@ -446,6 +466,24 @@ impl<'a> TypingContext<'a> {
     }
 }
 
+impl<'a> PrettyPrint<PrettyPrintContext<'a>> for LevelArgs {
+    fn pretty_print(
+        &self,
+        out: &mut dyn Write,
+        context: PrettyPrintContext<'a>,
+    ) -> std::io::Result<()> {
+        if self.0.is_empty() {
+            return Ok(());
+        };
+
+        write!(out, ".{{")?;
+        for arg in &self.0 {
+            arg.pretty_print(out, context)?;
+        }
+        write!(out, "}}")
+    }
+}
+
 impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Level {
     fn pretty_print(
         &self,
@@ -660,21 +698,14 @@ mod tests {
             param_0.max(&param_1.succ())
         );
         assert_eq!(
-            param_0
-                .imax(&param_1.max(&Level::constant(1)))
-                .normalize(),
+            param_0.imax(&param_1.max(&Level::constant(1))).normalize(),
             Level::constant(1).max(&param_0.max(&param_1))
         );
 
         // Imax becomes zero if the RHS is zero
+        assert_eq!(param_0.imax(&Level::zero()).normalize(), Level::zero());
         assert_eq!(
-            param_0.imax(&Level::zero()).normalize(),
-            Level::zero()
-        );
-        assert_eq!(
-            param_0
-                .imax(&Level::zero().max(&Level::zero()))
-                .normalize(),
+            param_0.imax(&Level::zero().max(&Level::zero())).normalize(),
             Level::zero()
         );
         assert_eq!(

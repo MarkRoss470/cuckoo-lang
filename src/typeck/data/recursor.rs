@@ -550,3 +550,17 @@ fn calculate_constructor_induction_rule_output(
 
     motive(motive_indices, constructor_application)
 }
+
+impl Adt {
+    pub fn recursor_num_parameters(&self) -> usize {
+        self.header.parameters.len() + 1 + self.constructors.len() + self.header.indices.len() + 1
+    }
+
+    pub fn recursor_value_param_index(&self) -> usize {
+        self.recursor_num_parameters() - 1
+    }
+
+    pub fn recursor_constructor_param_index(&self, param: usize) -> usize {
+        self.header.parameters.len() + 1 + param
+    }
+}
