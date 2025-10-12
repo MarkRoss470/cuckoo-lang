@@ -24,10 +24,11 @@ fn test_make_application_stack() {
                 prop.clone(),
             ),
         ),
+        LevelArgs::default(),
     );
 
-    let nat = TypedTerm::adt_name(AdtIndex(1), ty.clone());
-    let zero = TypedTerm::adt_constructor(AdtIndex(1), 0, nat.clone());
+    let nat = TypedTerm::adt_name(AdtIndex(1), ty.clone(), LevelArgs::default());
+    let zero = TypedTerm::adt_constructor(AdtIndex(1), 0, nat.clone(), LevelArgs::default());
 
     let nat_to_prop = TypedTerm::make_pi_type(
         TypedBinder {
@@ -52,7 +53,7 @@ fn test_make_application_stack() {
 #[test]
 fn test_replace_binder() {
     let sort_0 = TypedTerm::sort_literal(Level::constant(0));
-    let adt_0 = TypedTerm::adt_name(AdtIndex(0), sort_0.clone());
+    let adt_0 = TypedTerm::adt_name(AdtIndex(0), sort_0.clone(), LevelArgs::default());
 
     let id_x = Identifier::dummy_val(0);
 

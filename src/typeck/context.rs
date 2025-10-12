@@ -72,6 +72,7 @@ impl<'a> TypingContext<'a> {
                 t.term().clone_incrementing(0, i),
                 t.get_type().clone_incrementing(0, i + 1),
             )
+            .with_abbreviation_from(&t)
         })
     }
 

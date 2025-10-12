@@ -1,4 +1,5 @@
 pub mod accessors;
+mod check;
 pub mod constructors;
 pub mod def_eq;
 pub mod modifiers;
@@ -20,18 +21,21 @@ pub struct TypedTerm {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TypedTermKind(Rc<TypedTermKindInner>);
+pub struct TypedTermKind {
+    inner: Rc<TypedTermKindInner>,
+    abbreviation: Option<Rc<Abbreviation>>,
+}
 
 #[derive(Debug, Clone, Eq)]
 enum TypedTermKindInner {
     /// The keywords `Sort n`, `Prop` or `Type n`
     SortLiteral(Level),
     /// The name of an ADT
-    AdtName(AdtIndex),
+    AdtName(AdtIndex, LevelArgs),
     /// The name of an ADT constructor
-    AdtConstructor(AdtIndex, usize),
+    AdtConstructor(AdtIndex, usize, LevelArgs),
     /// The recursor of an ADT
-    AdtRecursor(AdtIndex),
+    AdtRecursor(AdtIndex, LevelArgs),
     /// The bound variable of a lambda abstraction, using de Bruijn indices
     BoundVariable {
         /// The de Bruijn index
@@ -63,6 +67,18 @@ pub struct TypedBinder {
     pub ty: TypedTerm,
 }
 
+#[derive(Debug, Clone, Eq)]
+pub enum Abbreviation {
+    Constant(OwnedPath, LevelArgs),
+    Application(Rc<Abbreviation>, TypedTerm),
+}
+
+impl PartialEq for Abbreviation {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
 impl PartialEq for TypedTermKindInner {
     fn eq(&self, other: &Self) -> bool {
         use TypedTermKindInner::*;
@@ -70,12 +86,12 @@ impl PartialEq for TypedTermKindInner {
         match (self, other) {
             (SortLiteral(l1), SortLiteral(l2)) => l1 == l2,
             (SortLiteral(_), _) => false,
-            (AdtName(a1), AdtName(a2)) => a1 == a2,
-            (AdtName(_), _) => false,
-            (AdtConstructor(a1, c1), AdtConstructor(a2, c2)) => a1 == a2 && c1 == c2,
-            (AdtConstructor(_, _), _) => false,
-            (AdtRecursor(a1), AdtRecursor(a2)) => a1 == a2,
-            (AdtRecursor(_), _) => false,
+            (AdtName(a1, l1), AdtName(a2, l2)) => a1 == a2 && l1 == l2,
+            (AdtName(_, _), _) => false,
+            (AdtConstructor(a1, c1, l1), AdtConstructor(a2, c2, l2)) => a1 == a2 && c1 == c2 && l1 == l2,
+            (AdtConstructor(_, _, _), _) => false,
+            (AdtRecursor(a1, l1), AdtRecursor(a2, l2)) => a1 == a2 && l1 == l2,
+            (AdtRecursor(_, _), _) => false,
             (BoundVariable { index: i1, name: _ }, BoundVariable { index: i2, name: _ }) => {
                 i1 == i2
             }
@@ -123,90 +139,13 @@ impl PartialEq for TypedBinder {
     }
 }
 
-impl TypedTerm {
-    fn shallow_eq(&self, other: &Self) -> bool {
-        self.ty().ptr_eq(&other.ty()) && self.term().ptr_eq(&other.term())
-    }
-}
-
-impl TypedTermKindInner {
-    fn shallow_eq(&self, other: &Self) -> bool {
-        use TypedTermKindInner::*;
-
-        match (self, other) {
-            (SortLiteral(l1), SortLiteral(l2)) => l1.ptr_eq(l2),
-            (SortLiteral(_), _) => false,
-            (AdtName(a1), AdtName(a2)) => a1 == a2,
-            (AdtName(_), _) => false,
-            (AdtConstructor(a1, c1), AdtConstructor(a2, c2)) => a1 == a2 && c1 == c2,
-            (AdtConstructor(_, _), _) => false,
-            (AdtRecursor(a1), AdtRecursor(a2)) => a1 == a2,
-            (AdtRecursor(_), _) => false,
-            (
-                BoundVariable {
-                    index: i1,
-                    name: n1,
-                },
-                BoundVariable {
-                    index: i2,
-                    name: n2,
-                },
-            ) => i1 == i2 && n1 == n2,
-            (BoundVariable { .. }, _) => false,
-            (
-                Application {
-                    function: f1,
-                    argument: a1,
-                },
-                Application {
-                    function: f2,
-                    argument: a2,
-                },
-            ) => f1.shallow_eq(f2) && a1.shallow_eq(a2),
-            (Application { .. }, _) => false,
-            (
-                PiType {
-                    binder: b1,
-                    output: o1,
-                },
-                PiType {
-                    binder: b2,
-                    output: o2,
-                },
-            ) => b1.shallow_eq(b2) && o1.shallow_eq(o2),
-            (PiType { .. }, _) => false,
-            (
-                Lambda {
-                    binder: b1,
-                    body: bo1,
-                },
-                Lambda {
-                    binder: b2,
-                    body: bo2,
-                },
-            ) => b1.shallow_eq(b2) && bo1.shallow_eq(bo2),
-            (Lambda { .. }, _) => false,
-        }
-    }
-}
-
-impl TypedBinder {
-    fn shallow_eq(&self, other: &Self) -> bool {
-        self.name == other.name && self.ty.shallow_eq(&other.ty)
-    }
-}
-
 impl TypedTermKind {
     fn inner(&self) -> &TypedTermKindInner {
-        self.0.as_ref()
+        self.inner.as_ref()
     }
 
     fn clone_inner(&self) -> TypedTermKindInner {
-        self.0.as_ref().clone()
-    }
-
-    fn ptr_eq(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.0, &other.0)
+        self.inner.as_ref().clone()
     }
 }
 
@@ -216,13 +155,40 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypedTerm {
         out: &mut dyn Write,
         context: PrettyPrintContext,
     ) -> std::io::Result<()> {
-        // write!(out, "<")?;
-        // self.term.pretty_print(out, context)?;
-        // write!(out, " # ")?;
-        // self.ty.pretty_print(out, context)?;
-        // write!(out, ">")
+        // Abbreviate proof terms if configured
+        if !context.print_proofs && self.level.def_eq(&Level::zero()) {
+            write!(out, "...")
+        } else {
+            // write!(out, "<")?;
+            // self.term.pretty_print(out, context)?;
+            // write!(out, " # ")?;
+            // self.ty.pretty_print(out, context)?;
+            // write!(out, ">")
 
-        self.term.pretty_print(out, context)
+            self.term.pretty_print(out, context)
+        }
+    }
+}
+
+impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Abbreviation {
+    fn pretty_print(
+        &self,
+        out: &mut dyn Write,
+        context: PrettyPrintContext<'a>,
+    ) -> std::io::Result<()> {
+        match self {
+            Abbreviation::Constant(path, level_args) => {
+                path.pretty_print(out, &context.interner())?;
+                level_args.pretty_print(out, context)
+            }
+            Abbreviation::Application(abbr, term) => {
+                write!(out, "(")?;
+                abbr.pretty_print(out, context)?;
+                write!(out, " ")?;
+                term.pretty_print(out, context)?;
+                write!(out, ")")
+            }
+        }
     }
 }
 
@@ -234,35 +200,44 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypedTermKind {
     ) -> std::io::Result<()> {
         use TypedTermKindInner::*;
 
+        if let Some(abbr) = &self.abbreviation {
+            return abbr.pretty_print(out, context);
+        }
+
         match self.inner() {
             SortLiteral(u) => {
                 write!(out, "Sort ")?;
                 u.pretty_print(out, context)
             }
 
-            AdtName(adt) => context
-                .environment
-                .get_adt(*adt)
-                .header
-                .name
-                .pretty_print(out, &context.interner()),
-            AdtConstructor(adt, con) => {
-                let adt = context.environment.get_adt(*adt);
-
-                adt.header.name.pretty_print(out, &context.interner())?;
-                write!(out, ".")?;
-                adt.constructors[*con]
-                    .name
-                    .pretty_print(out, &context.interner())
-            }
-            AdtRecursor(adt) => {
+            AdtName(adt, level_args) => {
                 context
                     .environment
                     .get_adt(*adt)
                     .header
                     .name
                     .pretty_print(out, &context.interner())?;
-                write!(out, ".rec")
+                level_args.pretty_print(out, context)
+            },
+            AdtConstructor(adt, constructor, level_args) => {
+                let adt = context.environment.get_adt(*adt);
+
+                adt.header.name.pretty_print(out, &context.interner())?;
+                write!(out, ".")?;
+                adt.constructors[*constructor]
+                    .name
+                    .pretty_print(out, &context.interner())?;
+                level_args.pretty_print(out, context)
+            }
+            AdtRecursor(adt, level_args) => {
+                context
+                    .environment
+                    .get_adt(*adt)
+                    .header
+                    .name
+                    .pretty_print(out, &context.interner())?;
+                write!(out, ".rec")?;
+                level_args.pretty_print(out, context)
             }
             BoundVariable { index, name } => {
                 match name {
@@ -282,14 +257,14 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypedTermKind {
                 write!(out, "(")?;
                 binder.pretty_print(out, context)?;
                 write!(out, " -> ")?;
-                output.term.pretty_print(out, context)?;
+                output.pretty_print(out, context)?;
                 write!(out, ")")
             }
             Lambda { binder, body } => {
                 write!(out, "(fun ")?;
                 binder.pretty_print(out, context)?;
                 write!(out, " => ")?;
-                body.term.pretty_print(out, context)?;
+                body.pretty_print(out, context)?;
                 write!(out, ")")
             }
         }
@@ -310,7 +285,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypedBinder {
         };
 
         write!(out, ": ")?;
-        self.ty.term.pretty_print(out, context)?;
+        self.ty.pretty_print(out, context)?;
 
         write!(out, ")")
     }

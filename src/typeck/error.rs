@@ -57,8 +57,8 @@ pub enum TypeError {
 impl TypingEnvironment {
     pub fn mismatched_types_error(&self, term: TypedTerm, expected: TypedTerm) -> TypeError {
         TypeError::MismatchedTypes {
-            term: self.fully_reduce(term),
-            expected: self.fully_reduce(expected),
+            term: self.fully_reduce(term, false),
+            expected: self.fully_reduce(expected, false),
         }
     }
 }

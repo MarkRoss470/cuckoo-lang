@@ -1,4 +1,4 @@
-use super::{TypedBinder, TypedTermKindInner};
+use super::{Abbreviation, TypedBinder, TypedTermKindInner};
 use super::{TypedTerm, TypedTermKind};
 use crate::typeck::TypingEnvironment;
 use crate::typeck::data::{Adt, AdtConstructor};
@@ -13,10 +13,10 @@ impl TypingEnvironment {
             return true;
         }
         // If both terms are sort literals, just check whether the levels are definitionally equal
-        if let Some(l) = l.is_sort_literal()
-            && let Some(r) = r.is_sort_literal()
+        if let Some(ll) = l.is_sort_literal()
+            && let Some(lr) = r.is_sort_literal()
         {
-            return l.def_eq(&r);
+            return ll.def_eq(&lr);
         }
         // If the terms have different levels or different types, then they are not definitionally equal.
         if !l.level.def_eq(&r.level) || !self.def_eq(l.get_type(), r.get_type()) {
@@ -54,9 +54,6 @@ impl TypingEnvironment {
         let l = self.reduce_to_whnf(l);
         let r = self.reduce_to_whnf(r);
 
-        self.pretty_println_val(&l);
-        self.pretty_println_val(&r);
-
         self.structural_def_eq(l.term(), r.term())
     }
 
@@ -80,8 +77,8 @@ impl TypingEnvironment {
 
             match term.term().inner() {
                 SortLiteral(_)
-                | AdtName(_)
-                | AdtConstructor(_, _)
+                | AdtName(_, _)
+                | AdtConstructor(_, _, _)
                 | BoundVariable { .. }
                 | PiType { .. } => break,
                 Lambda { .. } if args.is_empty() => break,
@@ -93,9 +90,14 @@ impl TypingEnvironment {
                     debug_assert!(self.def_eq(binder.ty.clone(), arg.get_type()));
 
                     term = self.reduce_to_whnf(body.replace_binder(0, &arg));
+
+                    if let Some(abbr) = &body.term.abbreviation {
+                        term = term
+                            .with_abbreviation(Abbreviation::Application(abbr.clone(), arg.clone()))
+                    }
                 }
                 // If the function is an ADT recursor, try to reduce it
-                AdtRecursor(adt_index) => {
+                AdtRecursor(adt_index, _) => {
                     let adt = self.get_adt(*adt_index);
                     // Reducing a recursor requires all the arguments to be known
                     if args.len() < adt.recursor_num_parameters() {
@@ -151,7 +153,7 @@ impl TypingEnvironment {
         let (value_fun, constructor_args) = self
             .reduce_to_whnf(get_recursor_arg(adt.recursor_value_param_index()).clone())
             .decompose_application_stack();
-        let Some((adt_index, constructor_index)) = value_fun.is_adt_constructor() else {
+        let Some((adt_index, constructor_index, _)) = value_fun.is_adt_constructor() else {
             return None;
         };
 
@@ -189,9 +191,7 @@ impl TypingEnvironment {
                     },
                 )),
         );
-
-        self.pretty_println_val(&output);
-
+        
         Some(output)
     }
 
@@ -277,14 +277,16 @@ impl TypingEnvironment {
         }
 
         match (l.inner(), r.inner()) {
-            (SortLiteral(su), SortLiteral(ou)) => su.def_eq(&ou),
+            (SortLiteral(u1), SortLiteral(u2)) => u1.def_eq(&u2),
             (SortLiteral(_), _) => false,
-            (AdtName(sid), AdtName(oid)) => sid == oid,
-            (AdtName(_), _) => false,
-            (AdtConstructor(sadt, sid), AdtConstructor(oadt, oid)) => sadt == oadt && sid == oid,
-            (AdtConstructor(_, _), _) => false,
-            (AdtRecursor(sadt), AdtRecursor(oadt)) => sadt == oadt,
-            (AdtRecursor(_), _) => false,
+            (AdtName(i1, l1), AdtName(i2, l2)) => i1 == i2 && l1 == l2,
+            (AdtName(_, _), _) => false,
+            (AdtConstructor(adt1, id1, l1), AdtConstructor(adt2, id2, l2)) => {
+                adt1 == adt2 && id1 == id2 && l1 == l2
+            }
+            (AdtConstructor(_, _, _), _) => false,
+            (AdtRecursor(adt1, l1), AdtRecursor(adt2, l2)) => adt1 == adt2 && l1 == l2,
+            (AdtRecursor(_, _), _) => false,
             (
                 BoundVariable {
                     index: sid,
@@ -332,48 +334,57 @@ impl TypingEnvironment {
         }
     }
 
-    pub fn fully_reduce(&self, term: TypedTerm) -> TypedTerm {
-        let ty = self.fully_reduce_kind(&self.reduce_to_whnf(term.get_type()).term());
-        let t = self.fully_reduce_kind(&self.reduce_to_whnf(term.clone()).term());
+    pub fn fully_reduce(&self, term: TypedTerm, reduce_proofs: bool) -> TypedTerm {
+        // If the term is a proof and should not be expanded, return it as-is
+        if !reduce_proofs && term.level.def_eq(&Level::zero()) {
+            return term;
+        }
 
-        TypedTerm::value_of_type(
-            TypedTermKind::from_inner(t),
+        let whnf_ty = self.reduce_to_whnf(term.get_type());
+        let whnf_term = self.reduce_to_whnf(term.clone());
+        let reduced_ty = self.fully_reduce_kind(&whnf_ty.term(), reduce_proofs);
+        let reduced_term = self.fully_reduce_kind(&whnf_term.term(), reduce_proofs);
+
+        let fully_reduced = TypedTerm::value_of_type(
+            TypedTermKind::from_inner(reduced_term, whnf_term.term.abbreviation),
             TypedTerm::value_of_type(
-                TypedTermKind::from_inner(ty),
+                TypedTermKind::from_inner(reduced_ty, whnf_ty.term.abbreviation),
                 TypedTerm::sort_literal(term.level),
             ),
-        )
+        );
+
+        fully_reduced
     }
 
-    fn fully_reduce_kind(&self, term: &TypedTermKind) -> TypedTermKindInner {
+    fn fully_reduce_kind(&self, term: &TypedTermKind, reduce_proofs: bool) -> TypedTermKindInner {
         use TypedTermKindInner::*;
 
         let inner = match term.inner() {
             inner @ (SortLiteral(_)
-            | AdtName(_)
-            | AdtConstructor(_, _)
-            | AdtRecursor(_)
+            | AdtName(_, _)
+            | AdtConstructor(_, _, _)
+            | AdtRecursor(_, _)
             | BoundVariable { .. }) => inner.clone(),
 
             Application { function, argument } => {
-                let function = self.fully_reduce(function.clone());
-                let argument = self.fully_reduce(argument.clone());
+                let function = self.fully_reduce(function.clone(), reduce_proofs);
+                let argument = self.fully_reduce(argument.clone(), reduce_proofs);
                 Application { function, argument }
             }
             PiType { binder, output } => {
                 let binder = TypedBinder {
-                    ty: self.fully_reduce(binder.ty.clone()),
+                    ty: self.fully_reduce(binder.ty.clone(), reduce_proofs),
                     ..binder.clone()
                 };
-                let output = self.fully_reduce(output.clone());
+                let output = self.fully_reduce(output.clone(), reduce_proofs);
                 PiType { binder, output }
             }
             Lambda { binder, body } => {
                 let binder = TypedBinder {
-                    ty: self.fully_reduce(binder.ty.clone()),
+                    ty: self.fully_reduce(binder.ty.clone(), reduce_proofs),
                     ..binder.clone()
                 };
-                let body = self.fully_reduce(body.clone());
+                let body = self.fully_reduce(body.clone(), reduce_proofs);
                 Lambda { binder, body }
             }
         };
@@ -389,11 +400,7 @@ mod tests {
     fn assert_def_eq(env: &mut TypingEnvironment, t1: &str, t2: &str) {
         let t1 = env.resolve_term_from_string(t1);
         let t2 = env.resolve_term_from_string(t2);
-
-        env.pretty_println_val(&t1);
-        env.pretty_println_val(&env.reduce_to_whnf(t1.clone()));
-        env.pretty_println_val(&t2);
-
+        
         assert!(env.def_eq(t1, t2));
     }
 

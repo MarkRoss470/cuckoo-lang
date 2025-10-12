@@ -1,7 +1,9 @@
-use crate::parser::atoms::ident::{Identifier, OwnedPath};
+use crate::parser::atoms::ident::Identifier;
 use crate::typeck::AdtIndex;
 use crate::typeck::level::{Level, LevelArgs};
-use crate::typeck::term::{TypedBinder, TypedTerm, TypedTermKind, TypedTermKindInner};
+use crate::typeck::term::{
+    Abbreviation, TypedBinder, TypedTerm, TypedTermKind, TypedTermKindInner,
+};
 use std::rc::Rc;
 
 impl TypedTerm {
@@ -27,16 +29,24 @@ impl TypedTerm {
         TypedTerm::value_of_type(TypedTermKind::bound_variable(index, name), ty)
     }
 
-    pub fn adt_name(adt_index: AdtIndex, ty: TypedTerm) -> TypedTerm {
-        TypedTerm::value_of_type(TypedTermKind::adt_name(adt_index), ty)
+    pub fn adt_name(adt_index: AdtIndex, ty: TypedTerm, level_args: LevelArgs) -> TypedTerm {
+        TypedTerm::value_of_type(TypedTermKind::adt_name(adt_index, level_args), ty)
     }
 
-    pub fn adt_constructor(adt_index: AdtIndex, constructor: usize, ty: TypedTerm) -> TypedTerm {
-        TypedTerm::value_of_type(TypedTermKind::adt_constructor(adt_index, constructor), ty)
+    pub fn adt_constructor(
+        adt_index: AdtIndex,
+        constructor: usize,
+        ty: TypedTerm,
+        level_args: LevelArgs,
+    ) -> TypedTerm {
+        TypedTerm::value_of_type(
+            TypedTermKind::adt_constructor(adt_index, constructor, level_args),
+            ty,
+        )
     }
 
-    pub fn adt_recursor(adt_index: AdtIndex, ty: TypedTerm) -> TypedTerm {
-        TypedTerm::value_of_type(TypedTermKind::adt_recursor(adt_index), ty)
+    pub fn adt_recursor(adt_index: AdtIndex, ty: TypedTerm, level_args: LevelArgs) -> TypedTerm {
+        TypedTerm::value_of_type(TypedTermKind::adt_recursor(adt_index, level_args), ty)
     }
 
     pub fn make_pi_type(binder: TypedBinder, output: TypedTerm) -> TypedTerm {
@@ -112,39 +122,48 @@ impl TypedTerm {
 
 impl TypedTermKind {
     pub fn sort_literal(level: Level) -> Self {
-        Self::from_inner(TypedTermKindInner::SortLiteral(level))
+        Self::from_inner(TypedTermKindInner::SortLiteral(level), None)
     }
 
-    pub fn adt_name(adt: AdtIndex) -> Self {
-        Self::from_inner(TypedTermKindInner::AdtName(adt))
+    pub fn adt_name(adt: AdtIndex, level_args: LevelArgs) -> Self {
+        Self::from_inner(TypedTermKindInner::AdtName(adt, level_args), None)
     }
 
-    pub fn adt_constructor(adt: AdtIndex, constructor: usize) -> Self {
-        Self::from_inner(TypedTermKindInner::AdtConstructor(adt, constructor))
+    pub fn adt_constructor(adt: AdtIndex, constructor: usize, level_args: LevelArgs) -> Self {
+        Self::from_inner(
+            TypedTermKindInner::AdtConstructor(adt, constructor, level_args),
+            None,
+        )
     }
 
-    pub fn adt_recursor(adt: AdtIndex) -> Self {
-        Self::from_inner(TypedTermKindInner::AdtRecursor(adt))
+    pub fn adt_recursor(adt: AdtIndex, level_args: LevelArgs) -> Self {
+        Self::from_inner(TypedTermKindInner::AdtRecursor(adt, level_args), None)
     }
 
     pub fn bound_variable(index: usize, name: Option<Identifier>) -> Self {
-        Self::from_inner(TypedTermKindInner::BoundVariable { index, name })
+        Self::from_inner(TypedTermKindInner::BoundVariable { index, name }, None)
     }
 
     pub fn application(function: TypedTerm, argument: TypedTerm) -> Self {
-        Self::from_inner(TypedTermKindInner::Application { function, argument })
+        Self::from_inner(TypedTermKindInner::Application { function, argument }, None)
     }
 
     pub fn pi_type(binder: TypedBinder, output: TypedTerm) -> Self {
-        Self::from_inner(TypedTermKindInner::PiType { binder, output })
+        Self::from_inner(TypedTermKindInner::PiType { binder, output }, None)
     }
 
     pub fn lambda(binder: TypedBinder, body: TypedTerm) -> Self {
-        Self::from_inner(TypedTermKindInner::Lambda { binder, body })
+        Self::from_inner(TypedTermKindInner::Lambda { binder, body }, None)
     }
 
-    pub(super) fn from_inner(inner: TypedTermKindInner) -> Self {
-        Self(Rc::new(inner))
+    pub(super) fn from_inner(
+        inner: TypedTermKindInner,
+        abbreviation: Option<Rc<Abbreviation>>,
+    ) -> Self {
+        Self {
+            inner: Rc::new(inner),
+            abbreviation,
+        }
     }
 }
 

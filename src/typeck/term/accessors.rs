@@ -1,5 +1,5 @@
 use crate::parser::atoms::ident::Identifier;
-use crate::typeck::level::Level;
+use crate::typeck::level::{Level, LevelArgs};
 use crate::typeck::term::{TypedBinder, TypedTerm, TypedTermKind, TypedTermKindInner};
 use crate::typeck::{AdtIndex, TypeError};
 
@@ -45,16 +45,18 @@ impl TypedTerm {
         }
     }
 
-    pub fn is_adt_name(&self) -> Option<AdtIndex> {
+    pub fn is_adt_name(&self) -> Option<(AdtIndex, LevelArgs)> {
         match self.term().inner() {
-            TypedTermKindInner::AdtName(adt) => Some(*adt),
+            TypedTermKindInner::AdtName(adt, level_args) => Some((*adt, level_args.clone())),
             _ => None,
         }
     }
 
-    pub fn is_adt_constructor(&self) -> Option<(AdtIndex, usize)> {
+    pub fn is_adt_constructor(&self) -> Option<(AdtIndex, usize, LevelArgs)> {
         match self.term().inner() {
-            TypedTermKindInner::AdtConstructor(adt, index) => Some((*adt, *index)),
+            TypedTermKindInner::AdtConstructor(adt, index, level_args) => {
+                Some((*adt, *index, level_args.clone()))
+            }
             _ => None,
         }
     }
@@ -140,7 +142,7 @@ impl TypedTermKind {
         use TypedTermKindInner::*;
 
         match self.inner() {
-            SortLiteral(_) | AdtName(_) | AdtConstructor(_, _) | AdtRecursor(_) => false,
+            SortLiteral(_) | AdtName(_, _) | AdtConstructor(_, _, _) | AdtRecursor(_, _) => false,
 
             BoundVariable { index, name } => *index == id,
             Application { function, argument } => {
@@ -167,10 +169,10 @@ impl TypedTermKind {
         use TypedTermKindInner::*;
 
         match self.inner() {
-            AdtName(id) | AdtConstructor(id, _) | AdtRecursor(id) if *id == adt => {
+            AdtName(id, _) | AdtConstructor(id, _, _) | AdtRecursor(id, _) if *id == adt => {
                 Err(TypeError::InvalidLocationForAdtNameInConstructor(adt))
             }
-            AdtName(_) | AdtConstructor(_, _) | AdtRecursor(_) => Ok(()),
+            AdtName(_, _) | AdtConstructor(_, _, _) | AdtRecursor(_, _) => Ok(()),
 
             SortLiteral(_) | BoundVariable { .. } => Ok(()),
 

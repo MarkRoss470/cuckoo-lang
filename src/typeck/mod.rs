@@ -18,7 +18,7 @@ use crate::parser::{Interner, PrettyPrint};
 use crate::typeck::data::Adt;
 use crate::typeck::level::LevelArgs;
 use crate::typeck::namespace::Namespace;
-use crate::typeck::term::{TypedBinder, TypedTerm};
+use crate::typeck::term::{Abbreviation, TypedBinder, TypedTerm};
 use std::io::Write;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -115,11 +115,17 @@ impl TypingEnvironment {
             return Err(self.mismatched_types_error(value, ty));
         }
 
-        self.root.insert(
-            ast.path.borrow(),
-            ast.level_params.clone(),
-            TypedTerm::value_of_type(value.term(), ty),
-        )?;
+        let term =
+            TypedTerm::value_of_type(value.term(), ty).with_abbreviation(Abbreviation::Constant(
+                ast.path.clone(),
+                LevelArgs::from_level_parameters(&ast.level_params),
+            ));
+
+        #[cfg(debug_assertions)]
+        self.check_term(term.clone());
+
+        self.root
+            .insert(ast.path.borrow(), ast.level_params.clone(), term)?;
 
         // Remove the level parameters from the context
         self.clear_level_params();
@@ -181,6 +187,7 @@ impl<'a> TypingContext<'a> {
 struct PrettyPrintContext<'a> {
     environment: &'a TypingEnvironment,
     indent_levels: usize,
+    print_proofs: bool,
 }
 
 impl<'a> PrettyPrintContext<'a> {
@@ -188,6 +195,7 @@ impl<'a> PrettyPrintContext<'a> {
         Self {
             environment,
             indent_levels: 0,
+            print_proofs: false,
         }
     }
 
@@ -237,6 +245,20 @@ impl<'a> TypingEnvironment {
 
     pub fn pretty_println_val(&'a self, val: &impl PrettyPrint<PrettyPrintContext<'a>>) {
         let context = PrettyPrintContext::new(self);
+
+        let mut stdout = std::io::stdout().lock();
+
+        val.pretty_print(&mut stdout, context).unwrap();
+
+        writeln!(stdout).unwrap();
+    }
+
+    pub fn pretty_println_val_with_proofs(
+        &'a self,
+        val: &impl PrettyPrint<PrettyPrintContext<'a>>,
+    ) {
+        let mut context = PrettyPrintContext::new(self);
+        context.print_proofs = true;
 
         let mut stdout = std::io::stdout().lock();
 

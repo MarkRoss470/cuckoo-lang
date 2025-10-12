@@ -3,7 +3,7 @@ use crate::parser::ast::item::LevelParameters;
 use crate::parser::atoms::ident::Identifier;
 use crate::typeck::TypingEnvironment;
 use crate::typeck::data::{Adt, AdtConstructor, AdtConstructorParamKind};
-use crate::typeck::level::Level;
+use crate::typeck::level::{Level, LevelArgs};
 use crate::typeck::term::{TypedBinder, TypedTerm, TypedTermKind};
 use std::iter;
 
@@ -105,16 +105,15 @@ impl<'a> TypingEnvironment {
     /// -> motive x a
     /// ```
     pub(super) fn generate_recursor(&self, adt: &Adt) -> (LevelParameters, TypedTerm) {
-        let interner = &mut self.interner.borrow_mut();
-
-        let (level_params, motive_output_sort) = calculate_levels(adt, interner);
+        let (level_params, motive_output_sort) =
+            calculate_levels(adt, &mut self.interner.borrow_mut());
 
         // The parameters to the recursor
         let mut recursor_params = adt.header.parameters.clone();
 
         // Add the motive parameter
         let motive_ty = calculate_motive_type(adt, motive_output_sort);
-        let motive_id = Identifier::from_str("motive", interner);
+        let motive_id = Identifier::from_str("motive", &mut self.interner.borrow_mut());
         recursor_params.push(TypedBinder {
             name: Some(motive_id),
             ty: motive_ty.clone(),
@@ -149,6 +148,7 @@ impl<'a> TypingEnvironment {
         let recursor = TypedTerm::adt_recursor(
             adt.header.index,
             TypedTerm::make_telescope(recursor_params, output_type),
+            LevelArgs::from_level_parameters(&level_params),
         );
 
         (level_params, recursor)
@@ -220,10 +220,10 @@ fn make_motive(
     indices: Vec<TypedTerm>,
     val: TypedTerm,
 ) -> TypedTerm {
-    debug_assert_eq!(
-        val.get_type().decompose_application_stack().0.term(),
-        TypedTermKind::adt_name(adt.header.index)
-    );
+    debug_assert!(matches!(
+        val.get_type().decompose_application_stack().0.is_adt_name(),
+        Some((id, _)) if id == adt.header.index
+    ));
     debug_assert_eq!(
         val.get_type().decompose_application_stack().1.len(),
         adt.header.indices.len() + adt.header.parameters.len(),
@@ -321,7 +321,7 @@ fn generate_induction_rules(
                 )
             },
             constructor,
-            |threshold, offset, val| val.clone_incrementing(threshold, offset - threshold + i + 1),
+            |binders, val| val.clone_incrementing(binders, i + 1),
             |offset, indices, val| motive(offset + i, indices, val),
         );
 
@@ -342,9 +342,8 @@ fn generate_induction_rules(
 ///     `offset` is the number of binders between the root of the expression returned by
 ///     this function and the use of the ADT parameter.
 /// * `constructor` : The constructor whose induction rule is being generated
-/// * `reindex(threshold, offset, term)` : Clones a term while re-indexing binders referring to ADT parameters.
-///     `threshold` is the number of binders between the source term and the root of the constructor's type.
-///     `offset` is the number of binders between the term in the recursor and the root of the constructor's induction rule
+/// * `reindex(binders, term)` : Clones a term while re-indexing binders referring to ADT parameters.
+///     `binders` is the number of binders between the source term and the root of the constructor's type.
 /// * `motive(offset, indices, val)` : Gets a term referring to an application of the
 ///     `motive` parameter of the recursor's type.
 ///     `offset` is the number of binders between the root of the induction rule and the use of the motive.
@@ -354,7 +353,7 @@ fn calculate_constructor_induction_rule(
     adt_num_params: usize,
     get_adt_param: impl Fn(usize, usize) -> TypedTermKind,
     constructor: &AdtConstructor,
-    reindex: impl Fn(usize, usize, &TypedTerm) -> TypedTerm,
+    reindex: impl Fn(usize, &TypedTerm) -> TypedTerm,
     motive: impl Fn(usize, Vec<TypedTerm>, TypedTerm) -> TypedTerm,
 ) -> TypedTerm {
     let mut induction_rule_params: Vec<_> = constructor
@@ -363,7 +362,7 @@ fn calculate_constructor_induction_rule(
         .enumerate()
         .map(|(i, param)| TypedBinder {
             name: param.name,
-            ty: reindex(i, i, &param.ty),
+            ty: reindex(i, &param.ty),
         })
         .collect();
 
@@ -385,7 +384,6 @@ fn calculate_constructor_induction_rule(
         |term| {
             reindex(
                 induction_rule_params.len(),
-                induction_rule_params.len(),
                 &term.clone_incrementing(0, induction_rule_params.len() - constructor.params.len()),
             )
         },
@@ -401,9 +399,8 @@ fn calculate_constructor_induction_rule(
 /// * `constructor`: The constructor whose induction rule is being calculated
 /// * `recursor_params`: Where to add the new parameters
 /// * `adt_num_params`: The number of parameters of the ADT whose recursor is being generated
-/// * `reindex(threshold, offset, term)`: Clones a term while re-indexing binders referring to ADT parameters.
-///     `threshold` is the number of binders between the source term and the root of the constructor's type.
-///     `offset` is the number of binders between the term in the recursor and the root of the constructor's induction rule.
+/// * `reindex(binders, term)`: Clones a term while re-indexing binders referring to ADT parameters.
+///     `binders` is the number of binders between the source term and the root of the constructor's type.
 /// * `motive(offset, indices, val)` : Gets a term referring to an application of the
 ///     `motive` parameter of the recursor's type.
 ///     `offset` is the number of binders between the root of the induction rule and the use of the motive.
@@ -413,7 +410,7 @@ fn generate_inductive_parameter_principles(
     constructor: &AdtConstructor,
     induction_rule_params: &mut Vec<TypedBinder>,
     adt_num_params: usize,
-    reindex: impl Fn(usize, usize, &TypedTerm) -> TypedTerm,
+    reindex: impl Fn(usize, &TypedTerm) -> TypedTerm,
     motive: impl Fn(usize, Vec<TypedTerm>, TypedTerm) -> TypedTerm,
 ) {
     // An iterator destructuring all the constructor's inductive parameters
@@ -430,28 +427,29 @@ fn generate_inductive_parameter_principles(
         });
 
     for (param_index, name, param_params, param_indices) in inductive_params {
+        let param_val = TypedTerm::bound_variable(
+            param_params.len(),
+            name,
+            reindex(
+                induction_rule_params.len() + param_params.len(),
+                &constructor.params[param_index].ty.clone_incrementing(
+                    0,
+                    induction_rule_params.len() - param_index + param_params.len(),
+                ),
+            ),
+        );
+        
         let ty = calculate_inductive_parameter_principle(
             param_params,
             &param_indices[adt_num_params..],
-            |threshold, term| {
+            |binders, term| {
                 reindex(
-                    induction_rule_params.len() + threshold,
-                    induction_rule_params.len() + threshold,
-                    &term.clone_incrementing(threshold, induction_rule_params.len() - param_index),
+                    induction_rule_params.len() + binders,
+                    &term.clone_incrementing(binders, induction_rule_params.len() - param_index),
                 )
             },
             |offset, indices, val| motive(induction_rule_params.len() + offset, indices, val),
-            |offset| {
-                TypedTerm::bound_variable(
-                    offset,
-                    name,
-                    reindex(
-                        param_index,
-                        offset + induction_rule_params.len(),
-                        &constructor.params[param_index].ty,
-                    ),
-                )
-            },
+            param_val,
         );
 
         induction_rule_params.push(TypedBinder { name, ty })
@@ -466,23 +464,20 @@ fn generate_inductive_parameter_principles(
 /// # Parameters
 /// * `param_params`: The parameters to this constructor parameter
 /// * `param_indices`: The indices to the output of this parameter, not including the ADT parameters.
-/// * `reindex(threshold, offset, term)`: Clones a term while re-indexing binders referring to ADT parameters.
-///     `threshold` is the number of binders between the source term and the root of the inductive parameter.
+/// * `reindex(binders, term)`: Clones a term while re-indexing binders referring to ADT parameters.
+///     `binders` is the number of binders between the source term and the root of the inductive parameter.
 /// * `motive(offset, indices, val)` : Gets a term referring to an application of the
 ///     `motive` parameter of the recursor's type.
 ///     `offset` is the number of binders between the root of the inductive parameter principle and the use of the motive.
 ///     `indices` are the indices to the ADT instance that this motive is for.
 ///     `val` is the ADT instance that this motive is for.
-/// * `param_val(offset)`: Gets a term referencing the constructor parameter whose inductive
-///     principle is being calculated.
-///     `offset` is the number of binders between the root of the inductive parameter principle
-///     and the use of the parameter value.
+/// * `param_val`: The constructor parameter whose inductive principle is being calculated.
 fn calculate_inductive_parameter_principle(
     param_params: &[TypedBinder],
     param_indices: &[TypedTerm],
     reindex: impl Fn(usize, &TypedTerm) -> TypedTerm,
     motive: impl Fn(usize, Vec<TypedTerm>, TypedTerm) -> TypedTerm,
-    param_val: impl Fn(usize) -> TypedTerm,
+    param_val: TypedTerm,
 ) -> TypedTerm {
     // Re-index the parameter's parameters
     let param_param_binders = param_params
@@ -502,7 +497,7 @@ fn calculate_inductive_parameter_principle(
     // The inductive parameter to `motive`, which is an application of the local variable
     // representing this parameter
     let inductive_val = TypedTerm::make_application_stack(
-        param_val(param_params.len()),
+        param_val,
         param_params.iter().enumerate().map(|(i, param)| {
             TypedTermKind::bound_variable(param_params.len() - i - 1, param.name)
         }),

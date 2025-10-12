@@ -4,6 +4,7 @@ use crate::parser::ast::term::LevelExpr;
 use crate::parser::atoms::ident::Identifier;
 use crate::typeck::{PrettyPrintContext, TypeError, TypingContext, TypingEnvironment};
 use std::cmp::Ordering;
+use std::fs::write;
 use std::io::Write;
 use std::ops::Index;
 use std::rc::Rc;
@@ -174,6 +175,8 @@ impl Level {
             other.clone()
         } else if self == other {
             self.clone()
+        } else if let IMax(a, b) = other.0.as_ref() {
+            self.smart_max(a).smart_imax(b)
         } else {
             self.imax(other)
         }
@@ -187,7 +190,7 @@ impl Level {
             Zero | Parameter { .. } => false,
             Succ(_) => true,
             Max(a, b) => a.is_not_zero() || b.is_not_zero(),
-            IMax(a, _) => a.is_not_zero(),
+            IMax(_, b) => b.is_not_zero(),
         }
     }
 
@@ -347,7 +350,10 @@ impl Level {
             IMax(a_old, b_old) => {
                 let a = a_old.normalize();
                 let b = b_old.normalize();
-                if b.is_not_zero() {
+
+                if let IMax(b1, b2) = b.0.as_ref() {
+                    a.smart_max(b1).smart_imax(b2).normalize()
+                } else if b.is_not_zero() {
                     a.max(&b).normalize_max(o)
                 } else {
                     a.smart_imax(&b).offset(o)
@@ -479,6 +485,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for LevelArgs {
         write!(out, ".{{")?;
         for arg in &self.0 {
             arg.pretty_print(out, context)?;
+            write!(out, ", ")?;
         }
         write!(out, "}}")
     }
@@ -494,6 +501,10 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Level {
 
         if *u.0 == LevelInner::Zero {
             return write!(out, "{o}");
+        }
+
+        if o != 0 {
+            write!(out, "(")?;
         }
 
         match &*u.0 {
@@ -521,7 +532,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Level {
         }
 
         if o != 0 {
-            write!(out, " + {o}")?;
+            write!(out, " + {o})")?;
         }
 
         Ok(())

@@ -2,11 +2,10 @@ use crate::parser::PrettyPrint;
 use crate::parser::ast::item::LevelParameters;
 use crate::parser::ast::item::data::DataDefinition;
 use crate::parser::atoms::ident::{Identifier, OwnedPath, Path};
-use crate::typeck::level::Level;
-use crate::typeck::term::{TypedBinder, TypedTerm, TypedTermKind};
+use crate::typeck::level::{Level, LevelArgs};
+use crate::typeck::term::{TypedBinder, TypedTerm};
 use crate::typeck::{AdtIndex, PrettyPrintContext, TypeError, TypingContext, TypingEnvironment};
 use std::io::Write;
-use std::rc::Rc;
 
 mod recursor;
 #[cfg(test)]
@@ -47,6 +46,7 @@ impl AdtHeader {
         TypedTerm::adt_name(
             self.index,
             TypedTerm::make_telescope(self.parameters.clone(), self.family.clone()),
+            LevelArgs::from_level_parameters(&self.level_params),
         )
     }
 
@@ -55,6 +55,7 @@ impl AdtHeader {
             self.index,
             index,
             TypedTerm::make_telescope(self.parameters.clone(), type_without_adt_params),
+            LevelArgs::from_level_parameters(&self.level_params),
         )
     }
 }
@@ -132,13 +133,16 @@ pub enum AdtConstructorParamKind {
 
 impl AdtConstructor {
     pub fn inductive_params(&self) -> impl Iterator<Item = (usize, &[TypedBinder], &[TypedTerm])> {
-        self.params.iter().enumerate().filter_map(|(i, param)| match &param.kind {
-            AdtConstructorParamKind::Inductive {
-                parameters,
-                indices,
-            } => Some((i, parameters.as_slice(), indices.as_slice())),
-            AdtConstructorParamKind::NonInductive(_) => None,
-        })
+        self.params
+            .iter()
+            .enumerate()
+            .filter_map(|(i, param)| match &param.kind {
+                AdtConstructorParamKind::Inductive {
+                    parameters,
+                    indices,
+                } => Some((i, parameters.as_slice(), indices.as_slice())),
+                AdtConstructorParamKind::NonInductive(_) => None,
+            })
     }
 }
 
@@ -208,6 +212,10 @@ impl<'a> TypingEnvironment {
 
         // Create the recursor
         let (recursor_level_params, recursor) = self.generate_recursor(self.adts.last().unwrap());
+
+        #[cfg(debug_assertions)]
+        self.check_term(recursor.get_type());
+
         let adt_namespace = self.root.resolve_namespace_mut(adt.header.name.borrow())?;
         adt_namespace.insert(
             Path::from_id(&self.interner.borrow().kw_rec()),
@@ -326,7 +334,7 @@ impl<'a> TypingEnvironment {
 
         let mut processed_params = Vec::new();
         for param in parameters {
-            processed_params.push(self.resolve_adt_constructor_param(name, header.index, param)?);
+            processed_params.push(self.resolve_adt_constructor_param(header.index, param)?);
         }
 
         Ok(AdtConstructor {
@@ -340,7 +348,6 @@ impl<'a> TypingEnvironment {
 
     fn resolve_adt_constructor_param(
         &self,
-        name: Identifier,
         adt_index: AdtIndex,
         param: TypedBinder,
     ) -> Result<AdtConstructorParam, TypeError> {
@@ -348,7 +355,7 @@ impl<'a> TypingEnvironment {
         let (f, args) = output.decompose_application_stack();
 
         // If f is the ADT being constructed, then this is an inductive parameter
-        let param_kind = if let Some(id) = f.is_adt_name()
+        let param_kind = if let Some((id, _)) = f.is_adt_name()
             && id == adt_index
         {
             for binder in &parameters {
@@ -388,7 +395,7 @@ impl<'a> TypingEnvironment {
 
         // Check that the underlying function is the correct ADT name
         match f.is_adt_name() {
-            Some(id) if id == header.index => (),
+            Some((id, _)) if id == header.index => (),
             _ => {
                 return Err(TypeError::IncorrectConstructorResultantType {
                     name,

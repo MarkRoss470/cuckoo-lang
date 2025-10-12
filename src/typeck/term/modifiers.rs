@@ -1,5 +1,8 @@
 use crate::typeck::level::LevelArgs;
-use crate::typeck::term::{TypedBinder, TypedTerm, TypedTermKind, TypedTermKindInner};
+use crate::typeck::term::{
+    Abbreviation, TypedBinder, TypedTerm, TypedTermKind, TypedTermKindInner,
+};
+use std::rc::Rc;
 
 impl TypedTerm {
     /// Replaces the binder with de Bruijn index `id` with the given term, adding `id` to the ids of all bound variables in the new expression
@@ -27,6 +30,27 @@ impl TypedTerm {
             term: self.term.clone_incrementing(limit, inc),
         }
     }
+
+    pub fn with_abbreviation(self, abbreviation: Abbreviation) -> Self {
+        Self {
+            term: self.term.with_abbreviation(abbreviation),
+            ..self
+        }
+    }
+
+    pub fn with_abbreviation_from(self, other: &Self) -> Self {
+        Self {
+            term: self.term.with_abbreviation_from(&other.term),
+            ..self
+        }
+    }
+
+    pub fn normalize_level(self) -> Self {
+        Self {
+            level: self.level.normalize(),
+            ..self
+        }
+    }
 }
 
 impl TypedTermKind {
@@ -37,7 +61,12 @@ impl TypedTermKind {
         let inner = match self.inner() {
             SortLiteral(l) => SortLiteral(l.instantiate_parameters(level_args)),
 
-            AdtName(_) | AdtConstructor(_, _) | AdtRecursor(_) | BoundVariable { .. } => {
+            AdtName(adt, args) => AdtName(*adt, args.instantiate_parameters(level_args)),
+            AdtConstructor(adt, constructor, args) => {
+                AdtConstructor(*adt, *constructor, args.instantiate_parameters(level_args))
+            }
+            AdtRecursor(adt, args) => AdtRecursor(*adt, args.instantiate_parameters(level_args)),
+            BoundVariable { index: _, name: _ } => {
                 return self.clone();
             }
 
@@ -55,13 +84,12 @@ impl TypedTermKind {
             },
         };
 
-        // If the instantiation hasn't fundamentally changed anything, return `self` rather
-        // than allocating a new `Rc`
-        if self.inner().shallow_eq(&inner) {
-            self.clone()
-        } else {
-            Self::from_inner(inner)
-        }
+        Self::from_inner(
+            inner,
+            self.abbreviation
+                .as_ref()
+                .map(|abbr| abbr.instantiate(level_args)),
+        )
     }
 
     // TODO: rename as cloning is no longer special
@@ -72,9 +100,11 @@ impl TypedTermKind {
 
         let inner = match self.inner() {
             SortLiteral(u) => SortLiteral(u.clone()),
-            AdtName(adt) => AdtName(*adt),
-            AdtConstructor(adt, cons) => AdtConstructor(*adt, *cons),
-            AdtRecursor(adt) => AdtRecursor(*adt),
+            AdtName(adt, level_args) => AdtName(*adt, level_args.clone()),
+            AdtConstructor(adt, cons, level_args) => {
+                AdtConstructor(*adt, *cons, level_args.clone())
+            }
+            AdtRecursor(adt, level_args) => AdtRecursor(*adt, level_args.clone()),
             BoundVariable { index, name } => BoundVariable {
                 index: if *index >= limit { index + inc } else { *index },
                 name: *name,
@@ -93,13 +123,12 @@ impl TypedTermKind {
             },
         };
 
-        // If the incrementing hasn't fundamentally changed anything, return `self` rather
-        // than allocating a new `Rc`
-        if self.inner().shallow_eq(&inner) {
-            self.clone()
-        } else {
-            Self::from_inner(inner)
-        }
+        Self::from_inner(
+            inner,
+            self.abbreviation
+                .as_ref()
+                .map(|abbr| abbr.clone_incrementing(limit, inc)),
+        )
     }
 
     /// Replaces the binder with de Bruijn index `id` with the given term, adding `inc` to the ids of all bound variables in the substituted term
@@ -108,7 +137,7 @@ impl TypedTermKind {
         use TypedTermKindInner::*;
 
         let inner = match self.inner() {
-            SortLiteral(_) | AdtName(_) | AdtConstructor(_, _) | AdtRecursor(_) => {
+            SortLiteral(_) | AdtName(_, _) | AdtConstructor(_, _, _) | AdtRecursor(_, _) => {
                 return self.clone();
             }
 
@@ -146,12 +175,67 @@ impl TypedTermKind {
             },
         };
 
-        // If the replacement hasn't fundamentally changed anything, return `self` rather
-        // than allocating a new `Rc`
-        if self.inner().shallow_eq(&inner) {
-            self.clone()
-        } else {
-            Self::from_inner(inner)
+        Self::from_inner(
+            inner,
+            self.abbreviation
+                .as_ref()
+                .map(|abbr| abbr.replace_binder(id, expr)),
+        )
+    }
+
+    pub fn with_abbreviation(self, abbreviation: Abbreviation) -> Self {
+        Self {
+            abbreviation: Some(Rc::new(abbreviation)),
+            ..self
+        }
+    }
+
+    pub fn with_abbreviation_from(self, other: &Self) -> Self {
+        Self {
+            abbreviation: other.abbreviation.clone(),
+            ..self
+        }
+    }
+
+    pub fn clear_abbreviation(&self) -> Self {
+        Self {
+            abbreviation: None,
+            ..self.clone()
+        }
+    }
+}
+
+impl Abbreviation {
+    fn instantiate(self: &Rc<Self>, level_args: &LevelArgs) -> Rc<Self> {
+        match self.as_ref() {
+            Abbreviation::Constant(path, args) => Rc::new(Self::Constant(
+                path.clone(),
+                args.instantiate_parameters(level_args),
+            )),
+            Abbreviation::Application(abbr, term) => Rc::new(Self::Application(
+                abbr.instantiate(level_args),
+                term.instantiate(level_args),
+            )),
+        }
+    }
+
+    fn clone_incrementing(self: &Rc<Self>, limit: usize, inc: usize) -> Rc<Self> {
+        match self.as_ref() {
+            Abbreviation::Constant(_, _) => self.clone(),
+            Abbreviation::Application(abbr, term) => Rc::new(Self::Application(
+                abbr.clone_incrementing(limit, inc),
+                term.clone_incrementing(limit, inc),
+            )),
+        }
+    }
+
+    fn replace_binder(self: &Rc<Self>, id: usize, expr: &TypedTerm) -> Rc<Self> {
+        match self.as_ref() {
+            Abbreviation::Constant(_, _) => self.clone(),
+            Abbreviation::Application(abbr, term) => Rc::new(Self::Application(
+                abbr.replace_binder(id, expr),
+                term.replace_binder(id, expr),
+            )),
         }
     }
 }

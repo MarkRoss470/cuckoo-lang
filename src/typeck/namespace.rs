@@ -80,6 +80,8 @@ impl Namespace {
     ) -> Result<(), TypeError> {
         let (id, rest) = path.split_first();
 
+        let value = value.normalize_level();
+        
         match rest {
             None => {
                 if self.items.contains_key(&id) {
@@ -121,6 +123,19 @@ impl Namespace {
         }
     }
 
+    pub fn resolve_namespace(&self, path: Path) -> Result<&Namespace, TypeError> {
+        let (id, rest) = path.split_first();
+        let ns = self
+            .namespaces
+            .get(&id)
+            .ok_or(TypeError::NameNotResolved(OwnedPath::from_id(id)))?;
+
+        match rest {
+            None => Ok(ns),
+            Some(r) => ns.resolve_namespace(r),
+        }
+    }
+
     pub fn resolve_namespace_mut(&mut self, path: Path) -> Result<&mut Namespace, TypeError> {
         let (id, rest) = path.split_first();
         let ns = self
@@ -149,7 +164,10 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Namespace {
             write!(out, " : ")?;
             item.value.ty().pretty_print(out, context)?;
             write!(out, " := ")?;
-            item.value.term().pretty_print(out, context)?;
+            item.value
+                .term()
+                .clear_abbreviation()
+                .pretty_print(out, context)?;
         }
 
         for (id, namespace) in &self.namespaces {
