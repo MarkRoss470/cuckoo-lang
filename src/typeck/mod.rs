@@ -13,7 +13,7 @@ use crate::parser::ast::Ast;
 use crate::parser::ast::item::def::ValueDefinition;
 use crate::parser::ast::item::{Item, LevelParameters};
 use crate::parser::ast::term::Term;
-use crate::parser::atoms::ident::{Identifier, Path};
+use crate::parser::atoms::ident::Path;
 use crate::parser::{Interner, PrettyPrint};
 use crate::typeck::data::Adt;
 use crate::typeck::level::LevelArgs;
@@ -57,8 +57,6 @@ impl TypingEnvironment {
                 Item::DataDefinition(dd) => {
                     self.resolve_adt(dd)?;
                 }
-                Item::Class => {}
-                Item::Instance => {}
                 Item::ValueDefinition(vd) => {
                     self.resolve_value_definition(vd)?;
                 }
@@ -66,21 +64,6 @@ impl TypingEnvironment {
         }
 
         Ok(())
-    }
-
-    fn assemble_telescope(
-        params: Vec<(Option<Identifier>, TypedTerm)>,
-        output: TypedTerm,
-    ) -> Result<TypedTerm, TypeError> {
-        params
-            .into_iter()
-            .rev()
-            .try_fold(output, |out, (name, param)| {
-                Ok(TypedTerm::make_pi_type(
-                    TypedBinder { name, ty: param },
-                    out,
-                ))
-            })
     }
 
     fn resolve_value_definition(&mut self, ast: &ValueDefinition) -> Result<(), TypeError> {
@@ -166,25 +149,10 @@ impl<'a> TypingContext<'a> {
             TypingContext::Binders { binders: _, parent } => parent.environment(),
         }
     }
-
-    fn get_binder(&self, index: usize) -> Option<&'a TypedBinder> {
-        match self {
-            TypingContext::Root(_) => None,
-            TypingContext::Binders { binders, parent } => {
-                if index < binders.len() {
-                    // Outer binders are before inner ones in this list,
-                    // so binder 0 is the last one, 1 is the second last, etc.
-                    Some(&binders[binders.len() - index - 1])
-                } else {
-                    parent.get_binder(index - binders.len())
-                }
-            }
-        }
-    }
 }
 
 #[derive(Debug, Copy, Clone)]
-struct PrettyPrintContext<'a> {
+pub struct PrettyPrintContext<'a> {
     environment: &'a TypingEnvironment,
     indent_levels: usize,
     print_proofs: bool,
@@ -199,7 +167,7 @@ impl<'a> PrettyPrintContext<'a> {
         }
     }
 
-    fn interner(&self) -> Ref<Interner> {
+    fn interner(&self) -> Ref<'_, Interner> {
         self.environment.interner.borrow()
     }
 
@@ -233,14 +201,6 @@ impl<'a> TypingEnvironment {
 
         self.root.pretty_print(&mut stdout, context).unwrap();
         writeln!(stdout).unwrap();
-    }
-
-    pub fn pretty_print_val(&'a self, val: &impl PrettyPrint<PrettyPrintContext<'a>>) {
-        let context = PrettyPrintContext::new(self);
-
-        let mut stdout = std::io::stdout().lock();
-
-        val.pretty_print(&mut stdout, context).unwrap();
     }
 
     pub fn pretty_println_val(&'a self, val: &impl PrettyPrint<PrettyPrintContext<'a>>) {

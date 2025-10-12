@@ -1,5 +1,5 @@
 use crate::parser::PrettyPrint;
-use crate::parser::atoms::ident::{Identifier, Path};
+use crate::parser::atoms::ident::Path;
 use crate::typeck::level::Level;
 use crate::typeck::term::{TypedTerm, TypedTermKindInner};
 use crate::typeck::{PrettyPrintContext, TypingEnvironment};

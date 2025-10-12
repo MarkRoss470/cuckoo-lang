@@ -1,6 +1,6 @@
-use crate::parser::atoms::whitespace::{SurroundWhitespaceExt, whitespace};
+use crate::parser::atoms::whitespace::SurroundWhitespaceExt;
 use crate::parser::combinators::modifiers::MapExt;
-use crate::parser::{ParseResult, Parser, parser};
+use crate::parser::{ParseResult, Parser};
 
 pub(in crate::parser) trait HeterogeneousTupleExt {
     /// A tuple type made up of the output types of all the parsers in the tuple

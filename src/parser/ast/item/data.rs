@@ -3,7 +3,6 @@ use crate::parser::ast::term::{Binder, Term, bracketed_binder, term};
 use crate::parser::atoms::ident::{Identifier, OwnedPath, identifier, keyword, path};
 use crate::parser::atoms::special_operator;
 use crate::parser::atoms::whitespace::InBlockExt;
-use crate::parser::combinators::modifiers::{DebugExt, OptionalExt};
 use crate::parser::combinators::repeat::Repeat0Ext;
 use crate::parser::combinators::tuples::HeterogeneousTupleExt;
 use crate::parser::{Parser, PrettyPrint, PrettyPrintContext};
@@ -111,7 +110,6 @@ mod tests {
     use crate::parser::ast::term::{LevelArgs, LevelExpr};
     use crate::parser::atoms::ident::OwnedPath;
     use crate::parser::tests::{ParseAllExt, setup_context};
-    use std::rc::Rc;
 
     #[test]
     fn test_data_definition() {
@@ -149,18 +147,18 @@ mod tests {
                 constructors: vec![
                     DataConstructor {
                         name: id_zero,
-                        telescope: Term::Path(OwnedPath::from_id(id_nat), LevelArgs::new())
+                        telescope: Term::Path(OwnedPath::from_id(id_nat), LevelArgs::default())
                     },
                     DataConstructor {
                         name: id_succ,
                         telescope: Term::PiType {
                             binder: Box::new(Binder {
                                 name: None,
-                                ty: Term::Path(OwnedPath::from_id(id_nat), LevelArgs::new())
+                                ty: Term::Path(OwnedPath::from_id(id_nat), LevelArgs::default())
                             }),
                             output: Box::new(Term::Path(
                                 OwnedPath::from_id(id_nat),
-                                LevelArgs::new()
+                                LevelArgs::default()
                             ))
                         }
                     }

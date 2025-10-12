@@ -6,7 +6,7 @@ use crate::parser::ast::item::def::{ValueDefinition, value_definition};
 use crate::parser::atoms::ident::{Identifier, identifier};
 use crate::parser::atoms::whitespace::SurroundWhitespaceExt;
 use crate::parser::atoms::{special_operator, str_exact};
-use crate::parser::combinators::modifiers::{IgnoreValExt, MapExt, OptionalExt};
+use crate::parser::combinators::modifiers::{MapExt, OptionalExt};
 use crate::parser::combinators::repeat::FinalSeparatorBehaviour::AllowFinal;
 use crate::parser::combinators::repeat::Repeat1WithSeparatorExt;
 use crate::parser::combinators::tuples::{HeterogeneousTupleExt, HomogeneousTupleExt};
@@ -16,8 +16,6 @@ use std::io::Write;
 #[derive(Debug)]
 pub enum Item {
     DataDefinition(DataDefinition),
-    Class,
-    Instance,
     ValueDefinition(ValueDefinition),
 }
 
@@ -34,6 +32,7 @@ pub(super) fn item() -> impl Parser<Output = Item> {
 pub struct LevelParameters(pub Vec<Identifier>);
 
 impl LevelParameters {
+    #[allow(unused)] // Only used in tests
     pub fn new(params: &[Identifier]) -> Self {
         Self(params.to_vec())
     }

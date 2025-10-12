@@ -1,6 +1,5 @@
-use crate::parser::PrettyPrint;
 use crate::parser::ast::parse_file;
-use crate::typeck::{TypeError, TypingEnvironment};
+use crate::typeck::TypingEnvironment;
 
 mod parser;
 mod typeck;

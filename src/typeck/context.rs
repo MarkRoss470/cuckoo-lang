@@ -1,7 +1,7 @@
 use crate::parser::ast::term::{Binder, Term};
 use crate::parser::atoms::ident::{OwnedPath, Path};
 use crate::typeck::level::LevelArgs;
-use crate::typeck::term::{TypedBinder, TypedTerm, TypedTermKind};
+use crate::typeck::term::{TypedBinder, TypedTerm};
 use crate::typeck::{TypeError, TypingContext};
 
 impl<'a> TypingContext<'a> {

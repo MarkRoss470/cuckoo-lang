@@ -1,9 +1,8 @@
-use crate::parser::ast::item::{LevelParameters, level_params};
-use crate::parser::ast::term::{Binder, Term, bracketed_binder, term};
-use crate::parser::atoms::ident::{OwnedPath, keyword, path};
+use crate::parser::ast::item::{level_params, LevelParameters};
+use crate::parser::ast::term::{bracketed_binder, term, Binder, Term};
+use crate::parser::atoms::ident::{keyword, path, OwnedPath};
 use crate::parser::atoms::special_operator;
-use crate::parser::atoms::whitespace::{InBlockExt, whitespace};
-use crate::parser::combinators::modifiers::OptionalExt;
+use crate::parser::atoms::whitespace::InBlockExt;
 use crate::parser::combinators::repeat::Repeat0Ext;
 use crate::parser::combinators::tuples::HeterogeneousTupleExt;
 use crate::parser::{Parser, PrettyPrint, PrettyPrintContext};
@@ -19,7 +18,7 @@ pub struct ValueDefinition {
     pub value: Term,
 }
 
-pub fn value_definition() -> impl Parser<Output = ValueDefinition> {
+pub(super) fn value_definition() -> impl Parser<Output = ValueDefinition> {
     rec!(
         (
             keyword("def"),

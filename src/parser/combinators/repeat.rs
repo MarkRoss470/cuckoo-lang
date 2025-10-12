@@ -1,5 +1,5 @@
-use crate::parser::combinators::modifiers::{ThenIgnoreExt, VerifyExt};
-use crate::parser::{ParseResult, Parser, parser, todo};
+use crate::parser::combinators::modifiers::VerifyExt;
+use crate::parser::{ParseResult, Parser, parser};
 
 pub trait Repeat0Ext: Parser {
     fn repeat_0(self) -> impl Parser<Output = Vec<Self::Output>>;

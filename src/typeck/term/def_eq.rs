@@ -1,7 +1,7 @@
 use super::{Abbreviation, TypedBinder, TypedTermKindInner};
 use super::{TypedTerm, TypedTermKind};
 use crate::typeck::TypingEnvironment;
-use crate::typeck::data::{Adt, AdtConstructor};
+use crate::typeck::data::Adt;
 use crate::typeck::level::Level;
 use std::iter;
 

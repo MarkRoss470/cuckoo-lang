@@ -32,6 +32,7 @@ impl<T> ParseResult<T> {
         }
     }
 
+    #[expect(unused)]
     pub fn unwrap(self) -> T {
         assert!(self.errors.is_empty());
         assert!(self.warnings.is_empty());
@@ -106,14 +107,14 @@ struct ParseContext<'a> {
 }
 
 impl<'a> ParseContext<'a> {
-    fn borrow(&mut self) -> ParseContext {
+    fn borrow(&mut self) -> ParseContext<'_> {
         ParseContext {
             interner: &mut *self.interner,
             indent_levels: self.indent_levels,
         }
     }
 
-    fn borrow_indented(&mut self) -> ParseContext {
+    fn borrow_indented(&mut self) -> ParseContext<'_> {
         ParseContext {
             interner: &mut *self.interner,
             indent_levels: self.indent_levels + 1,
@@ -167,7 +168,7 @@ struct PrettyPrintContext<'a> {
 }
 
 impl<'a> PrettyPrintContext<'a> {
-    fn borrow_indented(&self) -> PrettyPrintContext {
+    fn borrow_indented(&self) -> PrettyPrintContext<'_> {
         PrettyPrintContext {
             interner: &self.interner,
             indent_levels: self.indent_levels + 1,

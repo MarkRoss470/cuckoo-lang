@@ -4,7 +4,6 @@ use crate::parser::ast::term::LevelExpr;
 use crate::parser::atoms::ident::Identifier;
 use crate::typeck::{PrettyPrintContext, TypeError, TypingContext, TypingEnvironment};
 use std::cmp::Ordering;
-use std::fs::write;
 use std::io::Write;
 use std::ops::Index;
 use std::rc::Rc;

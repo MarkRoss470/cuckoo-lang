@@ -26,7 +26,7 @@ impl OwnedPath {
         Self(vec![id])
     }
 
-    pub fn borrow(&self) -> Path {
+    pub fn borrow(&self) -> Path<'_> {
         Path(&self.0)
     }
 
@@ -34,6 +34,7 @@ impl OwnedPath {
         *self.0.last().unwrap()
     }
 
+    #[allow(unused)] // Only used in tests
     pub fn append(mut self, id: Identifier) -> Self {
         self.0.push(id);
         self
@@ -98,11 +99,11 @@ fn identifier_like() -> impl Parser<Output = Identifier> {
         .map(Identifier)
 }
 
-pub fn identifier() -> impl Parser<Output = Identifier> {
+pub(in crate::parser) fn identifier() -> impl Parser<Output = Identifier> {
     identifier_like().verify_str(|s| !RESERVED_IDENTIFIERS.binary_search(&s).is_ok())
 }
 
-pub fn keyword(kw: &str) -> impl Parser<Output = ()> {
+pub(in crate::parser) fn keyword(kw: &str) -> impl Parser<Output = ()> {
     debug_assert!(KNOWN_IDENTIFIERS.contains(&kw));
 
     identifier_like()
@@ -110,7 +111,7 @@ pub fn keyword(kw: &str) -> impl Parser<Output = ()> {
         .ignore_value()
 }
 
-pub fn path() -> impl Parser<Output = OwnedPath> {
+pub(in crate::parser) fn path() -> impl Parser<Output = OwnedPath> {
     // A path contains either identifiers or the keyword 'rec'
     (
         identifier(),

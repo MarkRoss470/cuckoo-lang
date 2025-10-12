@@ -5,13 +5,10 @@ pub mod whitespace;
 use crate::parser::combinators::modifiers::{
     IgnoreValExt, MapExt, ReparseExt, VerifyExt, VerifyStrExt,
 };
-use crate::parser::combinators::repeat::FinalSeparatorBehaviour::ForbidFinal;
-use crate::parser::combinators::repeat::{Repeat0Ext, Repeat1Ext, Repeat1WithSeparatorExt};
-use crate::parser::combinators::tuples::{HeterogeneousTupleExt, HomogeneousTupleExt};
-use crate::parser::{InternKey, Interner, ParseResult, Parser, PrettyPrint, parser};
-use icu_properties::props::{IdContinue, IdStart, Math};
+use crate::parser::combinators::repeat::Repeat1Ext;
+use crate::parser::{InternKey, ParseResult, Parser, parser};
+use icu_properties::props::Math;
 use icu_properties::{CodePointSetData, CodePointSetDataBorrowed};
-use std::io::Write;
 
 /// Parses exactly the given string once from the input
 pub(in crate::parser) fn str_exact(s: &str) -> impl Parser<Output = ()> {

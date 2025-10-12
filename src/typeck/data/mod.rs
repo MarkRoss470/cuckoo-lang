@@ -202,7 +202,7 @@ impl<'a> TypingEnvironment {
 
         // Create the constructor constants
         let adt_namespace = self.root.resolve_namespace_mut(name)?;
-        for (i, constructor) in adt.constructors.iter().enumerate() {
+        for constructor in &adt.constructors {
             adt_namespace.insert(
                 Path::from_id(&constructor.name),
                 level_parameters.clone(),

@@ -32,10 +32,6 @@ impl LevelExpr {
 pub struct LevelArgs(Vec<LevelExpr>);
 
 impl LevelArgs {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     pub fn iter(&self) -> impl Iterator<Item = &LevelExpr> {
         self.0.iter()
     }
@@ -72,7 +68,7 @@ pub struct Binder {
     pub ty: Term,
 }
 
-pub fn term() -> impl Parser<Output = Term> {
+pub(in crate::parser) fn term() -> impl Parser<Output = Term> {
     lambda_precedence_term()
 }
 
@@ -114,7 +110,7 @@ fn pi_term() -> impl Parser<Output = Term> {
     )
 }
 
-pub fn bracketed_binder() -> impl Parser<Output = Binder> {
+pub(in crate::parser) fn bracketed_binder() -> impl Parser<Output = Binder> {
     rec!(
         (
             str_exact("("),
@@ -130,7 +126,7 @@ pub fn bracketed_binder() -> impl Parser<Output = Binder> {
     )
 }
 
-pub fn binder() -> impl Parser<Output = Binder> {
+pub(in crate::parser) fn binder() -> impl Parser<Output = Binder> {
     rec!(
         (
             bracketed_binder(),
@@ -341,16 +337,15 @@ mod tests {
         setup_context!(context);
 
         let id_u = Identifier::from_str("u", context.interner);
-        let id_v = Identifier::from_str("v", context.interner);
 
         assert_eq!(
             term().parse_all("u -> u", context),
             Term::PiType {
                 binder: Box::new(Binder {
                     name: None,
-                    ty: Term::Path(OwnedPath::from_id(id_u), LevelArgs::new())
+                    ty: Term::Path(OwnedPath::from_id(id_u), LevelArgs::default())
                 }),
-                output: Box::new(Term::Path(OwnedPath::from_id(id_u), LevelArgs::new()))
+                output: Box::new(Term::Path(OwnedPath::from_id(id_u), LevelArgs::default()))
             }
         )
     }

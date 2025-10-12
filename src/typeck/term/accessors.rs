@@ -38,13 +38,6 @@ impl TypedTerm {
         }
     }
 
-    pub fn is_bound_variable(&self) -> Option<(usize, Option<Identifier>)> {
-        match self.term().inner() {
-            TypedTermKindInner::BoundVariable { index, name } => Some((*index, *name)),
-            _ => None,
-        }
-    }
-
     pub fn is_adt_name(&self) -> Option<(AdtIndex, LevelArgs)> {
         match self.term().inner() {
             TypedTermKindInner::AdtName(adt, level_args) => Some((*adt, level_args.clone())),
@@ -144,7 +137,7 @@ impl TypedTermKind {
         match self.inner() {
             SortLiteral(_) | AdtName(_, _) | AdtConstructor(_, _, _) | AdtRecursor(_, _) => false,
 
-            BoundVariable { index, name } => *index == id,
+            BoundVariable { index, name: _ } => *index == id,
             Application { function, argument } => {
                 function.term.references_bound_variable(id)
                     || argument.term.references_bound_variable(id)
