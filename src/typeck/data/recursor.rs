@@ -438,7 +438,7 @@ fn generate_inductive_parameter_principles(
                 ),
             ),
         );
-        
+
         let ty = calculate_inductive_parameter_principle(
             param_params,
             &param_indices[adt_num_params..],

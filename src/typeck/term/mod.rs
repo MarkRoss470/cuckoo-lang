@@ -88,7 +88,9 @@ impl PartialEq for TypedTermKindInner {
             (SortLiteral(_), _) => false,
             (AdtName(a1, l1), AdtName(a2, l2)) => a1 == a2 && l1 == l2,
             (AdtName(_, _), _) => false,
-            (AdtConstructor(a1, c1, l1), AdtConstructor(a2, c2, l2)) => a1 == a2 && c1 == c2 && l1 == l2,
+            (AdtConstructor(a1, c1, l1), AdtConstructor(a2, c2, l2)) => {
+                a1 == a2 && c1 == c2 && l1 == l2
+            }
             (AdtConstructor(_, _, _), _) => false,
             (AdtRecursor(a1, l1), AdtRecursor(a2, l2)) => a1 == a2 && l1 == l2,
             (AdtRecursor(_, _), _) => false,
@@ -218,7 +220,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypedTermKind {
                     .name
                     .pretty_print(out, &context.interner())?;
                 level_args.pretty_print(out, context)
-            },
+            }
             AdtConstructor(adt, constructor, level_args) => {
                 let adt = context.environment.get_adt(*adt);
 

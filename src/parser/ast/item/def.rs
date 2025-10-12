@@ -1,6 +1,6 @@
-use crate::parser::ast::item::{level_params, LevelParameters};
-use crate::parser::ast::term::{bracketed_binder, term, Binder, Term};
-use crate::parser::atoms::ident::{keyword, path, OwnedPath};
+use crate::parser::ast::item::{LevelParameters, level_params};
+use crate::parser::ast::term::{Binder, Term, bracketed_binder, term};
+use crate::parser::atoms::ident::{OwnedPath, keyword, path};
 use crate::parser::atoms::special_operator;
 use crate::parser::atoms::whitespace::InBlockExt;
 use crate::parser::combinators::repeat::Repeat0Ext;

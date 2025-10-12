@@ -81,7 +81,7 @@ impl Namespace {
         let (id, rest) = path.split_first();
 
         let value = value.normalize_level();
-        
+
         match rest {
             None => {
                 if self.items.contains_key(&id) {

@@ -191,7 +191,7 @@ impl TypingEnvironment {
                     },
                 )),
         );
-        
+
         Some(output)
     }
 
@@ -400,7 +400,7 @@ mod tests {
     fn assert_def_eq(env: &mut TypingEnvironment, t1: &str, t2: &str) {
         let t1 = env.resolve_term_from_string(t1);
         let t2 = env.resolve_term_from_string(t2);
-        
+
         assert!(env.def_eq(t1, t2));
     }
 
