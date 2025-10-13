@@ -114,15 +114,16 @@ pub(in crate::parser) fn bracketed_binder() -> impl Parser<Output = Binder> {
     rec!(
         (
             str_exact("("),
-            identifier(),
+            (
+                identifier().map(Some),
+                keyword("_").with_value(None)
+            )
+                .alt(),
             special_operator(":"),
             term(),
             str_exact(")"),
         )
-            .combine_with_whitespace(|(_, name, _, ty, _)| Binder {
-                name: Some(name),
-                ty,
-            })
+            .combine_with_whitespace(|(_, name, _, ty, _)| Binder { name, ty })
     )
 }
 

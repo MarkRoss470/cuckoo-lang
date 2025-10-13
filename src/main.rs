@@ -13,8 +13,6 @@ fn main() {
     println!("warnings : {:#?}", parse_res.warnings);
     let (interner, ast) = parse_res.value;
 
-    ast.pretty_print(&interner);
-
     let mut env = TypingEnvironment::new(interner);
     let res = env.resolve_file(&ast);
     env.pretty_print();
