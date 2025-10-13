@@ -87,7 +87,7 @@ fn identifier_start() -> impl Parser<Output = ()> {
 
 fn identifier_continue() -> impl Parser<Output = ()> {
     char()
-        .verify(|&c| c == '_' || ID_CONTINUE_SET.contains(c))
+        .verify(|&c| c == '_' || c == '\'' || ID_CONTINUE_SET.contains(c))
         .ignore_value()
 }
 
