@@ -867,7 +867,7 @@ mod tests {
 
     #[test]
     fn test_set_level_params() {
-        let mut env = TypingEnvironment::new(Interner::new());
+        let mut env = TypingEnvironment::new();
 
         let id_0 = Identifier::dummy(0);
         let id_1 = Identifier::dummy(1);
@@ -885,7 +885,7 @@ mod tests {
 
     #[test]
     fn test_resolve_level() {
-        let mut env = TypingEnvironment::new(Interner::new());
+        let mut env = TypingEnvironment::new();
 
         let id_0 = Identifier::dummy(0);
         let id_1 = Identifier::dummy(1);

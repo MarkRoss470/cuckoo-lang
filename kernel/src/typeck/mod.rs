@@ -6,22 +6,23 @@ mod namespace;
 mod term;
 
 pub use error::TypeError;
+pub(crate) use term::TypedTerm;
 
 use std::cell::{Ref, RefCell};
 
-use crate::diagnostic::KernelDiagnostic;
+use crate::diagnostic::KernelError;
 use crate::typeck::data::Adt;
 use crate::typeck::level::LevelArgs;
 use crate::typeck::namespace::Namespace;
-use crate::typeck::term::{Abbreviation, TypedBinder, TypedTerm};
+use crate::typeck::term::{Abbreviation, TypedBinder};
 use common::{Interner, PrettyPrint, WithDiagnostics};
-use std::io::Write;
-use parser::ast::item::{Item, LevelParameters};
-use parser::ast::{parse_file, Ast};
 use parser::ast::item::axiom::AxiomDefinition;
 use parser::ast::item::def::ValueDefinition;
+use parser::ast::item::{Item, LevelParameters};
 use parser::ast::term::Term;
+use parser::ast::{Ast, parse_file};
 use parser::atoms::ident::{OwnedPath, Path};
+use std::io::Write;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct AdtIndex(usize);
@@ -31,7 +32,7 @@ pub struct AxiomIndex(usize);
 
 #[derive(Debug)]
 pub struct TypingEnvironment {
-    interner: RefCell<Interner>,
+    pub interner: RefCell<Interner>,
     adts: Vec<Adt>,
     root: Namespace,
     /// The paths to all defined axioms
@@ -49,20 +50,9 @@ pub struct Axiom {
 }
 
 impl TypingEnvironment {
-    pub fn from_str(source: &str) -> WithDiagnostics<Self, KernelDiagnostic> {
-        parse_file(source)
-            .map_diagnostics(KernelDiagnostic::Parse)
-            .flat_map(|(interner, ast)| {
-                let mut env = Self::new(interner);
-                env.resolve_file(&ast)
-                    .map_diagnostics(KernelDiagnostic::Type)
-                    .with_value(env)
-            })
-    }
-
-    pub fn new(interner: Interner) -> Self {
+    pub fn new() -> Self {
         Self {
-            interner: RefCell::new(interner),
+            interner: RefCell::new(Interner::new()),
             adts: vec![],
             root: Namespace::new(),
             axioms: vec![],
@@ -82,26 +72,16 @@ impl TypingEnvironment {
         self.root.resolve(path, level_args)
     }
 
-    pub fn resolve_file(&mut self, ast: &Ast) -> WithDiagnostics<(), TypeError> {
-        let mut res = WithDiagnostics::new(());
-
+    pub fn resolve_file(&mut self, ast: &Ast) -> Result<(), TypeError> {
         for item in &ast.items {
-            // TODO: convert these methods to use WithDiagnostics themselves
             match item {
-                Item::DataDefinition(dd) => {
-                    self.resolve_adt(dd).unwrap_or_else(|e| res.push_error(e));
-                }
-                Item::ValueDefinition(vd) => {
-                    self.resolve_value_definition(vd)
-                        .unwrap_or_else(|e| res.push_error(e));
-                }
-                Item::Axiom(ad) => self
-                    .resolve_axiom_definition(ad)
-                    .unwrap_or_else(|e| res.push_error(e)),
+                Item::DataDefinition(dd) => self.resolve_adt(dd)?,
+                Item::ValueDefinition(vd) => self.resolve_value_definition(vd)?,
+                Item::Axiom(ad) => self.resolve_axiom_definition(ad)?,
             }
         }
 
-        res
+        Ok(())
     }
 
     fn resolve_value_definition(&mut self, ast: &ValueDefinition) -> Result<(), TypeError> {
@@ -318,38 +298,27 @@ impl<'a> TypingEnvironment {
 
 #[cfg(test)]
 mod tests {
-    use parser::ast::parse_file;
-    use parser::ast::tests::parse_term;
     use crate::typeck::term::TypedTerm;
     use crate::typeck::{TypeError, TypingContext, TypingEnvironment};
+    use parser::ast::parse_file;
+    use parser::ast::tests::parse_term;
 
     pub fn assert_type_checks(source: &str) {
-        let (interner, ast) = parse_file(source).unwrap();
-        let mut env = TypingEnvironment::new(interner);
+        let mut env = TypingEnvironment::new();
+        let ast = parse_file(&mut env.interner.borrow_mut(), source).unwrap();
 
         env.resolve_file(&ast)
             .expect("Code should have type checked");
     }
 
-    pub fn assert_type_error(source: &str, errors: &[TypeError]) {
-        let (interner, ast) = parse_file(source).unwrap();
-        let mut env = TypingEnvironment::new(interner);
+    pub fn assert_type_error(source: &str, expected_err: TypeError) {
+        let mut env = TypingEnvironment::new();
+        let ast = parse_file(&mut env.interner.borrow_mut(), source).unwrap();
 
-        let res = env.resolve_file(&ast);
+        let err = env.resolve_file(&ast).expect_err("Code should not have type checked");
 
-        if !res
-            .diagnostics
-            .iter()
-            .map(|d| &d.value)
-            .eq(errors.into_iter())
-        {
-            panic!(
-                "Type errors were wrong.\nExpected: {errors:?}\nFound: {:?}",
-                res.diagnostics
-            );
-        }
+        assert_eq!(err, expected_err);
     }
-
 
     impl TypingEnvironment {
         pub fn resolve_term_from_string(&mut self, term: &str) -> TypedTerm {

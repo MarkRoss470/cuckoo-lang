@@ -398,8 +398,9 @@ impl TypingEnvironment {
 
 #[cfg(test)]
 mod tests {
-    use parser::ast::parse_file;
     use super::*;
+    use common::Interner;
+    use parser::ast::parse_file;
 
     fn assert_def_eq(env: &mut TypingEnvironment, t1: &str, t2: &str) {
         let t1 = env.resolve_term_from_string(t1);
@@ -427,8 +428,8 @@ mod tests {
               | c2 : P
         ";
 
-        let (interner, file) = parse_file(context).unwrap();
-        let mut env = TypingEnvironment::new(interner);
+        let mut env = TypingEnvironment::new();
+        let file = parse_file(&mut env.interner.borrow_mut(), context).unwrap();
         env.resolve_file(&file)
             .expect("Environment should have type checked");
 
@@ -513,8 +514,8 @@ mod tests {
             def list_123 : List Nat := List.cons Nat Nat.one  (List.cons Nat Nat.two (List.cons Nat Nat.three (List.nil Nat)))
         ";
 
-        let (interner, file) = parse_file(context).unwrap();
-        let mut env = TypingEnvironment::new(interner);
+        let mut env = TypingEnvironment::new();
+        let file = parse_file(&mut env.interner.borrow_mut(), context).unwrap();
         env.resolve_file(&file)
             .expect("Environment should have type checked");
 

@@ -12,7 +12,7 @@ fn test_adt_recursors() {
             -> (intro : motive True.intro)
             -> (t : True)
             -> motive t
-            := True.rec.{m}"
+            := True.rec.{m}",
     );
 
     assert_type_checks(
@@ -22,7 +22,7 @@ fn test_adt_recursors() {
             (motive : False -> Sort m)
             -> (f : False)
             -> motive f
-            := False.rec.{m}"
+            := False.rec.{m}",
     );
 
     assert_type_checks(
@@ -67,7 +67,7 @@ fn test_adt_recursors() {
             -> (cons : (x : T) -> (xs : List.{u} T) -> motive xs -> motive (List.cons.{u} T x xs))
             -> (l : List.{u} T)
             -> motive l
-            := List.rec.{u, m}"
+            := List.rec.{u, m}",
     );
 
     assert_type_checks(
@@ -82,7 +82,7 @@ fn test_adt_recursors() {
             -> (y : T)
             -> (e : Eq.{u} T x y)
             -> motive y e
-            := Eq.rec.{u, m}"
+            := Eq.rec.{u, m}",
     );
 
     assert_type_checks(
@@ -101,7 +101,7 @@ fn test_adt_recursors() {
             -> (x : T)
             -> (a : Acc.{u} T R x)
             -> motive x a
-            := Acc.rec.{u, m}"
+            := Acc.rec.{u, m}",
     );
 }
 
@@ -111,30 +111,27 @@ fn test_invalid_adt_definitions() {
         "data False : Prop where
 
         data Ty : False where",
-        &[TypeError::NotASortFamily(TypedTerm::adt_name(
+        TypeError::NotASortFamily(TypedTerm::adt_name(
             AdtIndex(0),
             TypedTerm::sort_literal(Level::zero()),
             LevelArgs::default(),
-        ))],
+        )),
     );
 
     assert_type_error(
         "data Ty.{u} : Sort u where",
-        &[TypeError::MayOrMayNotBeProp(Level::parameter(
-            0,
-            Identifier::dummy(0),
-        ))],
+        TypeError::MayOrMayNotBeProp(Level::parameter(0, Identifier::dummy(0))),
     );
 
     assert_type_error(
         "data Ty : Type where
            | c : Prop
         ",
-        &[TypeError::IncorrectConstructorResultantType {
+        TypeError::IncorrectConstructorResultantType {
             name: Identifier::dummy(6),
             found: TypedTerm::sort_literal(Level::zero()),
             expected: AdtIndex(0),
-        }],
+        },
     );
 
     assert_type_error(
@@ -142,9 +139,7 @@ fn test_invalid_adt_definitions() {
 
         data Ty : Prop where
            | c : (Ty -> Prop) -> Ty",
-        &[TypeError::InvalidLocationForAdtNameInConstructor(AdtIndex(
-            1,
-        ))],
+        TypeError::InvalidLocationForAdtNameInConstructor(AdtIndex(1)),
     );
 
     assert_type_error(
@@ -152,9 +147,7 @@ fn test_invalid_adt_definitions() {
 
         data Ty : Prop -> Prop where
            | c : Ty (Ty False)",
-        &[TypeError::InvalidLocationForAdtNameInConstructor(AdtIndex(
-            1,
-        ))],
+        TypeError::InvalidLocationForAdtNameInConstructor(AdtIndex(1)),
     );
 
     assert_type_error(
@@ -162,7 +155,7 @@ fn test_invalid_adt_definitions() {
 
         data Ty (T : Type) : Type where
            | constructor : Ty False",
-        &[TypeError::MismatchedAdtParameter {
+        TypeError::MismatchedAdtParameter {
             found: TypedTerm::adt_name(
                 AdtIndex(0),
                 TypedTerm::sort_literal(Level::constant(1)),
@@ -174,15 +167,15 @@ fn test_invalid_adt_definitions() {
                 TypedTerm::sort_literal(Level::constant(1)),
             )
             .term(),
-        }],
+        },
     );
 
     assert_type_error(
         "data Ty : Type where
            | c : Type -> Ty",
-        &[TypeError::InvalidConstructorParameterLevel {
+        TypeError::InvalidConstructorParameterLevel {
             ty: TypedTerm::sort_literal(Level::constant(1)),
             adt_level: Level::constant(1),
-        }],
+        },
     );
 }

@@ -7,7 +7,7 @@ use std::rc::Rc;
 use common::Identifier;
 
 impl TypedTerm {
-    pub fn value_of_type(value: TypedTermKind, ty: TypedTerm) -> TypedTerm {
+    pub(crate) fn value_of_type(value: TypedTermKind, ty: TypedTerm) -> TypedTerm {
         TypedTerm {
             level: ty.check_is_ty().expect("`ty` should have been a type"),
             ty: ty.term.clone(),

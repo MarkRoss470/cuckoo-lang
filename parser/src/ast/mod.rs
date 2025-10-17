@@ -13,10 +13,9 @@ pub struct Ast {
     pub items: Vec<Item>,
 }
 
-pub fn parse_file(content: &str) -> WithDiagnostics<(Interner, Ast), ParseDiagnostic> {
-    let mut interner = Interner::new();
+pub fn parse_file(interner: &mut Interner, content: &str) -> WithDiagnostics<Ast, ParseDiagnostic> {
     let context = ParseContext {
-        interner: &mut interner,
+        interner,
         indent_levels: 0,
     };
 
@@ -30,7 +29,7 @@ pub fn parse_file(content: &str) -> WithDiagnostics<(Interner, Ast), ParseDiagno
         panic!("Some content unparsed: {rest:?}");
     }
 
-    res.map(|items| (interner, Ast { items }))
+    res.map(|items| Ast { items })
 }
 
 impl Ast {

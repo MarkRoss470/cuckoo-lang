@@ -153,7 +153,7 @@ mod tests {
 
     #[test]
     fn test_resolve_identifier() {
-        let env = TypingEnvironment::new(Interner::new());
+        let env = TypingEnvironment::new();
 
         let id_t = Identifier::dummy(0);
         let id_x = Identifier::dummy(1);
@@ -197,7 +197,7 @@ mod tests {
 
     #[test]
     fn test_resolve_path() {
-        let mut env = TypingEnvironment::new(Interner::new());
+        let mut env = TypingEnvironment::new();
 
         let id_y = Identifier::dummy(1);
         let id_x = Identifier::dummy(0);

@@ -14,7 +14,7 @@ use common::{Identifier, PrettyPrint};
 use parser::atoms::ident::OwnedPath;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TypedTerm {
+pub(crate) struct TypedTerm {
     level: Level,
     ty: TypedTermKind,
     term: TypedTermKind,

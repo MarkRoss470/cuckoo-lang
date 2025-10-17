@@ -77,7 +77,7 @@ impl TypedTerm {
     }
 
     /// Decomposes a term as a telescope of pi types, returning the binders and the final output
-    pub fn decompose_telescope(mut self) -> (Vec<TypedBinder>, TypedTerm) {
+    pub(crate) fn decompose_telescope(mut self) -> (Vec<TypedBinder>, TypedTerm) {
         let mut indices = Vec::new();
 
         loop {
@@ -94,7 +94,7 @@ impl TypedTerm {
 
     /// Decomposes a term as a stack of function applications, returning the underlying function and the arguments.
     /// Arguments are returned in the reverse of their source order.
-    pub fn decompose_application_stack_reversed(&self) -> (TypedTerm, Vec<TypedTerm>) {
+    pub(crate) fn decompose_application_stack_reversed(&self) -> (TypedTerm, Vec<TypedTerm>) {
         let mut args = Vec::new();
 
         let mut s = self.clone();
@@ -113,7 +113,7 @@ impl TypedTerm {
 
     /// Decomposes a term as a stack of function applications, returning the underlying function and the arguments.
     /// Arguments are returned in their source order.
-    pub fn decompose_application_stack(&self) -> (TypedTerm, Vec<TypedTerm>) {
+    pub(crate) fn decompose_application_stack(&self) -> (TypedTerm, Vec<TypedTerm>) {
         let (s, mut args) = self.decompose_application_stack_reversed();
 
         args.reverse();
@@ -123,14 +123,14 @@ impl TypedTerm {
 
 impl TypedTermKind {
     /// Checks that the term is a sort literal, returning its level
-    pub fn check_is_sort(&self) -> Result<Level, ()> {
+    pub(crate) fn check_is_sort(&self) -> Result<Level, ()> {
         match self.inner() {
             TypedTermKindInner::SortLiteral(u) => Ok(u.clone()),
             _ => Err(()),
         }
     }
 
-    pub fn references_bound_variable(&self, id: usize) -> bool {
+    pub(crate) fn references_bound_variable(&self, id: usize) -> bool {
         use TypedTermKindInner::*;
 
         match self.inner() {
@@ -162,7 +162,7 @@ impl TypedTermKind {
     ///
     /// [`DefinedConstant`]: TypedTermKindInner::DefinedConstant
     /// [`Axiom`]: TypedTermKindInner::Axiom
-    pub fn forbid_references_to_adt(&self, adt: AdtIndex) -> Result<(), TypeError> {
+    pub(crate) fn forbid_references_to_adt(&self, adt: AdtIndex) -> Result<(), TypeError> {
         use TypedTermKindInner::*;
 
         match self.inner() {

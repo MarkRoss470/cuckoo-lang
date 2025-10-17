@@ -3,7 +3,7 @@ use crate::typeck::TypeError;
 
 #[cfg_attr(any(test, debug_assertions), derive(PartialEq))]
 #[derive(Debug, Clone)]
-pub enum KernelDiagnostic {
+pub enum KernelError {
     Parse(ParseDiagnostic),
     Type(TypeError),
 }

@@ -1,10 +1,16 @@
+use kernel::KernelEnvironment;
 
 fn main() {
     let content = std::fs::read("examples/test").unwrap();
     let content = String::from_utf8(content).unwrap();
 
-    let env = kernel::TypingEnvironment::from_str(&content);
+    let mut env = KernelEnvironment::new();
+    match env.check_str(&content) {
+        Ok(()) => {}
+        Err(e) => {
+            env.pretty_println_error(&e)
+        }
+    }
 
-    dbg!(&env.diagnostics);
-    env.value.pretty_print();
+    env.pretty_print();
 }
