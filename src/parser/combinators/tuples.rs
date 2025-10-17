@@ -12,6 +12,9 @@ pub(in crate::parser) trait HeterogeneousTupleExt {
     /// Runs all the contained parsers in sequence and combines their output using the given function
     fn combine<U, F: Fn(Self::OutputsTuple) -> U>(self, f: F) -> impl Parser<Output = U>;
 
+    /// Runs the contained parsers, returning the result of each. If any individual parser returns `None`, so will the combined parser.
+    fn sequence_with_whitespace(self) -> impl Parser<Output = Self::OutputsTuple>;
+
     /// Runs all the contained parsers in sequence and combines their output using the given function, allowing for whitespace before each parser.
     fn combine_with_whitespace<U, F: Fn(Self::OutputsTuple) -> U>(
         self,
@@ -56,6 +59,14 @@ macro_rules! heterogeneous_tuple_impl {
 
             fn combine<U, Func: Fn(Self::OutputsTuple) -> U>(self, f: Func) -> impl Parser<Output = U> {
                 self.sequence().map(f)
+            }
+
+            fn sequence_with_whitespace(self) -> impl Parser<Output = Self::OutputsTuple> {
+                let ($($parser_param,)*) = self;
+
+                let p = ($($parser_param.surround_whitespace(),)*);
+
+                p.sequence()
             }
 
             fn combine_with_whitespace<U, Func: Fn(Self::OutputsTuple) -> U>(self, f: Func) -> impl Parser<Output = U> {

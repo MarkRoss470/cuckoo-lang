@@ -135,7 +135,11 @@ impl TypedTermKind {
         use TypedTermKindInner::*;
 
         match self.inner() {
-            SortLiteral(_) | AdtName(_, _) | AdtConstructor(_, _, _) | AdtRecursor(_, _) => false,
+            SortLiteral(_)
+            | AdtName(_, _)
+            | AdtConstructor(_, _, _)
+            | AdtRecursor(_, _)
+            | Axiom(_, _) => false,
 
             BoundVariable { index, name: _ } => *index == id,
             Application { function, argument } => {
@@ -154,10 +158,11 @@ impl TypedTermKind {
     }
 
     /// Checks that a term does not reference a given ADT. This is only used while type-checking the
-    /// definition of the ADT in question, so it can be assumed that [`DefinedConstant`]s do not
+    /// definition of the ADT in question, so it can be assumed that [`DefinedConstant`]s and [`Axiom`]s do not
     /// reference the ADT.
     ///
     /// [`DefinedConstant`]: TypedTermKindInner::DefinedConstant
+    /// [`Axiom`]: TypedTermKindInner::Axiom
     pub fn forbid_references_to_adt(&self, adt: AdtIndex) -> Result<(), TypeError> {
         use TypedTermKindInner::*;
 
@@ -165,7 +170,7 @@ impl TypedTermKind {
             AdtName(id, _) | AdtConstructor(id, _, _) | AdtRecursor(id, _) if *id == adt => {
                 Err(TypeError::InvalidLocationForAdtNameInConstructor(adt))
             }
-            AdtName(_, _) | AdtConstructor(_, _, _) | AdtRecursor(_, _) => Ok(()),
+            AdtName(_, _) | AdtConstructor(_, _, _) | AdtRecursor(_, _) | Axiom(_, _) => Ok(()),
 
             SortLiteral(_) | BoundVariable { .. } => Ok(()),
 

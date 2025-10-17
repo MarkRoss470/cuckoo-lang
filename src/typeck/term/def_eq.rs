@@ -80,7 +80,8 @@ impl TypingEnvironment {
                 | AdtName(_, _)
                 | AdtConstructor(_, _, _)
                 | BoundVariable { .. }
-                | PiType { .. } => break,
+                | PiType { .. }
+                | Axiom(_, _) => break,
                 Lambda { .. } if args.is_empty() => break,
                 Application { .. } => unreachable!(),
 
@@ -297,6 +298,8 @@ impl TypingEnvironment {
                     name: _,
                 },
             ) => sid == oid,
+            (Axiom(a1, l1), Axiom(a2, l2)) => a1 == a2 && l1 == l2,
+            (Axiom(_, _), _) => false,
             (BoundVariable { .. }, _) => false,
             (
                 Application {
@@ -364,7 +367,8 @@ impl TypingEnvironment {
             | AdtName(_, _)
             | AdtConstructor(_, _, _)
             | AdtRecursor(_, _)
-            | BoundVariable { .. }) => inner.clone(),
+            | BoundVariable { .. }
+            | Axiom(_, _)) => inner.clone(),
 
             Application { function, argument } => {
                 let function = self.fully_reduce(function.clone(), reduce_proofs);

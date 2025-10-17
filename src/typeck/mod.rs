@@ -10,10 +10,11 @@ pub use error::TypeError;
 use std::cell::{Ref, RefCell};
 
 use crate::parser::ast::Ast;
+use crate::parser::ast::item::axiom::AxiomDefinition;
 use crate::parser::ast::item::def::ValueDefinition;
 use crate::parser::ast::item::{Item, LevelParameters};
 use crate::parser::ast::term::Term;
-use crate::parser::atoms::ident::Path;
+use crate::parser::atoms::ident::{OwnedPath, Path};
 use crate::parser::{Interner, PrettyPrint};
 use crate::typeck::data::Adt;
 use crate::typeck::level::LevelArgs;
@@ -24,13 +25,26 @@ use std::io::Write;
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct AdtIndex(usize);
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct AxiomIndex(usize);
+
 #[derive(Debug)]
 pub struct TypingEnvironment {
     interner: RefCell<Interner>,
     adts: Vec<Adt>,
     root: Namespace,
+    /// The paths to all defined axioms
+    axioms: Vec<Axiom>,
     /// The level parameters of the item currently being type checked
     level_parameters: Option<LevelParameters>,
+}
+
+#[derive(Debug)]
+pub struct Axiom {
+    index: AxiomIndex,
+    path: OwnedPath,
+    level_params: LevelParameters,
+    ty: TypedTerm,
 }
 
 impl TypingEnvironment {
@@ -39,12 +53,17 @@ impl TypingEnvironment {
             interner: RefCell::new(interner),
             adts: vec![],
             root: Namespace::new(),
+            axioms: vec![],
             level_parameters: None,
         }
     }
 
     fn get_adt(&self, id: AdtIndex) -> &Adt {
         &self.adts[id.0]
+    }
+
+    fn get_axiom(&self, id: AxiomIndex) -> &Axiom {
+        &self.axioms[id.0]
     }
 
     fn resolve_path(&self, path: Path, level_args: &LevelArgs) -> Result<TypedTerm, TypeError> {
@@ -60,6 +79,7 @@ impl TypingEnvironment {
                 Item::ValueDefinition(vd) => {
                     self.resolve_value_definition(vd)?;
                 }
+                Item::Axiom(ad) => self.resolve_axiom_definition(ad)?,
             }
         }
 
@@ -106,6 +126,56 @@ impl TypingEnvironment {
 
         #[cfg(debug_assertions)]
         self.check_term(term.clone());
+
+        self.root
+            .insert(ast.path.borrow(), ast.level_params.clone(), term)?;
+
+        // Remove the level parameters from the context
+        self.clear_level_params();
+
+        Ok(())
+    }
+
+    fn add_axiom(
+        &mut self,
+        path: OwnedPath,
+        level_params: LevelParameters,
+        ty: TypedTerm,
+    ) -> &Axiom {
+        let index = AxiomIndex(self.axioms.len());
+        self.axioms.push(Axiom {
+            index,
+            path,
+            level_params,
+            ty,
+        });
+        self.axioms.last().unwrap()
+    }
+
+    fn resolve_axiom_definition(&mut self, ast: &AxiomDefinition) -> Result<(), TypeError> {
+        let mut ty = ast.ty.clone();
+
+        // Set the level parameters for this item
+        self.set_level_params(ast.level_params.clone())?;
+
+        // Desugar axiom parameters to pi types
+        for binder in ast.binders.iter().rev() {
+            ty = Term::PiType {
+                binder: Box::new(binder.clone()),
+                output: Box::new(ty),
+            };
+        }
+
+        // Resolve the type of the axiom
+        let ty = TypingContext::Root(self).resolve_term(&ty)?;
+
+        let axiom = self.add_axiom(ast.path.clone(), ast.level_params.clone(), ty.clone());
+
+        let term = TypedTerm::axiom(
+            axiom.index,
+            ty,
+            LevelArgs::from_level_parameters(&ast.level_params),
+        );
 
         self.root
             .insert(ast.path.borrow(), ast.level_params.clone(), term)?;

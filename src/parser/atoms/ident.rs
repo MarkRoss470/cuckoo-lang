@@ -76,7 +76,7 @@ const RESERVED_IDENTIFIERS: &[&str] = &[
 ];
 /// Identifiers which have special meaning in some context
 const KNOWN_IDENTIFIERS: &[&str] = &[
-    "Prop", "Sort", "Type", "_", "data", "def", "fun", "imax", "max", "rec", "succ", "where",
+    "Prop", "Sort", "Type", "_", "axiom", "data", "def", "fun", "imax", "max", "rec", "succ", "where",
 ];
 
 fn identifier_start() -> impl Parser<Output = ()> {

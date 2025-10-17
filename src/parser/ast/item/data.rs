@@ -29,16 +29,20 @@ pub(super) fn data_definition() -> impl Parser<Output = DataDefinition> {
     rec!(
         (
             keyword("data"),
-            path(),
-            level_params(),
-            bracketed_binder().repeat_0(),
-            special_operator(":"),
-            term(),
-            keyword("where"),
-            data_constructor().repeat_0().in_block(),
+            (
+                path(),
+                level_params(),
+                bracketed_binder().repeat_0(),
+                special_operator(":"),
+                term(),
+                keyword("where"),
+                data_constructor().repeat_0()
+            )
+                .sequence_with_whitespace()
+                .in_block(),
         )
-            .combine_with_whitespace(
-                |(_, name, level_params, parameters, _, family, _, constructors)| {
+            .combine(
+                |(_, (name, level_params, parameters, _, family, _, constructors))| {
                     DataDefinition {
                         name,
                         level_params,
@@ -57,7 +61,7 @@ fn data_constructor() -> impl Parser<Output = DataConstructor> {
             special_operator("|"),
             identifier(),
             special_operator(":"),
-            term().in_block(),
+            term(),
         )
             .combine_with_whitespace(|(_, name, _, telescope)| DataConstructor { name, telescope })
     )

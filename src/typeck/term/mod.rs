@@ -9,7 +9,7 @@ mod tests;
 use crate::parser::PrettyPrint;
 use crate::parser::atoms::ident::{Identifier, OwnedPath};
 use crate::typeck::level::{Level, LevelArgs};
-use crate::typeck::{AdtIndex, PrettyPrintContext};
+use crate::typeck::{AdtIndex, AxiomIndex, PrettyPrintContext};
 use std::io::Write;
 use std::rc::Rc;
 
@@ -36,6 +36,8 @@ enum TypedTermKindInner {
     AdtConstructor(AdtIndex, usize, LevelArgs),
     /// The recursor of an ADT
     AdtRecursor(AdtIndex, LevelArgs),
+    /// An axiom
+    Axiom(AxiomIndex, LevelArgs),
     /// The bound variable of a lambda abstraction, using de Bruijn indices
     BoundVariable {
         /// The de Bruijn index
@@ -94,6 +96,8 @@ impl PartialEq for TypedTermKindInner {
             (AdtConstructor(_, _, _), _) => false,
             (AdtRecursor(a1, l1), AdtRecursor(a2, l2)) => a1 == a2 && l1 == l2,
             (AdtRecursor(_, _), _) => false,
+            (Axiom(a1, l1), Axiom(a2, l2)) => a1 == a2 && l1 == l2,
+            (Axiom(_, _), _) => false,
             (BoundVariable { index: i1, name: _ }, BoundVariable { index: i2, name: _ }) => {
                 i1 == i2
             }
@@ -239,6 +243,14 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypedTermKind {
                     .name
                     .pretty_print(out, &context.interner())?;
                 write!(out, ".rec")?;
+                level_args.pretty_print(out, context)
+            }
+            Axiom(axiom, level_args) => {
+                context
+                    .environment
+                    .get_axiom(*axiom)
+                    .path
+                    .pretty_print(out, &context.interner())?;
                 level_args.pretty_print(out, context)
             }
             BoundVariable { index, name } => {

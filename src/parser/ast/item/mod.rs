@@ -1,6 +1,8 @@
+pub mod axiom;
 pub mod data;
 pub mod def;
 
+use crate::parser::ast::item::axiom::{axiom_definition, AxiomDefinition};
 use crate::parser::ast::item::data::{DataDefinition, data_definition};
 use crate::parser::ast::item::def::{ValueDefinition, value_definition};
 use crate::parser::atoms::ident::{Identifier, identifier};
@@ -17,12 +19,14 @@ use std::io::Write;
 pub enum Item {
     DataDefinition(DataDefinition),
     ValueDefinition(ValueDefinition),
+    Axiom(AxiomDefinition),
 }
 
 pub(super) fn item() -> impl Parser<Output = Item> {
     (
         data_definition().map(Item::DataDefinition),
         value_definition().map(Item::ValueDefinition),
+        axiom_definition().map(Item::Axiom)
     )
         .alt()
 }

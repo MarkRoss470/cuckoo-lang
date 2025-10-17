@@ -1,5 +1,5 @@
 use crate::parser::atoms::ident::Identifier;
-use crate::typeck::AdtIndex;
+use crate::typeck::{AdtIndex, AxiomIndex};
 use crate::typeck::level::{Level, LevelArgs};
 use crate::typeck::term::{
     Abbreviation, TypedBinder, TypedTerm, TypedTermKind, TypedTermKindInner,
@@ -49,6 +49,10 @@ impl TypedTerm {
         TypedTerm::value_of_type(TypedTermKind::adt_recursor(adt_index, level_args), ty)
     }
 
+    pub fn axiom(axiom_index: AxiomIndex, ty: TypedTerm, level_args: LevelArgs) -> TypedTerm {
+        TypedTerm::value_of_type(TypedTermKind::axiom(axiom_index, level_args), ty)
+    }
+    
     pub fn make_pi_type(binder: TypedBinder, output: TypedTerm) -> TypedTerm {
         let binder_level = binder
             .ty
@@ -138,6 +142,10 @@ impl TypedTermKind {
 
     pub fn adt_recursor(adt: AdtIndex, level_args: LevelArgs) -> Self {
         Self::from_inner(TypedTermKindInner::AdtRecursor(adt, level_args), None)
+    }
+    
+    pub fn axiom(axiom_index: AxiomIndex, level_args: LevelArgs) -> Self {
+        Self::from_inner(TypedTermKindInner::Axiom(axiom_index, level_args), None)
     }
 
     pub fn bound_variable(index: usize, name: Option<Identifier>) -> Self {

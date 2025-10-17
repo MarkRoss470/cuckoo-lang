@@ -98,6 +98,7 @@ impl TypingEnvironment {
                     .unwrap()
                     .get_type()
             }
+            Axiom(axiom, level_args) => self.get_axiom(*axiom).ty.instantiate(level_args),
             BoundVariable { index, name: _ } => match context.get_type_of_binder(*index).clone() {
                 None => {
                     println!("Binders:");

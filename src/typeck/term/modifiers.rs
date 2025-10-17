@@ -66,6 +66,7 @@ impl TypedTermKind {
                 AdtConstructor(*adt, *constructor, args.instantiate_parameters(level_args))
             }
             AdtRecursor(adt, args) => AdtRecursor(*adt, args.instantiate_parameters(level_args)),
+            Axiom(axiom, args) => Axiom(*axiom, args.instantiate_parameters(level_args)),
             BoundVariable { index: _, name: _ } => {
                 return self.clone();
             }
@@ -99,12 +100,11 @@ impl TypedTermKind {
         use TypedTermKindInner::*;
 
         let inner = match self.inner() {
-            SortLiteral(u) => SortLiteral(u.clone()),
-            AdtName(adt, level_args) => AdtName(*adt, level_args.clone()),
-            AdtConstructor(adt, cons, level_args) => {
-                AdtConstructor(*adt, *cons, level_args.clone())
-            }
-            AdtRecursor(adt, level_args) => AdtRecursor(*adt, level_args.clone()),
+            inner @ (AdtName(_, _)
+            | SortLiteral(_)
+            | AdtConstructor(_, _, _)
+            | AdtRecursor(_, _)
+            | Axiom(_, _)) => inner.clone(),
             BoundVariable { index, name } => BoundVariable {
                 index: if *index >= limit { index + inc } else { *index },
                 name: *name,
@@ -137,7 +137,7 @@ impl TypedTermKind {
         use TypedTermKindInner::*;
 
         let inner = match self.inner() {
-            SortLiteral(_) | AdtName(_, _) | AdtConstructor(_, _, _) | AdtRecursor(_, _) => {
+            SortLiteral(_) | AdtName(_, _) | AdtConstructor(_, _, _) | AdtRecursor(_, _) | Axiom(_, _) => {
                 return self.clone();
             }
 
