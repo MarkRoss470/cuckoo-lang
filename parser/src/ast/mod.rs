@@ -1,7 +1,7 @@
-use crate::parser::atoms::whitespace::SurroundWhitespaceExt;
-use crate::parser::combinators::repeat::Repeat0Ext;
-use crate::parser::{ParseContext, ParseDiagnostic, ParseResult};
-use crate::parser::{Parser, PrettyPrintContext};
+use crate::atoms::whitespace::SurroundWhitespaceExt;
+use crate::combinators::repeat::Repeat0Ext;
+use crate::{ParseContext, ParseDiagnostic, ParseResult};
+use crate::{Parser, PrettyPrintContext};
 use common::{Interner, PrettyPrint, WithDiagnostics};
 use item::{Item, item};
 
@@ -48,10 +48,10 @@ impl Ast {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::*;
-    use crate::parser::ast::term::{Term, term};
+    use crate::ast::term::{Term, term};
 
     pub fn parse_term(interner: &mut Interner, source: &str) -> ParseResult<Term> {
         let context = ParseContext {

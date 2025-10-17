@@ -1,9 +1,9 @@
-use crate::parser::atoms::ident::{Identifier, Path};
 use crate::typeck::level::Level;
 use crate::typeck::term::{TypedTerm, TypedTermKindInner};
 use crate::typeck::{PrettyPrintContext, TypingEnvironment};
-use common::PrettyPrint;
+use common::{Identifier, PrettyPrint};
 use std::io::Write;
+use parser::atoms::ident::Path;
 
 enum CheckContext<'a> {
     Root,

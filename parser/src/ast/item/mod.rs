@@ -2,19 +2,19 @@ pub mod axiom;
 pub mod data;
 pub mod def;
 
-use crate::parser::ast::item::axiom::{axiom_definition, AxiomDefinition};
-use crate::parser::ast::item::data::{DataDefinition, data_definition};
-use crate::parser::ast::item::def::{ValueDefinition, value_definition};
-use crate::parser::atoms::ident::{Identifier, identifier};
-use crate::parser::atoms::whitespace::SurroundWhitespaceExt;
-use crate::parser::atoms::{special_operator, str_exact};
-use crate::parser::combinators::modifiers::{MapExt, OptionalExt};
-use crate::parser::combinators::repeat::FinalSeparatorBehaviour::AllowFinal;
-use crate::parser::combinators::repeat::Repeat1WithSeparatorExt;
-use crate::parser::combinators::tuples::{HeterogeneousTupleExt, HomogeneousTupleExt};
-use crate::parser::{Parser, PrettyPrintContext};
+use crate::ast::item::axiom::{axiom_definition, AxiomDefinition};
+use crate::ast::item::data::{DataDefinition, data_definition};
+use crate::ast::item::def::{ValueDefinition, value_definition};
+use crate::atoms::ident::{identifier};
+use crate::atoms::whitespace::SurroundWhitespaceExt;
+use crate::atoms::{special_operator, str_exact};
+use crate::combinators::modifiers::{MapExt, OptionalExt};
+use crate::combinators::repeat::FinalSeparatorBehaviour::AllowFinal;
+use crate::combinators::repeat::Repeat1WithSeparatorExt;
+use crate::combinators::tuples::{HeterogeneousTupleExt, HomogeneousTupleExt};
+use crate::{Parser, PrettyPrintContext};
 use std::io::Write;
-use common::{Interner, PrettyPrint};
+use common::{Identifier, Interner, PrettyPrint};
 
 #[derive(Debug)]
 pub enum Item {
@@ -132,8 +132,9 @@ impl<'a> PrettyPrint<&'a Interner> for LevelParameters {
 
 #[cfg(test)]
 mod tests {
+    use common::Identifier;
     use super::*;
-    use crate::parser::tests::{ParseAllExt, setup_context};
+    use crate::tests::{ParseAllExt, setup_context};
 
     #[test]
     fn test_level_params() {

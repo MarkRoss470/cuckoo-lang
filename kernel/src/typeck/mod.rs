@@ -10,18 +10,18 @@ pub use error::TypeError;
 use std::cell::{Ref, RefCell};
 
 use crate::diagnostic::KernelDiagnostic;
-use crate::parser::ast::item::axiom::AxiomDefinition;
-use crate::parser::ast::item::def::ValueDefinition;
-use crate::parser::ast::item::{Item, LevelParameters};
-use crate::parser::ast::term::Term;
-use crate::parser::ast::{Ast, parse_file};
-use crate::parser::atoms::ident::{OwnedPath, Path};
 use crate::typeck::data::Adt;
 use crate::typeck::level::LevelArgs;
 use crate::typeck::namespace::Namespace;
 use crate::typeck::term::{Abbreviation, TypedBinder, TypedTerm};
 use common::{Interner, PrettyPrint, WithDiagnostics};
 use std::io::Write;
+use parser::ast::item::{Item, LevelParameters};
+use parser::ast::{parse_file, Ast};
+use parser::ast::item::axiom::AxiomDefinition;
+use parser::ast::item::def::ValueDefinition;
+use parser::ast::term::Term;
+use parser::atoms::ident::{OwnedPath, Path};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct AdtIndex(usize);
@@ -318,7 +318,8 @@ impl<'a> TypingEnvironment {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::ast::tests::parse_term;
+    use parser::ast::parse_file;
+    use parser::ast::tests::parse_term;
     use crate::typeck::term::TypedTerm;
     use crate::typeck::{TypeError, TypingContext, TypingEnvironment};
 
@@ -349,7 +350,6 @@ mod tests {
         }
     }
 
-    use crate::parser::ast::parse_file;
 
     impl TypingEnvironment {
         pub fn resolve_term_from_string(&mut self, term: &str) -> TypedTerm {

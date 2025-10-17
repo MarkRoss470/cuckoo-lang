@@ -1,17 +1,17 @@
-use crate::parser::atoms::ident::{Identifier, OwnedPath, identifier, keyword, path};
-use crate::parser::atoms::literal::nat_literal;
-use crate::parser::atoms::whitespace::{SurroundWhitespaceExt, whitespace};
-use crate::parser::atoms::{special_operator, str_exact};
-use crate::parser::combinators::modifiers::IgnoreValExt;
-use crate::parser::combinators::modifiers::InBoxExt;
-use crate::parser::combinators::modifiers::MapExt;
-use crate::parser::combinators::modifiers::OptionalExt;
-use crate::parser::combinators::repeat::FinalSeparatorBehaviour::AllowFinal;
-use crate::parser::combinators::repeat::{Fold1Ext, Repeat1Ext, Repeat1WithSeparatorExt};
-use crate::parser::combinators::tuples::{HeterogeneousTupleExt, HomogeneousTupleExt};
-use crate::parser::{Parser,  PrettyPrintContext};
+use crate::atoms::ident::{OwnedPath, identifier, keyword, path};
+use crate::atoms::literal::nat_literal;
+use crate::atoms::whitespace::{SurroundWhitespaceExt, whitespace};
+use crate::atoms::{special_operator, str_exact};
+use crate::combinators::modifiers::IgnoreValExt;
+use crate::combinators::modifiers::InBoxExt;
+use crate::combinators::modifiers::MapExt;
+use crate::combinators::modifiers::OptionalExt;
+use crate::combinators::repeat::FinalSeparatorBehaviour::AllowFinal;
+use crate::combinators::repeat::{Fold1Ext, Repeat1Ext, Repeat1WithSeparatorExt};
+use crate::combinators::tuples::{HeterogeneousTupleExt, HomogeneousTupleExt};
+use crate::{Parser, PrettyPrintContext};
+use common::{Identifier, Interner, PrettyPrint};
 use std::io::Write;
-use common::{Interner, PrettyPrint};
 
 #[cfg_attr(any(test, debug_assertions), derive(PartialEq, Eq))]
 #[derive(Debug, Clone)]
@@ -69,7 +69,7 @@ pub struct Binder {
     pub ty: Term,
 }
 
-pub(in crate::parser) fn term() -> impl Parser<Output = Term> {
+pub(crate) fn term() -> impl Parser<Output = Term> {
     lambda_precedence_term()
 }
 
@@ -111,15 +111,11 @@ fn pi_term() -> impl Parser<Output = Term> {
     )
 }
 
-pub(in crate::parser) fn bracketed_binder() -> impl Parser<Output = Binder> {
+pub(crate) fn bracketed_binder() -> impl Parser<Output = Binder> {
     rec!(
         (
             str_exact("("),
-            (
-                identifier().map(Some),
-                keyword("_").with_value(None)
-            )
-                .alt(),
+            (identifier().map(Some), keyword("_").with_value(None)).alt(),
             special_operator(":"),
             term(),
             str_exact(")"),
@@ -128,7 +124,7 @@ pub(in crate::parser) fn bracketed_binder() -> impl Parser<Output = Binder> {
     )
 }
 
-pub(in crate::parser) fn binder() -> impl Parser<Output = Binder> {
+pub(crate) fn binder() -> impl Parser<Output = Binder> {
     rec!(
         (
             bracketed_binder(),
@@ -332,7 +328,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Binder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::tests::{ParseAllExt, setup_context};
+    use crate::tests::{ParseAllExt, setup_context};
 
     #[test]
     fn test_pi_type() {

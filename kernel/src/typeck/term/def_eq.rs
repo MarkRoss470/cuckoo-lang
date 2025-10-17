@@ -398,8 +398,8 @@ impl TypingEnvironment {
 
 #[cfg(test)]
 mod tests {
+    use parser::ast::parse_file;
     use super::*;
-    use crate::parser::ast::parse_file;
 
     fn assert_def_eq(env: &mut TypingEnvironment, t1: &str, t2: &str) {
         let t1 = env.resolve_term_from_string(t1);

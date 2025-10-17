@@ -1,4 +1,3 @@
-mod parser;
 mod typeck;
 mod diagnostic;
 

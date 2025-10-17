@@ -9,7 +9,7 @@ pub trait PrettyPrint<C> {
 /// The key / symbol type used to compare / look up strings in the interner
 pub type InternKey = SymbolU32;
 
-/// The parser's string interner type
+/// The src's string interner type
 #[derive(Debug)]
 pub struct Interner {
     interner: StringInterner<DefaultBackend>,
@@ -31,10 +31,25 @@ impl Interner {
     }
 }
 
-pub fn dummy_intern_key(value: usize) -> InternKey {
-    use string_interner::Symbol;
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct Identifier(pub InternKey);
 
-    InternKey::try_from_usize(value).unwrap()
+impl Identifier {
+    pub fn from_str(str: &str, interner: &mut Interner) -> Self {
+        Self(interner.get_or_intern(str))
+    }
+
+    pub fn dummy(value: usize) -> Self {
+        use string_interner::Symbol;
+
+        Self(InternKey::try_from_usize(value).unwrap())
+    }
+}
+
+impl<'a> PrettyPrint<&'a Interner> for Identifier {
+    fn pretty_print(&self, out: &mut dyn Write, context: &'a Interner) -> std::io::Result<()> {
+        write!(out, "{}", context.resolve(self.0).unwrap())
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]

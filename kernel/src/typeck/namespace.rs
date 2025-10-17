@@ -1,11 +1,11 @@
-use crate::parser::ast::item::LevelParameters;
-use crate::parser::atoms::ident::{Identifier, OwnedPath, Path};
 use crate::typeck::level::LevelArgs;
 use crate::typeck::term::TypedTerm;
 use crate::typeck::{PrettyPrintContext, TypeError};
 use std::collections::HashMap;
 use std::io::Write;
-use common::PrettyPrint;
+use common::{Identifier, PrettyPrint};
+use parser::ast::item::LevelParameters;
+use parser::atoms::ident::{OwnedPath, Path};
 
 #[derive(Debug)]
 struct NamespaceItem {

@@ -1,4 +1,3 @@
-use crate::parser::atoms::ident::Identifier;
 use crate::typeck::level::{Level, LevelArgs};
 use crate::typeck::term::{TypedBinder, TypedTerm, TypedTermKind, TypedTermKindInner};
 use crate::typeck::{AdtIndex, TypeError};

@@ -1,13 +1,13 @@
-use crate::parser::ast::item::{LevelParameters, level_params};
-use crate::parser::ast::term::{Binder, Term, bracketed_binder, term};
-use crate::parser::atoms::ident::{Identifier, OwnedPath, identifier, keyword, path};
-use crate::parser::atoms::special_operator;
-use crate::parser::atoms::whitespace::InBlockExt;
-use crate::parser::combinators::repeat::Repeat0Ext;
-use crate::parser::combinators::tuples::HeterogeneousTupleExt;
-use crate::parser::{Parser, PrettyPrintContext};
+use crate::ast::item::{LevelParameters, level_params};
+use crate::ast::term::{Binder, Term, bracketed_binder, term};
+use crate::atoms::ident::{OwnedPath, identifier, keyword, path};
+use crate::atoms::special_operator;
+use crate::atoms::whitespace::InBlockExt;
+use crate::combinators::repeat::Repeat0Ext;
+use crate::combinators::tuples::HeterogeneousTupleExt;
+use crate::{Parser, PrettyPrintContext};
+use common::{Identifier, PrettyPrint};
 use std::io::Write;
-use common::PrettyPrint;
 
 #[cfg_attr(any(test, debug_assertions), derive(PartialEq, Eq))]
 #[derive(Debug)]
@@ -112,9 +112,10 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for DataConstructor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::ast::term::{LevelArgs, LevelExpr};
-    use crate::parser::atoms::ident::OwnedPath;
-    use crate::parser::tests::{ParseAllExt, setup_context};
+    use crate::ast::term::{LevelArgs, LevelExpr};
+    use crate::atoms::ident::OwnedPath;
+    use crate::tests::{ParseAllExt, setup_context};
+    use common::Identifier;
 
     #[test]
     fn test_data_definition() {

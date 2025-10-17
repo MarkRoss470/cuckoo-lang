@@ -1,11 +1,10 @@
-use crate::parser::ast::item::LevelParameters;
-use crate::parser::atoms::ident::Identifier;
 use crate::typeck::TypingEnvironment;
 use crate::typeck::data::{Adt, AdtConstructor, AdtConstructorParamKind};
 use crate::typeck::level::{Level, LevelArgs};
 use crate::typeck::term::{TypedBinder, TypedTerm, TypedTermKind};
 use std::iter;
-use common::Interner;
+use common::{Identifier, Interner};
+use parser::ast::item::LevelParameters;
 
 impl<'a> TypingEnvironment {
     /// Generates the recursor constant of an ADT. This constant is of the following type:

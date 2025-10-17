@@ -1,8 +1,7 @@
-use crate::parser::ast::item::LevelParameters;
-use crate::parser::ast::term::LevelExpr;
-use crate::parser::atoms::ident::Identifier;
 use crate::typeck::{PrettyPrintContext, TypeError, TypingContext, TypingEnvironment};
-use common::PrettyPrint;
+use common::{Identifier, PrettyPrint};
+use parser::ast::item::LevelParameters;
+use parser::ast::term::LevelExpr;
 use std::cmp::Ordering;
 use std::io::Write;
 use std::ops::Index;
@@ -459,7 +458,7 @@ impl<'a> TypingContext<'a> {
 
     pub fn resolve_level_args(
         &self,
-        level_args: &crate::parser::ast::term::LevelArgs,
+        level_args: parser::ast::term::LevelArgs,
     ) -> Result<LevelArgs, TypeError> {
         let mut v = Vec::new();
 
@@ -541,15 +540,15 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Level {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::ast::item::LevelParameters;
     use common::Interner;
+    use parser::ast::item::LevelParameters;
 
     #[test]
     fn test_instantiate_parameters() {
-        let param_0 = Level::parameter(0, Identifier::dummy_val(0));
-        let param_1 = Level::parameter(1, Identifier::dummy_val(1));
-        let param_2 = Level::parameter(2, Identifier::dummy_val(2));
-        let param_20 = Level::parameter(20, Identifier::dummy_val(20));
+        let param_0 = Level::parameter(0, Identifier::dummy(0));
+        let param_1 = Level::parameter(1, Identifier::dummy(1));
+        let param_2 = Level::parameter(2, Identifier::dummy(2));
+        let param_20 = Level::parameter(20, Identifier::dummy(20));
 
         let param_list = LevelArgs(vec![Level::zero(), param_0.clone(), param_20.succ()]);
 
@@ -590,9 +589,9 @@ mod tests {
 
     #[test]
     fn test_cmp_norm() {
-        let param_0 = Level::parameter(0, Identifier::dummy_val(0));
-        let param_1 = Level::parameter(1, Identifier::dummy_val(1));
-        let param_2 = Level::parameter(2, Identifier::dummy_val(2));
+        let param_0 = Level::parameter(0, Identifier::dummy(0));
+        let param_1 = Level::parameter(1, Identifier::dummy(1));
+        let param_2 = Level::parameter(2, Identifier::dummy(2));
 
         assert_eq!(Level::zero().cmp_norm(&Level::zero()), Ordering::Equal);
 
@@ -678,8 +677,8 @@ mod tests {
 
     #[test]
     fn test_normalize() {
-        let param_0 = Level::parameter(0, Identifier::dummy_val(0));
-        let param_1 = Level::parameter(1, Identifier::dummy_val(1));
+        let param_0 = Level::parameter(0, Identifier::dummy(0));
+        let param_1 = Level::parameter(1, Identifier::dummy(1));
 
         // Basic cases
         assert_eq!(Level::zero().normalize(), Level::zero());
@@ -699,8 +698,8 @@ mod tests {
 
     #[test]
     fn test_normalize_imax() {
-        let param_0 = Level::parameter(0, Identifier::dummy_val(0));
-        let param_1 = Level::parameter(1, Identifier::dummy_val(1));
+        let param_0 = Level::parameter(0, Identifier::dummy(0));
+        let param_1 = Level::parameter(1, Identifier::dummy(1));
 
         // Imax becomes max if the RHS is not zero
         assert_eq!(
@@ -747,10 +746,10 @@ mod tests {
 
     #[test]
     fn test_normalize_max() {
-        let param_0 = Level::parameter(0, Identifier::dummy_val(0));
-        let param_1 = Level::parameter(1, Identifier::dummy_val(1));
-        let param_2 = Level::parameter(2, Identifier::dummy_val(2));
-        let param_3 = Level::parameter(3, Identifier::dummy_val(3));
+        let param_0 = Level::parameter(0, Identifier::dummy(0));
+        let param_1 = Level::parameter(1, Identifier::dummy(1));
+        let param_2 = Level::parameter(2, Identifier::dummy(2));
+        let param_3 = Level::parameter(3, Identifier::dummy(3));
 
         // Constant arguments are removed if another argument is guaranteed to be at least as large
         assert_eq!(param_0.max(&Level::zero()).normalize(), param_0); // param_0 >= 0
@@ -814,8 +813,8 @@ mod tests {
 
     #[test]
     fn test_def_eq() {
-        let param_0 = Level::parameter(0, Identifier::dummy_val(0));
-        let param_1 = Level::parameter(1, Identifier::dummy_val(1));
+        let param_0 = Level::parameter(0, Identifier::dummy(0));
+        let param_1 = Level::parameter(1, Identifier::dummy(1));
 
         assert!(Level::zero().def_eq(&Level::zero()));
         assert!(Level::zero().succ().def_eq(&Level::zero().succ()));
@@ -831,9 +830,9 @@ mod tests {
 
     #[test]
     fn test_is_geq() {
-        let param_0 = Level::parameter(0, Identifier::dummy_val(0));
-        let param_1 = Level::parameter(1, Identifier::dummy_val(1));
-        let param_2 = Level::parameter(2, Identifier::dummy_val(2));
+        let param_0 = Level::parameter(0, Identifier::dummy(0));
+        let param_1 = Level::parameter(1, Identifier::dummy(1));
+        let param_2 = Level::parameter(2, Identifier::dummy(2));
 
         assert!(param_0.is_geq(&param_0));
         assert!(param_0.succ().is_geq(&param_0));
@@ -870,8 +869,8 @@ mod tests {
     fn test_set_level_params() {
         let mut env = TypingEnvironment::new(Interner::new());
 
-        let id_0 = Identifier::dummy_val(0);
-        let id_1 = Identifier::dummy_val(1);
+        let id_0 = Identifier::dummy(0);
+        let id_1 = Identifier::dummy(1);
 
         let parameters = LevelParameters::new(&[id_0, id_1]);
         env.set_level_params(parameters)
@@ -888,9 +887,9 @@ mod tests {
     fn test_resolve_level() {
         let mut env = TypingEnvironment::new(Interner::new());
 
-        let id_0 = Identifier::dummy_val(0);
-        let id_1 = Identifier::dummy_val(1);
-        let id_2 = Identifier::dummy_val(2);
+        let id_0 = Identifier::dummy(0);
+        let id_1 = Identifier::dummy(1);
+        let id_2 = Identifier::dummy(2);
         let param_0 = Level::parameter(0, id_0);
         let param_1 = Level::parameter(1, id_1);
 

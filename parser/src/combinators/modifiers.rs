@@ -1,5 +1,5 @@
-use crate::parser::combinators::tuples::HeterogeneousTupleExt;
-use crate::parser::{ParseResult, Parser, parser};
+use crate::combinators::tuples::HeterogeneousTupleExt;
+use crate::{ParseResult, Parser, parser};
 use std::fmt::Debug;
 
 pub trait IgnoreValExt: Parser {
@@ -111,8 +111,8 @@ impl<P: Parser> MapStrExt for P {
 }
 
 pub trait ReparseExt: Parser {
-    /// Runs the parser `self`, then runs the parser `q` on the input consumed by `self`.
-    /// `q` must consume all its input, otherwise the whole parser will fail to match.
+    /// Runs the src `self`, then runs the src `q` on the input consumed by `self`.
+    /// `q` must consume all its input, otherwise the whole src will fail to match.
     fn reparse<U, Q: Parser<Output = U>>(self, q: Q) -> impl Parser<Output = U>;
 }
 

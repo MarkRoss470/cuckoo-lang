@@ -1,9 +1,9 @@
-use crate::parser::atoms::ident::{Identifier, OwnedPath};
 use crate::typeck::level::Level;
 use crate::typeck::term::TypedTermKind;
 use crate::typeck::{AdtIndex, PrettyPrintContext, TypedTerm, TypingEnvironment};
 use std::io::Write;
-use common::PrettyPrint;
+use common::{Identifier, PrettyPrint};
+use parser::atoms::ident::OwnedPath;
 
 // TODO: track error locations
 #[cfg_attr(any(test, debug_assertions), derive(PartialEq))]

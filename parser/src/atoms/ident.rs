@@ -1,23 +1,14 @@
-use crate::parser::Parser;
-use crate::parser::atoms::{char, intern, special_operator};
-use crate::parser::combinators::modifiers::MapExt;
-use crate::parser::combinators::modifiers::{IgnoreValExt, ReparseExt, VerifyExt, VerifyStrExt};
-use crate::parser::combinators::repeat::FinalSeparatorBehaviour::ForbidFinal;
-use crate::parser::combinators::repeat::{Repeat0Ext, Repeat1WithSeparatorExt};
-use crate::parser::combinators::tuples::{HeterogeneousTupleExt, HomogeneousTupleExt};
-use common::{InternKey, Interner, PrettyPrint};
+use crate::Parser;
+use crate::atoms::{char, intern, special_operator};
+use crate::combinators::modifiers::MapExt;
+use crate::combinators::modifiers::{IgnoreValExt, ReparseExt, VerifyExt, VerifyStrExt};
+use crate::combinators::repeat::FinalSeparatorBehaviour::ForbidFinal;
+use crate::combinators::repeat::{Repeat0Ext, Repeat1WithSeparatorExt};
+use crate::combinators::tuples::{HeterogeneousTupleExt, HomogeneousTupleExt};
+use common::{Identifier, InternKey, Interner, PrettyPrint};
 use icu_properties::props::{IdContinue, IdStart};
 use icu_properties::{CodePointSetData, CodePointSetDataBorrowed};
 use std::io::Write;
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct Identifier(pub(in crate::parser) InternKey);
-
-impl Identifier {
-    pub fn from_str(str: &str, interner: &mut Interner) -> Self {
-        Self(interner.get_or_intern(str))
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct OwnedPath(Vec<Identifier>);
@@ -101,11 +92,11 @@ fn identifier_like() -> impl Parser<Output = Identifier> {
         .map(Identifier)
 }
 
-pub(in crate::parser) fn identifier() -> impl Parser<Output = Identifier> {
+pub fn identifier() -> impl Parser<Output = Identifier> {
     identifier_like().verify_str(|s| !RESERVED_IDENTIFIERS.binary_search(&s).is_ok())
 }
 
-pub(in crate::parser) fn keyword(kw: &str) -> impl Parser<Output = ()> {
+pub fn keyword(kw: &str) -> impl Parser<Output = ()> {
     debug_assert!(KNOWN_IDENTIFIERS.contains(&kw));
 
     identifier_like()
@@ -113,7 +104,7 @@ pub(in crate::parser) fn keyword(kw: &str) -> impl Parser<Output = ()> {
         .ignore_value()
 }
 
-pub(in crate::parser) fn path() -> impl Parser<Output = OwnedPath> {
+pub fn path() -> impl Parser<Output = OwnedPath> {
     // A path contains either identifiers or the keyword 'rec'
     (
         identifier(),
@@ -124,11 +115,6 @@ pub(in crate::parser) fn path() -> impl Parser<Output = OwnedPath> {
         .map(OwnedPath)
 }
 
-impl<'a> PrettyPrint<&'a Interner> for Identifier {
-    fn pretty_print(&self, out: &mut dyn Write, context: &'a Interner) -> std::io::Result<()> {
-        write!(out, "{}", context.resolve(self.0).unwrap())
-    }
-}
 
 impl<'a> PrettyPrint<&'a Interner> for OwnedPath {
     fn pretty_print(&self, out: &mut dyn Write, context: &'a Interner) -> std::io::Result<()> {
@@ -146,19 +132,8 @@ impl<'a> PrettyPrint<&'a Interner> for OwnedPath {
 
 #[cfg(test)]
 mod tests {
-    use common::dummy_intern_key;
     use super::*;
-    use crate::parser::tests::{ParseAllExt, setup_context};
-
-    impl Identifier {
-        pub fn dummy() -> Self {
-            Self(dummy_intern_key(0))
-        }
-
-        pub fn dummy_val(v: usize) -> Self {
-            Self(dummy_intern_key(v))
-        }
-    }
+    use crate::tests::{ParseAllExt, setup_context};
 
     #[test]
     fn test_reserved_identifiers_sorted() {

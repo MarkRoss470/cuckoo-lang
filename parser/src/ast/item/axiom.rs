@@ -1,11 +1,11 @@
-use crate::parser::ast::item::{LevelParameters, level_params};
-use crate::parser::ast::term::{Binder, Term, bracketed_binder, term};
-use crate::parser::atoms::ident::{OwnedPath, keyword, path};
-use crate::parser::atoms::special_operator;
-use crate::parser::atoms::whitespace::InBlockExt;
-use crate::parser::combinators::repeat::Repeat0Ext;
-use crate::parser::combinators::tuples::HeterogeneousTupleExt;
-use crate::parser::{Parser, PrettyPrintContext};
+use crate::ast::item::{LevelParameters, level_params};
+use crate::ast::term::{Binder, Term, bracketed_binder, term};
+use crate::atoms::ident::{OwnedPath, keyword, path};
+use crate::atoms::special_operator;
+use crate::atoms::whitespace::InBlockExt;
+use crate::combinators::repeat::Repeat0Ext;
+use crate::combinators::tuples::HeterogeneousTupleExt;
+use crate::{Parser, PrettyPrintContext};
 use std::io::Write;
 use common::PrettyPrint;
 

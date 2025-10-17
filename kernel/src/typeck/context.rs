@@ -1,15 +1,15 @@
-use crate::parser::ast::term::{Binder, Term};
-use crate::parser::atoms::ident::{OwnedPath, Path};
 use crate::typeck::level::LevelArgs;
 use crate::typeck::term::{TypedBinder, TypedTerm};
 use crate::typeck::{TypeError, TypingContext};
+use parser::ast::term::{Binder, Term};
+use parser::atoms::ident::{OwnedPath, Path};
 
 impl<'a> TypingContext<'a> {
     pub(super) fn resolve_term(&self, term: &Term) -> Result<TypedTerm, TypeError> {
         match term {
             Term::Sort(u) => Ok(TypedTerm::sort_literal(self.resolve_level(u)?)),
             Term::Path(id, level_args) => {
-                self.resolve_path(id.borrow(), &self.resolve_level_args(level_args)?)
+                self.resolve_path(id.borrow(), &self.resolve_level_args(level_args.clone())?)
             }
             Term::Application { function, argument } => {
                 self.resolve_application(function, argument)
@@ -145,19 +145,18 @@ impl<'a> TypingContext<'a> {
 
 #[cfg(test)]
 mod tests {
-    use common::Interner;
     use super::*;
-    use crate::parser::ast::item::LevelParameters;
-    use crate::parser::atoms::ident::Identifier;
     use crate::typeck::TypingEnvironment;
     use crate::typeck::level::Level;
+    use common::{Identifier, Interner};
+    use parser::ast::item::LevelParameters;
 
     #[test]
     fn test_resolve_identifier() {
         let env = TypingEnvironment::new(Interner::new());
 
-        let id_t = Identifier::dummy_val(0);
-        let id_x = Identifier::dummy_val(1);
+        let id_t = Identifier::dummy(0);
+        let id_x = Identifier::dummy(1);
 
         let context = TypingContext::Root(&env);
 
@@ -200,10 +199,10 @@ mod tests {
     fn test_resolve_path() {
         let mut env = TypingEnvironment::new(Interner::new());
 
-        let id_x = Identifier::dummy_val(0);
-        let id_y = Identifier::dummy_val(1);
-        let id_z = Identifier::dummy_val(2);
-        let id_a = Identifier::dummy_val(3);
+        let id_y = Identifier::dummy(1);
+        let id_x = Identifier::dummy(0);
+        let id_z = Identifier::dummy(2);
+        let id_a = Identifier::dummy(3);
         let path_x = OwnedPath::from_id(id_x);
         let path_y = OwnedPath::from_id(id_y);
         let path_z = OwnedPath::from_id(id_z);

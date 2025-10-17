@@ -1,8 +1,9 @@
 [workspace]
 
-members = ["cli", "common","kernel"]
+members = ["cli", "common","kernel", "parser"]
 resolver = "3"
 
 [workspace.dependencies]
 kernel = {path = "./kernel", version = "0.1.0"}
 common = {path = "./common", version = "0.1.0"}
+parser = {path = "./parser", version = "0.1.0"}

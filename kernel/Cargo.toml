@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 common = {workspace = true}
-# For checking properties of unicode characters
-icu_properties = "2.0"
+parser = {workspace = true}
 
+[dev-dependencies]
+parser = {workspace =  true, features = ["test-utils"]}

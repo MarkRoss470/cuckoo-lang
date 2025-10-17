@@ -1,10 +1,8 @@
 use super::*;
-use crate::parser::ast::parse_file;
-use crate::typeck::TypingEnvironment;
 
 #[test]
 fn test_make_application_stack() {
-    let id_t = Identifier::dummy_val(0);
+    let id_t = Identifier::dummy(0);
     let prop = TypedTerm::sort_literal(Level::zero());
     let ty = TypedTerm::sort_literal(Level::constant(1));
 
@@ -55,7 +53,7 @@ fn test_replace_binder() {
     let sort_0 = TypedTerm::sort_literal(Level::constant(0));
     let adt_0 = TypedTerm::adt_name(AdtIndex(0), sort_0.clone(), LevelArgs::default());
 
-    let id_x = Identifier::dummy_val(0);
+    let id_x = Identifier::dummy(0);
 
     assert_eq!(
         TypedTerm::bound_variable(0, Some(id_x), sort_0.clone()).replace_binder(0, &adt_0),

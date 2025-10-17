@@ -1,11 +1,11 @@
-use crate::parser::ast::item::LevelParameters;
-use crate::parser::ast::item::data::DataDefinition;
-use crate::parser::atoms::ident::{Identifier, OwnedPath, Path};
 use crate::typeck::level::{Level, LevelArgs};
 use crate::typeck::term::{TypedBinder, TypedTerm};
 use crate::typeck::{AdtIndex, PrettyPrintContext, TypeError, TypingContext, TypingEnvironment};
-use common::PrettyPrint;
+use common::{Identifier, PrettyPrint};
 use std::io::Write;
+use parser::ast::item::data::DataDefinition;
+use parser::ast::item::LevelParameters;
+use parser::atoms::ident::{OwnedPath, Path};
 
 mod recursor;
 #[cfg(test)]

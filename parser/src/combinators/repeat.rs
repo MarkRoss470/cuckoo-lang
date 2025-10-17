@@ -1,5 +1,5 @@
-use crate::parser::combinators::modifiers::VerifyExt;
-use crate::parser::{ParseResult, Parser, parser};
+use crate::combinators::modifiers::VerifyExt;
+use crate::{ParseResult, Parser, parser};
 
 pub trait Repeat0Ext: Parser {
     fn repeat_0(self) -> impl Parser<Output = Vec<Self::Output>>;
@@ -150,7 +150,7 @@ pub enum FinalSeparatorBehaviour {
 }
 
 pub trait Repeat1WithSeparatorExt: Parser {
-    /// Repeats `self` at least once, separated by another parser, whose output is ignored.
+    /// Repeats `self` at least once, separated by another src, whose output is ignored.
     fn repeat_1_with_separator<S: Parser>(
         self,
         fin: FinalSeparatorBehaviour,
@@ -251,11 +251,12 @@ impl<P: Parser> Fold1Ext for P {
 
 #[cfg(test)]
 mod tests {
+    use common::Identifier;
     use super::*;
-    use crate::parser::atoms::ident::{Identifier, identifier};
-    use crate::parser::atoms::whitespace::whitespace;
-    use crate::parser::combinators::repeat::FinalSeparatorBehaviour::{AllowFinal, ForbidFinal};
-    use crate::parser::tests::{ParseAllExt, setup_context};
+    use crate::atoms::ident::{identifier};
+    use crate::atoms::whitespace::whitespace;
+    use crate::combinators::repeat::FinalSeparatorBehaviour::{AllowFinal, ForbidFinal};
+    use crate::tests::{ParseAllExt, setup_context};
 
     #[test]
     fn test_repeat_1_with_separator() {

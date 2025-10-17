@@ -2,17 +2,17 @@ pub mod ident;
 pub mod literal;
 pub mod whitespace;
 
-use crate::parser::combinators::modifiers::{
+use crate::combinators::modifiers::{
     IgnoreValExt, MapExt, ReparseExt, VerifyExt, VerifyStrExt,
 };
-use crate::parser::combinators::repeat::Repeat1Ext;
-use crate::parser::{ParseResult, Parser, parser};
+use crate::combinators::repeat::Repeat1Ext;
+use crate::{ParseResult, Parser, parser};
 use icu_properties::props::Math;
 use icu_properties::{CodePointSetData, CodePointSetDataBorrowed};
 use common::InternKey;
 
 /// Parses exactly the given string once from the input
-pub(in crate::parser) fn str_exact(s: &str) -> impl Parser<Output = ()> {
+pub fn str_exact(s: &str) -> impl Parser<Output = ()> {
     parser(move |input, _| {
         input
             .strip_prefix(s)
@@ -73,7 +73,7 @@ pub(super) fn special_operator(op: &str) -> impl Parser<Output = ()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::tests::{ParseAllExt, setup_context};
+    use crate::tests::{ParseAllExt, setup_context};
 
     /// Checks that certain lists are sorted so that binary searches can be correctly performed on them
     #[test]

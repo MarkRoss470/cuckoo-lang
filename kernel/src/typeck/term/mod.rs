@@ -6,12 +6,12 @@ pub mod modifiers;
 #[cfg(test)]
 mod tests;
 
-use crate::parser::atoms::ident::{Identifier, OwnedPath};
 use crate::typeck::level::{Level, LevelArgs};
 use crate::typeck::{AdtIndex, AxiomIndex, PrettyPrintContext};
 use std::io::Write;
 use std::rc::Rc;
-use common::PrettyPrint;
+use common::{Identifier, PrettyPrint};
+use parser::atoms::ident::OwnedPath;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypedTerm {

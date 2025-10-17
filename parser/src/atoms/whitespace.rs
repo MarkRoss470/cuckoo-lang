@@ -1,8 +1,8 @@
-use crate::parser::atoms::{char, str_exact};
-use crate::parser::combinators::modifiers::{IgnoreValExt, VerifyExt};
-use crate::parser::combinators::repeat::{Repeat0Ext, RepeatExactExt, RepeatWhileExt};
-use crate::parser::combinators::tuples::{HeterogeneousTupleExt, HomogeneousTupleExt};
-use crate::parser::{Parser, parser};
+use crate::atoms::{char, str_exact};
+use crate::combinators::modifiers::{IgnoreValExt, VerifyExt};
+use crate::combinators::repeat::{Repeat0Ext, RepeatExactExt, RepeatWhileExt};
+use crate::combinators::tuples::{HeterogeneousTupleExt, HomogeneousTupleExt};
+use crate::{Parser, parser};
 
 /// Parses exactly n levels of indentation
 fn indent_exact(n: usize) -> impl Parser<Output = ()> {
@@ -15,7 +15,7 @@ fn current_indent() -> impl Parser<Output = ()> {
 }
 
 /// Parses a newline character followed by the appropriate indentation  
-pub(in crate::parser) fn newline_and_indent() -> impl Parser<Output = ()> {
+pub fn newline_and_indent() -> impl Parser<Output = ()> {
     (str_exact("\n"), current_indent())
         .sequence()
         .ignore_value()
@@ -36,7 +36,7 @@ fn comment() -> impl Parser<Output = ()> {
 }
 
 /// Parses whitespace
-pub(in crate::parser) fn whitespace() -> impl Parser<Output = ()> {
+pub fn whitespace() -> impl Parser<Output = ()> {
     (
         newline_and_indent(),
         single_non_newline_whitespace(),
@@ -47,14 +47,14 @@ pub(in crate::parser) fn whitespace() -> impl Parser<Output = ()> {
         .ignore_value()
 }
 
-pub(in crate::parser) fn non_newline_whitespace() -> impl Parser<Output = ()> {
+pub fn non_newline_whitespace() -> impl Parser<Output = ()> {
     (single_non_newline_whitespace(), comment())
         .alt()
         .repeat_0()
         .ignore_value()
 }
 
-pub(in crate::parser) trait SurroundWhitespaceExt: Parser {
+pub trait SurroundWhitespaceExt: Parser {
     fn surround_whitespace(self) -> impl Parser<Output = Self::Output>;
 }
 
@@ -64,8 +64,8 @@ impl<P: Parser> SurroundWhitespaceExt for P {
     }
 }
 
-pub(in crate::parser) trait InBlockExt: Parser {
-    /// Runs the given parser in an indented block
+pub trait InBlockExt: Parser {
+    /// Runs the given src in an indented block
     fn in_block(self) -> impl Parser<Output = Self::Output>;
 }
 

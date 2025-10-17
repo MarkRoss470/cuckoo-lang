@@ -1,10 +1,10 @@
-use crate::parser::atoms::ident::Identifier;
 use crate::typeck::{AdtIndex, AxiomIndex};
 use crate::typeck::level::{Level, LevelArgs};
 use crate::typeck::term::{
     Abbreviation, TypedBinder, TypedTerm, TypedTermKind, TypedTermKindInner,
 };
 use std::rc::Rc;
+use common::Identifier;
 
 impl TypedTerm {
     pub fn value_of_type(value: TypedTermKind, ty: TypedTerm) -> TypedTerm {

@@ -122,7 +122,7 @@ fn test_invalid_adt_definitions() {
         "data Ty.{u} : Sort u where",
         &[TypeError::MayOrMayNotBeProp(Level::parameter(
             0,
-            Identifier::dummy(),
+            Identifier::dummy(0),
         ))],
     );
 
@@ -131,7 +131,7 @@ fn test_invalid_adt_definitions() {
            | c : Prop
         ",
         &[TypeError::IncorrectConstructorResultantType {
-            name: Identifier::dummy_val(6),
+            name: Identifier::dummy(6),
             found: TypedTerm::sort_literal(Level::zero()),
             expected: AdtIndex(0),
         }],
@@ -170,7 +170,7 @@ fn test_invalid_adt_definitions() {
             ),
             expected: TypedTerm::bound_variable(
                 0,
-                Some(Identifier::dummy_val(7)),
+                Some(Identifier::dummy(7)),
                 TypedTerm::sort_literal(Level::constant(1)),
             )
             .term(),
