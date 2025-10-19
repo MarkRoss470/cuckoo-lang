@@ -1,22 +1,25 @@
-use crate::typeck::{AdtIndex, AxiomIndex};
 use crate::typeck::level::{Level, LevelArgs};
 use crate::typeck::term::{
     Abbreviation, TypedBinder, TypedTerm, TypedTermKind, TypedTermKindInner,
 };
-use std::rc::Rc;
+use crate::typeck::{AdtIndex, AxiomIndex};
 use common::Identifier;
+use parser::error::Span;
+use std::rc::Rc;
 
 impl TypedTerm {
-    pub(crate) fn value_of_type(value: TypedTermKind, ty: TypedTerm) -> TypedTerm {
+    pub(crate) fn value_of_type(value: TypedTermKind, ty: TypedTerm, span: Span) -> TypedTerm {
         TypedTerm {
+            span,
             level: ty.check_is_ty().expect("`ty` should have been a type"),
             ty: ty.term.clone(),
             term: value,
         }
     }
 
-    pub fn sort_literal(level: Level) -> TypedTerm {
+    pub fn sort_literal(level: Level, span: Span) -> TypedTerm {
         TypedTerm {
+            span,
             level: level.succ().succ(),
             ty: TypedTermKind::sort_literal(level.succ()),
             term: TypedTermKind::sort_literal(level),
@@ -25,12 +28,22 @@ impl TypedTerm {
 
     /// Constructs a term referring to a bound variable. The given `ty` is used as-is, so the indices
     /// in it should be incremented from the type in the variable's binder.
-    pub fn bound_variable(index: usize, name: Option<Identifier>, ty: TypedTerm) -> TypedTerm {
-        TypedTerm::value_of_type(TypedTermKind::bound_variable(index, name), ty)
+    pub fn bound_variable(
+        index: usize,
+        name: Option<Identifier>,
+        ty: TypedTerm,
+        span: Span,
+    ) -> TypedTerm {
+        TypedTerm::value_of_type(TypedTermKind::bound_variable(index, name), ty, span)
     }
 
-    pub fn adt_name(adt_index: AdtIndex, ty: TypedTerm, level_args: LevelArgs) -> TypedTerm {
-        TypedTerm::value_of_type(TypedTermKind::adt_name(adt_index, level_args), ty)
+    pub fn adt_name(
+        adt_index: AdtIndex,
+        ty: TypedTerm,
+        level_args: LevelArgs,
+        span: Span,
+    ) -> TypedTerm {
+        TypedTerm::value_of_type(TypedTermKind::adt_name(adt_index, level_args), ty, span)
     }
 
     pub fn adt_constructor(
@@ -38,22 +51,34 @@ impl TypedTerm {
         constructor: usize,
         ty: TypedTerm,
         level_args: LevelArgs,
+        span: Span,
     ) -> TypedTerm {
         TypedTerm::value_of_type(
             TypedTermKind::adt_constructor(adt_index, constructor, level_args),
             ty,
+            span,
         )
     }
 
-    pub fn adt_recursor(adt_index: AdtIndex, ty: TypedTerm, level_args: LevelArgs) -> TypedTerm {
-        TypedTerm::value_of_type(TypedTermKind::adt_recursor(adt_index, level_args), ty)
+    pub fn adt_recursor(
+        adt_index: AdtIndex,
+        ty: TypedTerm,
+        level_args: LevelArgs,
+        span: Span,
+    ) -> TypedTerm {
+        TypedTerm::value_of_type(TypedTermKind::adt_recursor(adt_index, level_args), ty, span)
     }
 
-    pub fn axiom(axiom_index: AxiomIndex, ty: TypedTerm, level_args: LevelArgs) -> TypedTerm {
-        TypedTerm::value_of_type(TypedTermKind::axiom(axiom_index, level_args), ty)
+    pub fn axiom(
+        axiom_index: AxiomIndex,
+        ty: TypedTerm,
+        level_args: LevelArgs,
+        span: Span,
+    ) -> TypedTerm {
+        TypedTerm::value_of_type(TypedTermKind::axiom(axiom_index, level_args), ty, span)
     }
-    
-    pub fn make_pi_type(binder: TypedBinder, output: TypedTerm) -> TypedTerm {
+
+    pub fn make_pi_type(binder: TypedBinder, output: TypedTerm, span: Span) -> TypedTerm {
         let binder_level = binder
             .ty
             .check_is_ty()
@@ -65,6 +90,7 @@ impl TypedTerm {
         let level = binder_level.smart_imax(&output_level);
 
         TypedTerm {
+            span,
             level: level.succ(),
             ty: TypedTermKind::sort_literal(level),
             term: TypedTermKind::pi_type(binder, output),
@@ -75,29 +101,33 @@ impl TypedTerm {
         function: TypedTerm,
         argument: TypedTerm,
         output: TypedTerm,
+        span: Span,
     ) -> TypedTerm {
-        TypedTerm::value_of_type(TypedTermKind::application(function, argument), output)
+        TypedTerm::value_of_type(TypedTermKind::application(function, argument), output, span)
     }
 
-    pub fn make_lambda(binder: TypedBinder, body: TypedTerm) -> TypedTerm {
+    pub fn make_lambda(binder: TypedBinder, body: TypedTerm, span: Span) -> TypedTerm {
         TypedTerm::value_of_type(
             TypedTermKind::lambda(binder.clone(), body.clone()),
-            TypedTerm::make_pi_type(binder, body.get_type()),
+            TypedTerm::make_pi_type(binder, body.get_type(), span),
+            span,
         )
     }
 
     pub fn make_telescope(
         binders: impl IntoIterator<IntoIter: DoubleEndedIterator<Item = TypedBinder>>,
         output: TypedTerm,
+        span: Span,
     ) -> TypedTerm {
-        binders
-            .into_iter()
-            .rfold(output, |acc, binder| TypedTerm::make_pi_type(binder, acc))
+        binders.into_iter().rfold(output, |acc, binder| {
+            TypedTerm::make_pi_type(binder, acc, span)
+        })
     }
 
     pub fn make_application_stack(
         function: TypedTerm,
         params: impl IntoIterator<Item = TypedTermKind>,
+        span: Span,
     ) -> TypedTerm {
         let mut res = function;
 
@@ -106,9 +136,9 @@ impl TypedTerm {
                 panic!("`res` should have been a function type")
             };
 
-            let param = TypedTerm::value_of_type(param, binder.ty);
+            let param = TypedTerm::value_of_type(param, binder.ty, span);
             let output = output.replace_binder(0, &param);
-            res = TypedTerm::make_application(res, param, output);
+            res = TypedTerm::make_application(res, param, output, span);
         }
 
         res
@@ -117,10 +147,11 @@ impl TypedTerm {
     pub fn make_lambda_telescope(
         binders: impl IntoIterator<IntoIter: DoubleEndedIterator<Item = TypedBinder>>,
         body: TypedTerm,
+        span: Span,
     ) -> TypedTerm {
-        binders
-            .into_iter()
-            .rfold(body, |acc, binder| TypedTerm::make_lambda(binder, acc))
+        binders.into_iter().rfold(body, |acc, binder| {
+            TypedTerm::make_lambda(binder, acc, span)
+        })
     }
 }
 
@@ -143,7 +174,7 @@ impl TypedTermKind {
     pub fn adt_recursor(adt: AdtIndex, level_args: LevelArgs) -> Self {
         Self::from_inner(TypedTermKindInner::AdtRecursor(adt, level_args), None)
     }
-    
+
     pub fn axiom(axiom_index: AxiomIndex, level_args: LevelArgs) -> Self {
         Self::from_inner(TypedTermKindInner::Axiom(axiom_index, level_args), None)
     }

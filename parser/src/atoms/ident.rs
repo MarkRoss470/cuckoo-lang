@@ -92,11 +92,11 @@ fn identifier_like() -> impl Parser<Output = Identifier> {
         .map(Identifier)
 }
 
-pub fn identifier() -> impl Parser<Output = Identifier> {
+pub(crate) fn identifier() -> impl Parser<Output = Identifier> {
     identifier_like().verify_str(|s| !RESERVED_IDENTIFIERS.binary_search(&s).is_ok())
 }
 
-pub fn keyword(kw: &str) -> impl Parser<Output = ()> {
+pub(crate) fn keyword(kw: &str) -> impl Parser<Output = ()> {
     debug_assert!(KNOWN_IDENTIFIERS.contains(&kw));
 
     identifier_like()
@@ -104,7 +104,7 @@ pub fn keyword(kw: &str) -> impl Parser<Output = ()> {
         .ignore_value()
 }
 
-pub fn path() -> impl Parser<Output = OwnedPath> {
+pub(crate) fn path() -> impl Parser<Output = OwnedPath> {
     // A path contains either identifiers or the keyword 'rec'
     (
         identifier(),

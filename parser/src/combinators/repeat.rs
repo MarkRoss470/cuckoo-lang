@@ -1,7 +1,7 @@
 use crate::combinators::modifiers::VerifyExt;
 use crate::{ParseResult, Parser, parser};
 
-pub trait Repeat0Ext: Parser {
+pub(crate) trait Repeat0Ext: Parser {
     fn repeat_0(self) -> impl Parser<Output = Vec<Self::Output>>;
 }
 
@@ -12,6 +12,10 @@ impl<P: Parser> Repeat0Ext for P {
             let mut values = Vec::new();
 
             loop {
+                if input.is_empty() {
+                    break;
+                }
+
                 match self.parse(input, context.borrow()) {
                     None => break,
                     Some((rest, res)) => {
@@ -26,7 +30,7 @@ impl<P: Parser> Repeat0Ext for P {
     }
 }
 
-pub trait Repeat1Ext: Parser {
+pub(crate) trait Repeat1Ext: Parser {
     fn repeat_1(self) -> impl Parser<Output = Vec<Self::Output>>;
 }
 
@@ -36,7 +40,7 @@ impl<P: Parser> Repeat1Ext for P {
     }
 }
 
-pub trait RepeatExactExt: Parser {
+pub(crate) trait RepeatExactExt: Parser {
     fn repeat_exact(self, n: usize) -> impl Parser<Output = Vec<Self::Output>>;
 }
 
@@ -87,7 +91,7 @@ fn repeat_0_while<T, P: Parser<Output = T>, F: Fn(&T) -> bool>(
     })
 }
 
-pub trait RepeatWhileExt: Parser {
+pub(crate) trait RepeatWhileExt: Parser {
     fn repeat_0_while<F: Fn(&Self::Output) -> bool>(
         self,
         f: F,
@@ -103,7 +107,7 @@ impl<P: Parser> RepeatWhileExt for P {
     }
 }
 
-pub trait RepeatUntilExt: Parser {
+pub(crate) trait RepeatUntilExt: Parser {
     fn repeat_0_until<F: Fn(&Self::Output) -> bool>(
         self,
         f: F,
@@ -142,14 +146,14 @@ impl<P: Parser> RepeatUntilExt for P {
 /// Whether to allow a separator after the last value when using [`repeat_1_with_separator`]
 ///
 /// [`repeat_1_with_separator`]: Repeat1WithSeparatorExt::repeat_1_with_separator
-pub enum FinalSeparatorBehaviour {
+pub(crate) enum FinalSeparatorBehaviour {
     /// Allow a final separator
     AllowFinal,
     /// Do not allow a final separator
     ForbidFinal,
 }
 
-pub trait Repeat1WithSeparatorExt: Parser {
+pub(crate) trait Repeat1WithSeparatorExt: Parser {
     /// Repeats `self` at least once, separated by another src, whose output is ignored.
     fn repeat_1_with_separator<S: Parser>(
         self,
@@ -197,7 +201,7 @@ impl<P: Parser> Repeat1WithSeparatorExt for P {
     }
 }
 
-pub trait Fold1Ext: Parser {
+pub(crate) trait Fold1Ext: Parser {
     fn fold_1<F: Fn(Self::Output, Self::Output) -> Self::Output>(
         self,
         f: F,

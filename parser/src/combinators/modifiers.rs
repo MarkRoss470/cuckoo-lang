@@ -1,4 +1,5 @@
 use crate::combinators::tuples::HeterogeneousTupleExt;
+use crate::error::Span;
 use crate::{ParseResult, Parser, parser};
 use std::fmt::Debug;
 
@@ -19,7 +20,7 @@ impl<P: Parser> IgnoreValExt for P {
     }
 }
 
-pub trait OptionalExt: Parser {
+pub(crate) trait OptionalExt: Parser {
     fn optional(self) -> impl Parser<Output = Option<Self::Output>>;
     fn optional_or_else(self, t: impl Fn() -> Self::Output) -> impl Parser<Output = Self::Output>;
     fn optional_or_default(self) -> impl Parser<Output = Self::Output>
@@ -47,7 +48,7 @@ impl<P: Parser> OptionalExt for P {
     }
 }
 
-pub trait VerifyExt: Parser {
+pub(crate) trait VerifyExt: Parser {
     fn verify<F: Fn(&Self::Output) -> bool>(self, f: F) -> impl Parser<Output = Self::Output>;
 }
 
@@ -65,7 +66,7 @@ impl<P: Parser> VerifyExt for P {
     }
 }
 
-pub trait MapExt: Parser {
+pub(crate) trait MapExt: Parser {
     fn map<U, F: Fn(Self::Output) -> U>(self, f: F) -> impl Parser<Output = U>;
 }
 
@@ -79,7 +80,7 @@ impl<P: Parser> MapExt for P {
     }
 }
 
-pub trait VerifyStrExt: Parser {
+pub(crate) trait VerifyStrExt: Parser {
     fn verify_str<F: Fn(&str) -> bool>(self, f: F) -> impl Parser<Output = Self::Output>;
 }
 
@@ -98,7 +99,7 @@ impl<P: Parser> VerifyStrExt for P {
     }
 }
 
-pub trait MapStrExt: Parser {
+pub(crate) trait MapStrExt: Parser {
     fn map_str<U, F: Fn(&str) -> U>(self, f: F) -> impl Parser<Output = U>;
 }
 
@@ -110,7 +111,7 @@ impl<P: Parser> MapStrExt for P {
     }
 }
 
-pub trait ReparseExt: Parser {
+pub(crate) trait ReparseExt: Parser {
     /// Runs the src `self`, then runs the src `q` on the input consumed by `self`.
     /// `q` must consume all its input, otherwise the whole src will fail to match.
     fn reparse<U, Q: Parser<Output = U>>(self, q: Q) -> impl Parser<Output = U>;
@@ -132,7 +133,7 @@ impl<P: Parser> ReparseExt for P {
     }
 }
 
-pub trait InBoxExt: Parser {
+pub(crate) trait InBoxExt: Parser {
     fn in_box(self) -> impl Parser<Output = Box<Self::Output>>;
 }
 
@@ -142,7 +143,7 @@ impl<P: Parser> InBoxExt for P {
     }
 }
 
-pub trait DebugExt: Parser {
+pub(crate) trait DebugExt: Parser {
     fn debug(self, message: &str) -> impl Parser<Output = Self::Output>;
 }
 
@@ -164,12 +165,37 @@ impl<P: Parser<Output: Debug>> DebugExt for P {
     }
 }
 
-pub trait ThenIgnoreExt: Parser {
+pub(crate) trait ThenIgnoreExt: Parser {
     fn then_ignore<Q: Parser>(self, q: Q) -> impl Parser<Output = Self::Output>;
 }
 
 impl<P: Parser> ThenIgnoreExt for P {
     fn then_ignore<Q: Parser>(self, q: Q) -> impl Parser<Output = Self::Output> {
         (self, q).combine(|(t, _)| t)
+    }
+}
+
+pub(crate) trait WithSpanExt: Parser {
+    fn with_span(self) -> impl Parser<Output = (Self::Output, Span)>;
+}
+
+impl<P: Parser> WithSpanExt for P {
+    fn with_span(self) -> impl Parser<Output = (Self::Output, Span)> {
+        parser(move |input, mut context| {
+            let (rest, res) = self.parse(input, context.borrow())?;
+
+            Some((
+                rest,
+                res.map(|v| {
+                    (
+                        v,
+                        Span {
+                            start: context.location_of(input),
+                            end: context.location_of(rest),
+                        },
+                    )
+                }),
+            ))
+        })
     }
 }

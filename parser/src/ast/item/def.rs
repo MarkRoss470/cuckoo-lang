@@ -1,17 +1,21 @@
+use crate::combinators::modifiers::MapExt;
 use crate::ast::item::{LevelParameters, level_params};
 use crate::ast::term::{Binder, Term, bracketed_binder, term};
 use crate::atoms::ident::{OwnedPath, keyword, path};
 use crate::atoms::special_operator;
 use crate::atoms::whitespace::InBlockExt;
+use crate::combinators::modifiers::WithSpanExt;
 use crate::combinators::repeat::Repeat0Ext;
 use crate::combinators::tuples::HeterogeneousTupleExt;
+use crate::error::Span;
 use crate::{Parser, PrettyPrintContext};
-use std::io::Write;
 use common::PrettyPrint;
+use std::io::Write;
 
 #[cfg_attr(any(test, debug_assertions), derive(PartialEq, Eq))]
 #[derive(Debug)]
 pub struct ValueDefinition {
+    pub span: Span,
     pub path: OwnedPath,
     pub level_params: LevelParameters,
     pub binders: Vec<Binder>,
@@ -35,9 +39,12 @@ pub(super) fn value_definition() -> impl Parser<Output = ValueDefinition> {
                 .sequence_with_whitespace()
                 .in_block(),
         )
-            .combine(
-                |(_, (path, level_params, binders, _, ty, _, value))| {
+            .sequence()
+            .with_span()
+            .map(
+                |((_, (path, level_params, binders, _, ty, _, value)), span)| {
                     ValueDefinition {
+                        span,
                         path,
                         level_params,
                         binders,

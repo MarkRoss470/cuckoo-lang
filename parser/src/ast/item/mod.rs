@@ -2,53 +2,67 @@ pub mod axiom;
 pub mod data;
 pub mod def;
 
-use crate::ast::item::axiom::{axiom_definition, AxiomDefinition};
+use crate::ast::item::axiom::{AxiomDefinition, axiom_definition};
 use crate::ast::item::data::{DataDefinition, data_definition};
 use crate::ast::item::def::{ValueDefinition, value_definition};
-use crate::atoms::ident::{identifier};
-use crate::atoms::whitespace::SurroundWhitespaceExt;
-use crate::atoms::{special_operator, str_exact};
-use crate::combinators::modifiers::{MapExt, OptionalExt};
+use crate::atoms::ident::identifier;
+use crate::atoms::whitespace::{SurroundWhitespaceExt, newline_and_indent, InBlockExt};
+use crate::atoms::{char, location, special_operator, str_exact};
+use crate::combinators::error::OrErrorExt;
+use crate::combinators::modifiers::{DebugExt, IgnoreValExt, MapExt, VerifyExt, WithSpanExt};
 use crate::combinators::repeat::FinalSeparatorBehaviour::AllowFinal;
-use crate::combinators::repeat::Repeat1WithSeparatorExt;
+use crate::combinators::repeat::{Repeat0Ext, Repeat1WithSeparatorExt};
 use crate::combinators::tuples::{HeterogeneousTupleExt, HomogeneousTupleExt};
+use crate::error::{ParseDiagnosticKind, Span};
 use crate::{Parser, PrettyPrintContext};
-use std::io::Write;
 use common::{Identifier, Interner, PrettyPrint};
+use std::io::Write;
 
 #[derive(Debug)]
 pub enum Item {
     DataDefinition(DataDefinition),
     ValueDefinition(ValueDefinition),
     Axiom(AxiomDefinition),
+    Malformed(Span),
 }
 
 pub(super) fn item() -> impl Parser<Output = Item> {
     (
         data_definition().map(Item::DataDefinition),
         value_definition().map(Item::ValueDefinition),
-        axiom_definition().map(Item::Axiom)
+        axiom_definition().map(Item::Axiom),
     )
         .alt()
+        .or_else_error(ParseDiagnosticKind::MalformedItem, malformed_item())
+}
+
+fn malformed_item() -> impl Parser<Output = Item> {
+    (
+        char().verify(|c| *c != '\n').ignore_value(),
+        newline_and_indent(),
+    )
+        .alt()
+        .repeat_0()
+        .in_block()
+        .with_span()
+        .map(|(_, span)| Item::Malformed(span))
 }
 
 #[cfg_attr(any(test, debug_assertions), derive(PartialEq, Eq))]
-#[derive(Debug, Clone, Default)]
-pub struct LevelParameters(pub Vec<Identifier>);
+#[derive(Debug, Clone)]
+pub struct LevelParameters {
+    pub span: Span,
+    pub ids: Vec<Identifier>,
+}
 
 impl LevelParameters {
-    #[allow(unused)] // Only used in tests
-    pub fn new(params: &[Identifier]) -> Self {
-        Self(params.to_vec())
-    }
-
     /// Gets the number of level parameters
     pub fn count(&self) -> usize {
-        self.0.len()
+        self.ids.len()
     }
 
     pub fn lookup(&self, arg: &Identifier) -> Option<usize> {
-        self.0
+        self.ids
             .iter()
             .enumerate()
             .find(|(_, id)| **id == *arg)
@@ -56,8 +70,8 @@ impl LevelParameters {
     }
 
     pub fn find_duplicate(&self) -> Option<Identifier> {
-        for (i, u) in self.0.iter().enumerate() {
-            if self.0[i + 1..].contains(u) {
+        for (i, u) in self.ids.iter().enumerate() {
+            if self.ids[i + 1..].contains(u) {
                 return Some(*u);
             }
         }
@@ -88,13 +102,22 @@ impl LevelParameters {
 fn level_params() -> impl Parser<Output = LevelParameters> {
     rec!(
         (
-            special_operator("."),
-            str_exact("{"),
-            identifier().repeat_1_with_separator(AllowFinal, str_exact(",").surround_whitespace()),
-            str_exact("}"),
+            (
+                special_operator("."),
+                str_exact("{"),
+                identifier()
+                    .repeat_1_with_separator(AllowFinal, str_exact(",").surround_whitespace()),
+                str_exact("}"),
+            )
+                .sequence_with_whitespace()
+                .with_span()
+                .map(|((_, _, ids, _), span)| LevelParameters { span, ids }),
+            location().map(|l| LevelParameters {
+                span: Span::point(l),
+                ids: vec![]
+            })
         )
-            .combine_with_whitespace(|(_, _, ids, _)| LevelParameters(ids))
-            .optional_or_default()
+            .alt()
     )
 }
 
@@ -115,10 +138,10 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Item {
 impl<'a> PrettyPrint<&'a Interner> for LevelParameters {
     fn pretty_print(&self, out: &mut dyn Write, context: &'a Interner) -> std::io::Result<()> {
         // Only print the braces if there's at least one parameter
-        if !self.0.is_empty() {
+        if !self.ids.is_empty() {
             write!(out, ".{{")?;
 
-            for param in &self.0 {
+            for param in &self.ids {
                 param.pretty_print(out, context)?;
                 write!(out, ", ")?;
             }
@@ -132,9 +155,18 @@ impl<'a> PrettyPrint<&'a Interner> for LevelParameters {
 
 #[cfg(test)]
 mod tests {
-    use common::Identifier;
     use super::*;
     use crate::tests::{ParseAllExt, setup_context};
+    use common::Identifier;
+
+    impl LevelParameters {
+        pub fn new(params: &[Identifier]) -> Self {
+            Self {
+                span: Span {},
+                ids: params.to_vec(),
+            }
+        }
+    }
 
     #[test]
     fn test_level_params() {
@@ -146,12 +178,14 @@ mod tests {
 
         assert_eq!(
             level_params().parse_all(".{u}", context.borrow()),
-            LevelParameters(vec![id_u])
+            LevelParameters { ids: vec![id_u] }
         );
 
         assert_eq!(
             level_params().parse_all(".{ u , v,w,}", context.borrow()),
-            LevelParameters(vec![id_u, id_v, id_w])
+            LevelParameters {
+                ids: vec![id_u, id_v, id_w]
+            }
         );
     }
 }

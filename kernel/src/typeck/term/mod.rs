@@ -12,9 +12,11 @@ use std::io::Write;
 use std::rc::Rc;
 use common::{Identifier, PrettyPrint};
 use parser::atoms::ident::OwnedPath;
+use parser::error::Span;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TypedTerm {
+    span: Span,
     level: Level,
     ty: TypedTermKind,
     term: TypedTermKind,
@@ -65,6 +67,7 @@ enum TypedTermKindInner {
 
 #[derive(Debug, Clone, Eq)]
 pub struct TypedBinder {
+    pub span: Span,
     pub name: Option<Identifier>,
     pub ty: TypedTerm,
 }

@@ -1,8 +1,8 @@
 use crate::diagnostic::KernelError;
 use crate::typeck::{PrettyPrintContext, TypeError, TypedTerm, TypingEnvironment};
 use common::PrettyPrint;
-use parser::ParseDiagnostic;
 use parser::ast::parse_file;
+use parser::error::{ParseDiagnostic, ParseDiagnosticKind};
 use std::io::Write;
 
 mod diagnostic;
@@ -18,8 +18,8 @@ impl KernelEnvironment {
 
     pub fn check_str(&mut self, source: &str) -> Result<(), KernelError> {
         let res = parse_file(&mut self.0.interner.borrow_mut(), source);
-        if let Some(e) = res.diagnostics.into_iter().next() {
-            return Err(KernelError::Parse(e.value));
+        if !res.diagnostics.is_empty() {
+            return Err(KernelError::Parse(res.diagnostics[0].value.clone()));
         }
 
         self.0.resolve_file(&res.value).map_err(KernelError::Type)
@@ -50,8 +50,20 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for ParseDiagnostic {
         out: &mut dyn Write,
         context: PrettyPrintContext<'a>,
     ) -> std::io::Result<()> {
-        match self {
-            _ => Ok(()),
+        use ParseDiagnosticKind::*;
+
+        write!(out, "Syntax Error at {}: ", self.location)?;
+
+        match self.kind {
+            UnclosedBracket => writeln!(out, "Unclosed bracket"),
+            MalformedItem => writeln!(out, "Malformed item"),
+            MissingBinderName => writeln!(out, "Missing name in binder"),
+            MissingLambdaBinder => writeln!(out, "Missing binder for lambda expression"),
+            MissingLambdaArrow => writeln!(out, "Missing arrow in lambda expression"),
+            MissingLambdaBody => writeln!(out, "Missing body of lambda expression"),
+
+            #[expect(unreachable_patterns)]
+            _ => todo!(),
         }
     }
 }

@@ -1,8 +1,14 @@
+use crate::typeck::error::TypeErrorKind;
 use crate::typeck::level::{Level, LevelArgs};
 use crate::typeck::term::{TypedBinder, TypedTerm, TypedTermKind, TypedTermKindInner};
 use crate::typeck::{AdtIndex, TypeError};
+use parser::error::Span;
 
 impl TypedTerm {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
     pub fn level(&self) -> Level {
         self.level.clone()
     }
@@ -17,13 +23,15 @@ impl TypedTerm {
 
     /// Checks that the term represents a type. If it is, returns what level it is in.
     pub fn check_is_ty(&self) -> Result<Level, TypeError> {
-        self.ty()
-            .check_is_sort()
-            .map_err(|_| TypeError::NotAType(self.clone()))
+        self.ty().check_is_sort().map_err(|_| TypeError {
+            span: self.span,
+            kind: TypeErrorKind::NotAType(self.clone()),
+        })
     }
 
     pub fn get_type(&self) -> TypedTerm {
         TypedTerm {
+            span: self.span,
             level: self.level.succ(),
             ty: TypedTermKind::sort_literal(self.level.clone()),
             term: self.ty.clone(),
@@ -119,6 +127,20 @@ impl TypedTerm {
         args.reverse();
         (s, args)
     }
+
+    /// Checks that a term does not reference a given ADT. This is only used while type-checking the
+    /// definition of the ADT in question, so it can be assumed that [`DefinedConstant`]s and [`Axiom`]s do not
+    /// reference the ADT.
+    ///
+    /// [`DefinedConstant`]: TypedTermKindInner::DefinedConstant
+    /// [`Axiom`]: TypedTermKindInner::Axiom
+    pub(crate) fn forbid_references_to_adt(
+        &self,
+        adt: AdtIndex,
+    ) -> Result<(), TypeError> {
+        self.term.forbid_references_to_adt(adt, self.span)?;
+        self.ty.forbid_references_to_adt(adt, self.span)
+    }
 }
 
 impl TypedTermKind {
@@ -162,28 +184,35 @@ impl TypedTermKind {
     ///
     /// [`DefinedConstant`]: TypedTermKindInner::DefinedConstant
     /// [`Axiom`]: TypedTermKindInner::Axiom
-    pub(crate) fn forbid_references_to_adt(&self, adt: AdtIndex) -> Result<(), TypeError> {
+    fn forbid_references_to_adt(
+        &self,
+        adt: AdtIndex,
+        span: Span,
+    ) -> Result<(), TypeError> {
         use TypedTermKindInner::*;
 
         match self.inner() {
             AdtName(id, _) | AdtConstructor(id, _, _) | AdtRecursor(id, _) if *id == adt => {
-                Err(TypeError::InvalidLocationForAdtNameInConstructor(adt))
+                Err(TypeError {
+                    span,
+                    kind: TypeErrorKind::InvalidLocationForAdtNameInConstructor(adt),
+                })
             }
             AdtName(_, _) | AdtConstructor(_, _, _) | AdtRecursor(_, _) | Axiom(_, _) => Ok(()),
 
             SortLiteral(_) | BoundVariable { .. } => Ok(()),
 
             Application { function, argument } => {
-                function.term.forbid_references_to_adt(adt)?;
-                argument.term.forbid_references_to_adt(adt)
+                function.forbid_references_to_adt(adt)?;
+                argument.forbid_references_to_adt(adt)
             }
             PiType { binder, output } => {
-                binder.ty.term.forbid_references_to_adt(adt)?;
-                output.term.forbid_references_to_adt(adt)
+                binder.ty.forbid_references_to_adt(adt)?;
+                output.forbid_references_to_adt(adt)
             }
             Lambda { binder, body } => {
-                binder.ty.term.forbid_references_to_adt(adt)?;
-                body.term.forbid_references_to_adt(adt)
+                binder.ty.forbid_references_to_adt(adt)?;
+                body.forbid_references_to_adt(adt)
             }
         }
     }

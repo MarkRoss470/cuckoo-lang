@@ -1,4 +1,4 @@
-use parser::ParseDiagnostic;
+use parser::error::ParseDiagnostic;
 use crate::typeck::TypeError;
 
 #[cfg_attr(any(test, debug_assertions), derive(PartialEq))]

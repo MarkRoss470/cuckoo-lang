@@ -3,7 +3,7 @@ use crate::combinators::modifiers::{ReparseExt, VerifyExt};
 use crate::combinators::repeat::Repeat1Ext;
 use crate::{ParseResult, Parser, parser};
 
-pub fn nat_literal() -> impl Parser<Output = usize> {
+pub(crate) fn nat_literal() -> impl Parser<Output = usize> {
     char()
         .verify(|c| c.is_numeric())
         .repeat_1()

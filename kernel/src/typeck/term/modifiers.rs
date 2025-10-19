@@ -8,6 +8,7 @@ impl TypedTerm {
     /// Replaces the binder with de Bruijn index `id` with the given term, adding `id` to the ids of all bound variables in the new expression
     pub fn replace_binder(&self, id: usize, expr: &TypedTerm) -> Self {
         Self {
+            span: self.span,
             level: self.level.clone(),
             ty: self.ty.replace_binder(id, expr),
             term: self.term.replace_binder(id, expr),
@@ -16,6 +17,7 @@ impl TypedTerm {
 
     pub fn instantiate(&self, level_args: &LevelArgs) -> Self {
         Self {
+            span: self.span,
             level: self.level.instantiate_parameters(level_args),
             ty: self.ty.instantiate(level_args),
             term: self.term.instantiate(level_args),
@@ -25,6 +27,7 @@ impl TypedTerm {
     /// Clones the value, while incrementing all bound variable indices by `inc`
     pub fn clone_incrementing(&self, limit: usize, inc: usize) -> Self {
         Self {
+            span: self.span,
             level: self.level.clone(),
             ty: self.ty.clone_incrementing(limit, inc),
             term: self.term.clone_incrementing(limit, inc),
@@ -245,6 +248,7 @@ impl TypedBinder {
     #[must_use]
     pub(super) fn replace_binder(&self, id: usize, expr: &TypedTerm) -> Self {
         Self {
+            span: self.span,
             name: self.name,
             ty: self.ty.replace_binder(id, expr),
         }
@@ -253,6 +257,7 @@ impl TypedBinder {
     #[must_use]
     pub(super) fn instantiate(&self, level_args: &LevelArgs) -> Self {
         Self {
+            span: self.span,
             name: self.name,
             ty: self.ty.instantiate(level_args),
         }
@@ -262,6 +267,7 @@ impl TypedBinder {
     #[must_use]
     fn clone_incrementing(&self, limit: usize, inc: usize) -> Self {
         Self {
+            span: self.span,
             name: self.name,
             ty: self.ty.clone_incrementing(limit, inc),
         }

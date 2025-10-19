@@ -19,9 +19,10 @@ use common::{Interner, PrettyPrint, WithDiagnostics};
 use parser::ast::item::axiom::AxiomDefinition;
 use parser::ast::item::def::ValueDefinition;
 use parser::ast::item::{Item, LevelParameters};
-use parser::ast::term::Term;
+use parser::ast::term::{Term, TermKind};
 use parser::ast::{Ast, parse_file};
 use parser::atoms::ident::{OwnedPath, Path};
+use parser::error::Span;
 use std::io::Write;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -68,8 +69,13 @@ impl TypingEnvironment {
         &self.axioms[id.0]
     }
 
-    fn resolve_path(&self, path: Path, level_args: &LevelArgs) -> Result<TypedTerm, TypeError> {
-        self.root.resolve(path, level_args)
+    fn resolve_path(
+        &self,
+        path: Path,
+        level_args: &LevelArgs,
+        span: Span,
+    ) -> Result<TypedTerm, TypeError> {
+        self.root.resolve(path, level_args, span)
     }
 
     pub fn resolve_file(&mut self, ast: &Ast) -> Result<(), TypeError> {
@@ -78,6 +84,7 @@ impl TypingEnvironment {
                 Item::DataDefinition(dd) => self.resolve_adt(dd)?,
                 Item::ValueDefinition(vd) => self.resolve_value_definition(vd)?,
                 Item::Axiom(ad) => self.resolve_axiom_definition(ad)?,
+                Item::Malformed(span) => Err(TypeError::unsupported(*span, "Malformed items"))?,
             }
         }
 
@@ -93,14 +100,20 @@ impl TypingEnvironment {
 
         // Desugar `def` parameters to pi types and lambda expressions
         for binder in ast.binders.iter().rev() {
-            ty = Term::PiType {
-                binder: Box::new(binder.clone()),
-                output: Box::new(ty),
+            ty = Term {
+                span: ast.span,
+                kind: TermKind::PiType {
+                    binder: Box::new(binder.clone()),
+                    output: Box::new(ty),
+                },
             };
 
-            value = Term::Lambda {
-                binder: Box::new(binder.clone()),
-                body: Box::new(value),
+            value = Term {
+                span: ast.span,
+                kind: TermKind::Lambda {
+                    binder: Box::new(binder.clone()),
+                    body: Box::new(value),
+                },
             };
         }
 
@@ -116,17 +129,18 @@ impl TypingEnvironment {
             return Err(self.mismatched_types_error(value, ty));
         }
 
-        let term =
-            TypedTerm::value_of_type(value.term(), ty).with_abbreviation(Abbreviation::Constant(
+        let term = TypedTerm::value_of_type(value.term(), ty, value.span()).with_abbreviation(
+            Abbreviation::Constant(
                 ast.path.clone(),
                 LevelArgs::from_level_parameters(&ast.level_params),
-            ));
+            ),
+        );
 
         #[cfg(debug_assertions)]
         self.check_term(term.clone());
 
         self.root
-            .insert(ast.path.borrow(), ast.level_params.clone(), term)?;
+            .insert(ast.path.borrow(), ast.level_params.clone(), term, ast.span)?;
 
         // Remove the level parameters from the context
         self.clear_level_params();
@@ -158,9 +172,12 @@ impl TypingEnvironment {
 
         // Desugar axiom parameters to pi types
         for binder in ast.binders.iter().rev() {
-            ty = Term::PiType {
-                binder: Box::new(binder.clone()),
-                output: Box::new(ty),
+            ty = Term {
+                span: ast.span,
+                kind: TermKind::PiType {
+                    binder: Box::new(binder.clone()),
+                    output: Box::new(ty),
+                },
             };
         }
 
@@ -173,10 +190,11 @@ impl TypingEnvironment {
             axiom.index,
             ty,
             LevelArgs::from_level_parameters(&ast.level_params),
+            ast.span,
         );
 
         self.root
-            .insert(ast.path.borrow(), ast.level_params.clone(), term)?;
+            .insert(ast.path.borrow(), ast.level_params.clone(), term, ast.span)?;
 
         // Remove the level parameters from the context
         self.clear_level_params();
@@ -315,7 +333,9 @@ mod tests {
         let mut env = TypingEnvironment::new();
         let ast = parse_file(&mut env.interner.borrow_mut(), source).unwrap();
 
-        let err = env.resolve_file(&ast).expect_err("Code should not have type checked");
+        let err = env
+            .resolve_file(&ast)
+            .expect_err("Code should not have type checked");
 
         assert_eq!(err, expected_err);
     }

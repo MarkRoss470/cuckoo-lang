@@ -15,7 +15,7 @@ fn current_indent() -> impl Parser<Output = ()> {
 }
 
 /// Parses a newline character followed by the appropriate indentation  
-pub fn newline_and_indent() -> impl Parser<Output = ()> {
+pub(crate) fn newline_and_indent() -> impl Parser<Output = ()> {
     (str_exact("\n"), current_indent())
         .sequence()
         .ignore_value()
@@ -36,7 +36,7 @@ fn comment() -> impl Parser<Output = ()> {
 }
 
 /// Parses whitespace
-pub fn whitespace() -> impl Parser<Output = ()> {
+pub(crate) fn whitespace() -> impl Parser<Output = ()> {
     (
         newline_and_indent(),
         single_non_newline_whitespace(),
@@ -47,14 +47,14 @@ pub fn whitespace() -> impl Parser<Output = ()> {
         .ignore_value()
 }
 
-pub fn non_newline_whitespace() -> impl Parser<Output = ()> {
+pub(crate) fn non_newline_whitespace() -> impl Parser<Output = ()> {
     (single_non_newline_whitespace(), comment())
         .alt()
         .repeat_0()
         .ignore_value()
 }
 
-pub trait SurroundWhitespaceExt: Parser {
+pub(crate) trait SurroundWhitespaceExt: Parser {
     fn surround_whitespace(self) -> impl Parser<Output = Self::Output>;
 }
 
@@ -64,7 +64,7 @@ impl<P: Parser> SurroundWhitespaceExt for P {
     }
 }
 
-pub trait InBlockExt: Parser {
+pub(crate) trait InBlockExt: Parser {
     /// Runs the given src in an indented block
     fn in_block(self) -> impl Parser<Output = Self::Output>;
 }

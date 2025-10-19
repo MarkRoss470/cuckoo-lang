@@ -2,7 +2,7 @@ use crate::atoms::whitespace::SurroundWhitespaceExt;
 use crate::combinators::modifiers::MapExt;
 use crate::{ParseResult, Parser};
 
-pub trait HeterogeneousTupleExt {
+pub(crate) trait HeterogeneousTupleExt {
     /// A tuple type made up of the output types of all the parsers in the tuple
     type OutputsTuple;
 
@@ -93,7 +93,7 @@ macro_rules! heterogeneous_tuple_impl_multiple {
 
 heterogeneous_tuple_impl_multiple!(A B C D E F G H I J K L M N O P);
 
-pub trait HomogeneousTupleExt<T> {
+pub(crate) trait HomogeneousTupleExt<T> {
     fn alt(self) -> impl Parser<Output = T>;
 }
 

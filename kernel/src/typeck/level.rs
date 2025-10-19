@@ -1,7 +1,9 @@
+use crate::typeck::error::TypeErrorKind;
 use crate::typeck::{PrettyPrintContext, TypeError, TypingContext, TypingEnvironment};
 use common::{Identifier, PrettyPrint};
 use parser::ast::item::LevelParameters;
-use parser::ast::term::LevelExpr;
+use parser::ast::term::{LevelExpr, LevelExprKind};
+use parser::error::Span;
 use std::cmp::Ordering;
 use std::io::Write;
 use std::ops::Index;
@@ -55,7 +57,7 @@ impl LevelArgs {
     pub fn from_level_parameters(level_parameters: &LevelParameters) -> Self {
         Self(
             level_parameters
-                .0
+                .ids
                 .iter()
                 .enumerate()
                 .map(|(i, id)| Level::parameter(i, *id))
@@ -401,7 +403,10 @@ impl Level {
 impl TypingEnvironment {
     pub fn set_level_params(&mut self, params: LevelParameters) -> Result<(), TypeError> {
         if let Some(id) = params.find_duplicate() {
-            Err(TypeError::DuplicateLevelParameter(id))
+            Err(TypeError {
+                span: params.span,
+                kind: TypeErrorKind::DuplicateLevelParameter(id),
+            })
         } else {
             self.level_parameters = Some(params);
             Ok(())
@@ -413,37 +418,46 @@ impl TypingEnvironment {
     }
 
     pub fn resolve_level(&self, arg: &LevelExpr) -> Result<Level, TypeError> {
-        match arg {
-            LevelExpr::Literal(l) => {
+        match &arg.kind {
+            LevelExprKind::Literal(l) => {
                 if *l > 8 {
-                    Err(TypeError::LevelLiteralTooBig(*l))
+                    Err(TypeError {
+                        span: arg.span,
+                        kind: TypeErrorKind::LevelLiteralTooBig(*l),
+                    })
                 } else {
                     Ok(Level::constant(*l))
                 }
             }
-            LevelExpr::Parameter(name) => {
-                let index = self
-                    .level_parameters
-                    .as_ref()
-                    .unwrap()
-                    .lookup(name)
-                    .ok_or(TypeError::LevelParameterNotFound(*name))?;
+            LevelExprKind::Parameter(name) => {
+                let index =
+                    self.level_parameters
+                        .as_ref()
+                        .unwrap()
+                        .lookup(name)
+                        .ok_or(TypeError {
+                            span: arg.span,
+                            kind: TypeErrorKind::LevelParameterNotFound(*name),
+                        })?;
                 Ok(Level::parameter(index, *name))
             }
-            LevelExpr::Succ(u) => {
+            LevelExprKind::Succ(u) => {
                 let u = self.resolve_level(u)?;
                 Ok(u.succ())
             }
-            LevelExpr::Max(u, v) => {
+            LevelExprKind::Max(u, v) => {
                 let u = self.resolve_level(u)?;
                 let v = self.resolve_level(v)?;
                 Ok(u.max(&v))
             }
-            LevelExpr::IMax(u, v) => {
+            LevelExprKind::IMax(u, v) => {
                 let u = self.resolve_level(u)?;
                 let v = self.resolve_level(v)?;
                 Ok(u.imax(&v))
             }
+
+            LevelExprKind::Underscore => Err(TypeError::unsupported(arg.span, "Level inference")),
+            LevelExprKind::Malformed => Err(TypeError::unsupported(arg.span, "Malformed levels")),
         }
     }
 }

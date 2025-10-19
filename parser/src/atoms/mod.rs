@@ -2,17 +2,26 @@ pub mod ident;
 pub mod literal;
 pub mod whitespace;
 
-use crate::combinators::modifiers::{
-    IgnoreValExt, MapExt, ReparseExt, VerifyExt, VerifyStrExt,
-};
+use crate::combinators::modifiers::{IgnoreValExt, MapExt, ReparseExt, VerifyExt, VerifyStrExt};
 use crate::combinators::repeat::Repeat1Ext;
+use crate::error::SourceLocation;
 use crate::{ParseResult, Parser, parser};
+use common::InternKey;
 use icu_properties::props::Math;
 use icu_properties::{CodePointSetData, CodePointSetDataBorrowed};
-use common::InternKey;
+
+/// Always matches, consuming no input and returning the source location of the start of the input
+pub(crate) fn location() -> impl Parser<Output = SourceLocation> {
+    parser(move |input, context| Some((input, ParseResult::new(context.location_of(input)))))
+}
+
+/// Always matches, consuming no input and returning the passed value
+pub(crate) fn just<T: Clone>(x: T) -> impl Parser<Output = T> {
+    parser(move |input, _| Some((input, ParseResult::new(x.clone()))))
+}
 
 /// Parses exactly the given string once from the input
-pub fn str_exact(s: &str) -> impl Parser<Output = ()> {
+pub(crate) fn str_exact(s: &str) -> impl Parser<Output = ()> {
     parser(move |input, _| {
         input
             .strip_prefix(s)
@@ -21,7 +30,7 @@ pub fn str_exact(s: &str) -> impl Parser<Output = ()> {
 }
 
 /// Parses one character of input
-fn char() -> impl Parser<Output = char> {
+pub fn char() -> impl Parser<Output = char> {
     parser(move |input, _| {
         let mut chars = input.chars();
         let c = chars.next()?;

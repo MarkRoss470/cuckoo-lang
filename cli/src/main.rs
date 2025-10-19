@@ -6,11 +6,14 @@ fn main() {
 
     let mut env = KernelEnvironment::new();
     match env.check_str(&content) {
-        Ok(()) => {}
+        Ok(()) => {
+            env.pretty_print();
+        }
         Err(e) => {
+            env.pretty_print();
+            println!();
             env.pretty_println_error(&e)
         }
     }
 
-    env.pretty_print();
 }

@@ -4,6 +4,7 @@ use crate::typeck::TypingEnvironment;
 use crate::typeck::data::Adt;
 use crate::typeck::level::Level;
 use std::iter;
+use parser::error::Span;
 
 impl TypingEnvironment {
     /// Checks whether two terms are definitionally equal.
@@ -37,14 +38,16 @@ impl TypingEnvironment {
         {
             let l = self.reduce_to_whnf(TypedTerm::make_application(
                 l.clone_incrementing(0, 1),
-                TypedTerm::bound_variable(0, None, binder.ty.clone()),
+                TypedTerm::bound_variable(0, None, binder.ty.clone(), binder.span),
                 output.clone(),
+                l.span,
             ));
 
             let r = self.reduce_to_whnf(TypedTerm::make_application(
                 r.clone_incrementing(0, 1),
-                TypedTerm::bound_variable(0, None, binder.ty.clone()),
+                TypedTerm::bound_variable(0, None, binder.ty.clone(), binder.span),
                 output.clone(),
+                r.span,
             ));
 
             return self.def_eq(l, r);
@@ -66,6 +69,7 @@ impl TypingEnvironment {
     pub fn reduce_to_whnf(&self, mut term: TypedTerm) -> TypedTerm {
         use TypedTermKindInner::*;
 
+        let span = term.span;
         let mut args = vec![];
 
         // Repeatedly split the term into a function and its arguments,
@@ -110,6 +114,7 @@ impl TypingEnvironment {
                         adt,
                         &function,
                         &args[args.len() - adt.recursor_num_parameters()..],
+                        term.span
                     ) else {
                         break;
                     };
@@ -124,7 +129,7 @@ impl TypingEnvironment {
         }
 
         // Once the term can't be reduced further, re-apply the arguments
-        TypedTerm::make_application_stack(term, args.into_iter().rev().map(|t| t.term()))
+        TypedTerm::make_application_stack(term, args.into_iter().rev().map(|t| t.term()), span)
     }
 
     /// Attempts to reduce the application of a recursor applied to the given arguments.
@@ -143,6 +148,7 @@ impl TypingEnvironment {
         adt: &Adt,
         recursor: &TypedTerm,
         args_reversed: &[TypedTerm],
+        span: Span
     ) -> Option<TypedTerm> {
         debug_assert_eq!(args_reversed.len(), adt.recursor_num_parameters());
 
@@ -191,6 +197,7 @@ impl TypingEnvironment {
                         .term()
                     },
                 )),
+            span
         );
 
         Some(output)
@@ -239,13 +246,14 @@ impl TypingEnvironment {
             .iter()
             .enumerate()
             .map(|(i, binder)| TypedBinder {
+                span: binder.span,
                 name: binder.name,
                 ty: reindex(i, binder.ty.clone()),
             })
             .collect();
 
         let value_param = TypedTerm::make_application_stack(
-            param_val,
+            param_val.clone(),
             param_params
                 .into_iter()
                 .cloned()
@@ -253,6 +261,7 @@ impl TypingEnvironment {
                 .map(|(i, binder)| {
                     TypedTermKind::bound_variable(param_params.len() - i - 1, binder.name)
                 }),
+            param_val.span
         );
 
         let body = TypedTerm::make_application_stack(
@@ -263,9 +272,10 @@ impl TypingEnvironment {
                 .rev()
                 .map(|t| t.term())
                 .chain(iter::once(value_param.term())),
+            recursor.span
         );
 
-        TypedTerm::make_lambda_telescope(binders, body)
+        TypedTerm::make_lambda_telescope(binders, body.clone(), body.span)
     }
 
     /// Compares whether two terms have the same top level structure, and checks the sub-terms for
@@ -352,8 +362,10 @@ impl TypingEnvironment {
             TypedTermKind::from_inner(reduced_term, whnf_term.term.abbreviation),
             TypedTerm::value_of_type(
                 TypedTermKind::from_inner(reduced_ty, whnf_ty.term.abbreviation),
-                TypedTerm::sort_literal(term.level),
+                TypedTerm::sort_literal(term.level, term.span),
+                term.span,
             ),
+            term.span,
         );
 
         fully_reduced

@@ -1,14 +1,24 @@
 use crate::typeck::level::Level;
 use crate::typeck::term::TypedTermKind;
 use crate::typeck::{AdtIndex, PrettyPrintContext, TypedTerm, TypingEnvironment};
-use std::io::Write;
 use common::{Identifier, PrettyPrint};
 use parser::atoms::ident::OwnedPath;
+use parser::error::Span;
+use std::io::Write;
 
-// TODO: track error locations
 #[cfg_attr(any(test, debug_assertions), derive(PartialEq))]
 #[derive(Debug, Clone)]
-pub enum TypeError {
+pub struct TypeError {
+    pub span: Span,
+    pub kind: TypeErrorKind,
+}
+
+#[cfg_attr(any(test, debug_assertions), derive(PartialEq))]
+#[derive(Debug, Clone)]
+pub enum TypeErrorKind {
+    /// A feature was encountered which is not supported in the kernel
+    UnsupportedInKernel(&'static str),
+
     // ----- Term resolution errors
     NotAFunction(TypedTerm),
     NotAType(TypedTerm),
@@ -54,11 +64,23 @@ pub enum TypeError {
     NameAlreadyDefined(Identifier),
 }
 
+impl TypeError {
+    pub(crate) fn unsupported(span: Span, msg: &'static str) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::UnsupportedInKernel(msg),
+        }
+    }
+}
+
 impl TypingEnvironment {
     pub fn mismatched_types_error(&self, term: TypedTerm, expected: TypedTerm) -> TypeError {
-        TypeError::MismatchedTypes {
-            term: self.fully_reduce(term, false),
-            expected: self.fully_reduce(expected, false),
+        TypeError {
+            span: term.span(),
+            kind: TypeErrorKind::MismatchedTypes {
+                term: self.fully_reduce(term, false),
+                expected: self.fully_reduce(expected, false),
+            },
         }
     }
 }
@@ -69,37 +91,48 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
         out: &mut dyn Write,
         context: PrettyPrintContext,
     ) -> std::io::Result<()> {
-        write!(out, "ERROR: ")?;
+        write!(out, "ERROR at {}: ", self.span)?;
 
-        match self {
+        match &self.kind {
+            TypeErrorKind::UnsupportedInKernel(msg) => write!(out, "Unsupported in kernel: {msg}"),
+
             // ----- Term resolution errors
-            TypeError::NotAFunction(t) => {
+            TypeErrorKind::NotAFunction(t) => {
                 t.term().pretty_print(out, context)?;
                 write!(out, " is not a function. It has type ")?;
                 t.ty().pretty_print(out, context)?;
                 write!(out, ".")
             }
-            TypeError::NotAType(t) => {
+            TypeErrorKind::NotAType(t) => {
                 t.term().pretty_print(out, context)?;
                 write!(out, " is not a type. It has type ")?;
                 t.ty().pretty_print(out, context)?;
                 write!(out, ", which is not a sort.")
             }
-            TypeError::NameNotResolved(id) => {
+            TypeErrorKind::NameNotResolved(id) => {
                 write!(out, "Could not resolve name '")?;
                 id.pretty_print(out, &context.interner())?;
                 write!(out, "'.")
             }
-            TypeError::MismatchedTypes { term, expected } => {
+            TypeErrorKind::MismatchedTypes { term, expected } => {
                 write!(out, "Expected\n  ")?;
-                term.term().pretty_print(out, context)?;
+
+                // If the term in question is a proof, then set print_proofs to true when printing it
+                if term.level().def_eq(&Level::zero()) {
+                    let mut context = context.clone();
+                    context.print_proofs = true;
+                    term.pretty_print(out, context)?;
+                } else {
+                    term.pretty_print(out, context)?;
+                }
+
                 write!(out, "\nto have type\n  ")?;
                 expected.term().pretty_print(out, context)?;
                 write!(out, "\nbut it has type\n  ")?;
                 term.ty().pretty_print(out, context)?;
                 write!(out, "\n.")
             }
-            TypeError::LocalVariableIsNotANamespace(path) => {
+            TypeErrorKind::LocalVariableIsNotANamespace(path) => {
                 write!(out, "Local variable ")?;
                 path.pretty_print(out, &context.interner())?;
                 write!(
@@ -109,22 +142,22 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
             }
 
             // ------ Level errors
-            TypeError::LevelLiteralTooBig(l) => {
+            TypeErrorKind::LevelLiteralTooBig(l) => {
                 write!(
                     out,
                     "Level literal {l} is too large: level literals must be smaller than 8."
                 )
             }
-            TypeError::DuplicateLevelParameter(id) => {
+            TypeErrorKind::DuplicateLevelParameter(id) => {
                 write!(out, "Duplicate level parameter ")?;
                 id.pretty_print(out, &context.interner())
             }
-            TypeError::LevelParameterNotFound(p) => {
+            TypeErrorKind::LevelParameterNotFound(p) => {
                 write!(out, "Level ")?;
                 p.pretty_print(out, &context.interner())?;
                 write!(out, " not found")
             }
-            TypeError::WrongNumberOfLevelArgs {
+            TypeErrorKind::WrongNumberOfLevelArgs {
                 path,
                 expected,
                 found,
@@ -135,18 +168,18 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
                     " takes {expected} level argument(s), but {found} were provided."
                 )
             }
-            TypeError::LevelArgumentGivenForLocalVariable(id) => {
+            TypeErrorKind::LevelArgumentGivenForLocalVariable(id) => {
                 write!(out, "Local variable ")?;
                 id.pretty_print(out, &context.interner())?;
                 write!(out, " can't take level arguments")
             }
 
             // ----- ADT declaration errors
-            TypeError::NotASortFamily(t) => {
+            TypeErrorKind::NotASortFamily(t) => {
                 t.term().pretty_print(out, context)?;
                 write!(out, " is not a sort or family of sorts.")
             }
-            TypeError::MayOrMayNotBeProp(level) => {
+            TypeErrorKind::MayOrMayNotBeProp(level) => {
                 write!(
                     out,
                     "Inductive types must either always be in Prop or always not be in Prop, but the level "
@@ -156,7 +189,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
                 context.newline(out)?;
                 write!(out, "could be either.")
             }
-            TypeError::IncorrectConstructorResultantType {
+            TypeErrorKind::IncorrectConstructorResultantType {
                 name,
                 found,
                 expected,
@@ -173,7 +206,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
                 write!(out, ", but it results in ")?;
                 found.term().pretty_print(out, context)
             }
-            TypeError::InvalidLocationForAdtNameInConstructor(id) => {
+            TypeErrorKind::InvalidLocationForAdtNameInConstructor(id) => {
                 context
                     .environment
                     .get_adt(*id)
@@ -186,13 +219,13 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
                     "The inductive datatype being constructed can only be referenced in strictly positive positions. "
                 )
             }
-            TypeError::MismatchedAdtParameter { found, expected } => {
+            TypeErrorKind::MismatchedAdtParameter { found, expected } => {
                 write!(out, "Mismatched inductive type parameter. Found ")?;
                 found.term().pretty_print(out, context)?;
                 write!(out, ", expected ")?;
                 expected.pretty_print(out, context)
             }
-            TypeError::InvalidConstructorParameterLevel { ty, adt_level } => {
+            TypeErrorKind::InvalidConstructorParameterLevel { ty, adt_level } => {
                 write!(
                     out,
                     "Invalid level for constructor parameter - this parameter is of type\n  "
@@ -211,7 +244,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
             }
 
             // ----- Naming errors
-            TypeError::NameAlreadyDefined(id) => {
+            TypeErrorKind::NameAlreadyDefined(id) => {
                 write!(out, "The name ")?;
                 id.pretty_print(out, &context.interner())?;
                 write!(out, " has already been defined.")

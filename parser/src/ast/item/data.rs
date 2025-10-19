@@ -3,8 +3,11 @@ use crate::ast::term::{Binder, Term, bracketed_binder, term};
 use crate::atoms::ident::{OwnedPath, identifier, keyword, path};
 use crate::atoms::special_operator;
 use crate::atoms::whitespace::InBlockExt;
+use crate::combinators::modifiers::MapExt;
+use crate::combinators::modifiers::WithSpanExt;
 use crate::combinators::repeat::Repeat0Ext;
 use crate::combinators::tuples::HeterogeneousTupleExt;
+use crate::error::Span;
 use crate::{Parser, PrettyPrintContext};
 use common::{Identifier, PrettyPrint};
 use std::io::Write;
@@ -12,6 +15,7 @@ use std::io::Write;
 #[cfg_attr(any(test, debug_assertions), derive(PartialEq, Eq))]
 #[derive(Debug)]
 pub struct DataDefinition {
+    pub span: Span,
     pub name: OwnedPath,
     pub level_params: LevelParameters,
     pub parameters: Vec<Binder>,
@@ -22,6 +26,7 @@ pub struct DataDefinition {
 #[cfg_attr(any(test, debug_assertions), derive(PartialEq, Eq))]
 #[derive(Debug)]
 pub struct DataConstructor {
+    pub span: Span,
     pub name: Identifier,
     pub telescope: Term,
 }
@@ -42,9 +47,12 @@ pub(super) fn data_definition() -> impl Parser<Output = DataDefinition> {
                 .sequence_with_whitespace()
                 .in_block(),
         )
-            .combine(
-                |(_, (name, level_params, parameters, _, family, _, constructors))| {
+            .sequence()
+            .with_span()
+            .map(
+                |((_, (name, level_params, parameters, _, family, _, constructors)), span)| {
                     DataDefinition {
+                        span,
                         name,
                         level_params,
                         parameters,
@@ -64,7 +72,13 @@ fn data_constructor() -> impl Parser<Output = DataConstructor> {
             special_operator(":"),
             term(),
         )
-            .combine_with_whitespace(|(_, name, _, telescope)| DataConstructor { name, telescope })
+            .sequence_with_whitespace()
+            .with_span()
+            .map(|((_, name, _, telescope), span)| DataConstructor {
+                span,
+                name,
+                telescope
+            })
     )
 }
 
@@ -115,14 +129,14 @@ mod tests {
     use crate::ast::term::{LevelArgs, LevelExpr};
     use crate::atoms::ident::OwnedPath;
     use crate::tests::{ParseAllExt, setup_context};
-    use common::Identifier;
+    use common::{Identifier, Interner};
 
     #[test]
     fn test_data_definition() {
-        setup_context!(context);
+        let mut interner = Interner::new();
 
-        let id_false = Identifier::from_str("False", context.interner);
-        let data_false = data_definition().parse_all("data False : Prop where", context.borrow());
+        let id_false = Identifier::from_str("False", &mut interner);
+        let data_false = data_definition().parse_all("data False : Prop where", &mut interner);
 
         assert_eq!(
             data_false,
@@ -135,12 +149,12 @@ mod tests {
             }
         );
 
-        let id_nat = Identifier::from_str("Nat", context.interner);
-        let id_zero = Identifier::from_str("zero", context.interner);
-        let id_succ = Identifier::from_str("succ", context.interner);
+        let id_nat = Identifier::from_str("Nat", &mut interner);
+        let id_zero = Identifier::from_str("zero", &mut interner);
+        let id_succ = Identifier::from_str("succ", &mut interner);
         let data_nat = data_definition().parse_all(
             "data Nat : Type where\n  | zero : Nat\n  | succ : Nat -> Nat",
-            context.borrow(),
+            &mut interner,
         );
 
         assert_eq!(
@@ -159,8 +173,11 @@ mod tests {
                         name: id_succ,
                         telescope: Term::PiType {
                             binder: Box::new(Binder {
-                                name: None,
-                                ty: Term::Path(OwnedPath::from_id(id_nat), LevelArgs::default())
+                                names: None,
+                                ty: Some(Term::Path(
+                                    OwnedPath::from_id(id_nat),
+                                    LevelArgs::default()
+                                ))
                             }),
                             output: Box::new(Term::Path(
                                 OwnedPath::from_id(id_nat),

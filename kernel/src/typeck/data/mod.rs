@@ -1,11 +1,14 @@
+use crate::diagnostic::KernelError::Type;
+use crate::typeck::error::TypeErrorKind;
 use crate::typeck::level::{Level, LevelArgs};
 use crate::typeck::term::{TypedBinder, TypedTerm};
 use crate::typeck::{AdtIndex, PrettyPrintContext, TypeError, TypingContext, TypingEnvironment};
 use common::{Identifier, PrettyPrint};
-use std::io::Write;
-use parser::ast::item::data::DataDefinition;
 use parser::ast::item::LevelParameters;
+use parser::ast::item::data::{DataConstructor, DataDefinition};
 use parser::atoms::ident::{OwnedPath, Path};
+use parser::error::Span;
+use std::io::Write;
 
 mod recursor;
 #[cfg(test)]
@@ -13,6 +16,7 @@ mod tests;
 
 #[derive(Debug)]
 pub struct AdtHeader {
+    pub span: Span,
     pub index: AdtIndex,
     pub name: OwnedPath,
     pub level_params: LevelParameters,
@@ -30,6 +34,7 @@ pub struct AdtHeader {
 
 #[derive(Debug)]
 pub struct Adt {
+    pub span: Span,
     pub header: AdtHeader,
     pub constructors: Vec<AdtConstructor>,
     /// Whether the ADT's recursor should allow eliminating to types at any level. This is true of
@@ -45,17 +50,24 @@ impl AdtHeader {
     fn type_constructor(&self) -> TypedTerm {
         TypedTerm::adt_name(
             self.index,
-            TypedTerm::make_telescope(self.parameters.clone(), self.family.clone()),
+            TypedTerm::make_telescope(self.parameters.clone(), self.family.clone(), self.span),
             LevelArgs::from_level_parameters(&self.level_params),
+            self.span,
         )
     }
 
-    fn constructor(&self, index: usize, type_without_adt_params: TypedTerm) -> TypedTerm {
+    fn constructor(
+        &self,
+        index: usize,
+        type_without_adt_params: TypedTerm,
+        span: Span,
+    ) -> TypedTerm {
         TypedTerm::adt_constructor(
             self.index,
             index,
-            TypedTerm::make_telescope(self.parameters.clone(), type_without_adt_params),
+            TypedTerm::make_telescope(self.parameters.clone(), type_without_adt_params, span),
             LevelArgs::from_level_parameters(&self.level_params),
+            span,
         )
     }
 }
@@ -100,6 +112,7 @@ impl Adt {
 
 #[derive(Debug)]
 pub struct AdtConstructor {
+    pub span: Span,
     pub name: Identifier,
     /// The term referring to this constructor
     pub constant: TypedTerm,
@@ -116,6 +129,7 @@ pub struct AdtConstructor {
 #[cfg_attr(any(test, debug_assertions), derive(PartialEq))]
 #[derive(Debug)]
 pub struct AdtConstructorParam {
+    pub span: Span,
     pub name: Option<Identifier>,
     pub ty: TypedTerm,
     pub kind: AdtConstructorParamKind,
@@ -158,6 +172,7 @@ impl<'a> TypingEnvironment {
         // Add a stub ADT to `self.ads` so that if this ADT shows up in any errors while resolving the constructors,
         // it can be printed properly
         self.adts.push(Adt {
+            span: ast.span,
             header,
             constructors: vec![],
             is_large_eliminating: false,
@@ -198,15 +213,19 @@ impl<'a> TypingEnvironment {
             name,
             level_parameters.clone(),
             adt.header.type_constructor(),
+            adt.span.start_point(),
         )?;
 
         // Create the constructor constants
-        let adt_namespace = self.root.resolve_namespace_mut(name)?;
+        let adt_namespace = self
+            .root
+            .resolve_namespace_mut(name, adt.span.start_point())?;
         for constructor in &adt.constructors {
             adt_namespace.insert(
                 Path::from_id(&constructor.name),
                 level_parameters.clone(),
                 constructor.constant.clone(),
+                constructor.span.start_point(),
             )?;
         }
 
@@ -216,7 +235,9 @@ impl<'a> TypingEnvironment {
         #[cfg(debug_assertions)]
         self.check_term(recursor.get_type());
 
-        let adt_namespace = self.root.resolve_namespace_mut(adt.header.name.borrow())?;
+        let adt_namespace = self
+            .root
+            .resolve_namespace_mut(adt.header.name.borrow(), adt.span.start_point())?;
         adt_namespace.insert(
             Path::from_id(&Identifier::from_str(
                 "rec",
@@ -224,6 +245,7 @@ impl<'a> TypingEnvironment {
             )),
             recursor_level_params,
             recursor,
+            adt.span.start_point(),
         )?;
 
         Ok(())
@@ -238,10 +260,18 @@ impl<'a> TypingEnvironment {
 
         let mut parameters = Vec::new();
         for param in &ast.parameters {
+            let [binder_name] = param.names.as_slice() else {
+                return Err(TypeError::unsupported(
+                    param.span,
+                    "Multiple names in a binder",
+                ));
+            };
+
             let context = root.with_binders(&parameters);
             let ty = context.resolve_term(&param.ty)?;
             parameters.push(TypedBinder {
-                name: param.name,
+                span: param.span,
+                name: *binder_name,
                 ty,
             })
         }
@@ -250,14 +280,20 @@ impl<'a> TypingEnvironment {
         let family = context.resolve_term(&ast.family)?;
 
         let Ok(_) = family.check_is_ty() else {
-            return Err(TypeError::NotASortFamily(family));
+            return Err(TypeError {
+                span: family.span(),
+                kind: TypeErrorKind::NotASortFamily(family),
+            });
         };
 
         // Resolve the type's family as a telescope
         let (indices, out) = family.clone().decompose_telescope();
         // Check that the output of the telescope is a sort
         let Ok(sort) = out.term().check_is_sort() else {
-            return Err(TypeError::NotASortFamily(family));
+            return Err(TypeError {
+                span: out.span(),
+                kind: TypeErrorKind::NotASortFamily(family),
+            });
         };
 
         // Check that the ADT is either always in `Prop` or always not in `Prop`
@@ -266,10 +302,14 @@ impl<'a> TypingEnvironment {
         } else if sort.is_geq(&Level::constant(1)) {
             false
         } else {
-            return Err(TypeError::MayOrMayNotBeProp(sort));
+            return Err(TypeError {
+                span: out.span(),
+                kind: TypeErrorKind::MayOrMayNotBeProp(sort),
+            });
         };
 
         Ok(AdtHeader {
+            span: ast.span.start_point().union(ast.family.span),
             index,
             name: ast.name.clone(),
             level_params: ast.level_params.clone(),
@@ -290,6 +330,7 @@ impl<'a> TypingEnvironment {
 
         // Set up a TypingContext to resolve the constructor types in
         let adt_name_binder = TypedBinder {
+            span: ast.span.start_point(),
             name: Some(ast.name.last()),
             ty: type_constructor.get_type(),
         };
@@ -305,7 +346,7 @@ impl<'a> TypingEnvironment {
                 // The binder which refers to the ADT name comes after all the parameter names
                 .replace_binder(header.parameters.len(), &type_constructor);
 
-            let constructor = self.resolve_adt_constructor(constructor.name, i, &ty, header)?;
+            let constructor = self.resolve_adt_constructor(constructor, i, &ty, header)?;
 
             constructors.push(constructor);
         }
@@ -315,7 +356,7 @@ impl<'a> TypingEnvironment {
 
     fn resolve_adt_constructor(
         &self,
-        name: Identifier,
+        constructor: &DataConstructor,
         index: usize,
         ty: &TypedTerm,
         header: &AdtHeader,
@@ -325,7 +366,8 @@ impl<'a> TypingEnvironment {
         let (parameters, output) = ty.clone().decompose_telescope();
 
         // Check that the output type is legal
-        let arguments = self.resolve_adt_constructor_output(output, name, &parameters, header)?;
+        let arguments =
+            self.resolve_adt_constructor_output(output, constructor.name, &parameters, header)?;
 
         // Check that the levels of parameters are legal.
         // This doesn't matter for Prop types as parameters for those can be any level.
@@ -341,8 +383,9 @@ impl<'a> TypingEnvironment {
         }
 
         Ok(AdtConstructor {
-            name,
-            constant: header.constructor(index, ty.clone()),
+            span: constructor.span,
+            name: constructor.name,
+            constant: header.constructor(index, ty.clone(), constructor.span),
             type_without_adt_params: ty.clone(),
             params: processed_params,
             indices: arguments,
@@ -362,10 +405,10 @@ impl<'a> TypingEnvironment {
             && id == adt_index
         {
             for binder in &parameters {
-                binder.ty.term().forbid_references_to_adt(adt_index)?;
+                binder.ty.forbid_references_to_adt(adt_index)?;
             }
             for arg in &args {
-                arg.term().forbid_references_to_adt(adt_index)?;
+                arg.forbid_references_to_adt(adt_index)?;
             }
 
             AdtConstructorParamKind::Inductive {
@@ -373,12 +416,13 @@ impl<'a> TypingEnvironment {
                 indices: args,
             }
         } else {
-            param.ty.term().forbid_references_to_adt(adt_index)?;
+            param.ty.forbid_references_to_adt(adt_index)?;
 
             AdtConstructorParamKind::NonInductive(param.ty.clone())
         };
 
         Ok(AdtConstructorParam {
+            span: param.span,
             name: param.name,
             ty: param.ty,
             kind: param_kind,
@@ -400,10 +444,13 @@ impl<'a> TypingEnvironment {
         match f.is_adt_name() {
             Some((id, _)) if id == header.index => (),
             _ => {
-                return Err(TypeError::IncorrectConstructorResultantType {
-                    name,
-                    found: f,
-                    expected: header.index,
+                return Err(TypeError {
+                    span: f.span(),
+                    kind: TypeErrorKind::IncorrectConstructorResultantType {
+                        name,
+                        found: f,
+                        expected: header.index,
+                    },
                 });
             }
         }
@@ -416,19 +463,23 @@ impl<'a> TypingEnvironment {
                 param
                     .ty
                     .clone_incrementing(0, constructor_params.len() + header.parameters.len() - i),
+                param.span,
             );
 
             if !self.def_eq(arguments[i].clone(), expected.clone()) {
-                return Err(TypeError::MismatchedAdtParameter {
-                    found: arguments[i].clone(),
-                    expected: expected.term(),
+                return Err(TypeError {
+                    span: arguments[i].span(),
+                    kind: TypeErrorKind::MismatchedAdtParameter {
+                        found: arguments[i].clone(),
+                        expected: expected.term(),
+                    },
                 });
             }
         }
 
         // Check that the arguments do not include references to the current ADT
         for argument in &arguments {
-            argument.term().forbid_references_to_adt(header.index)?;
+            argument.forbid_references_to_adt(header.index)?;
         }
 
         Ok(arguments)
@@ -440,9 +491,12 @@ impl<'a> TypingEnvironment {
         adt_sort: &Level,
     ) -> Result<(), TypeError> {
         if !adt_sort.is_geq(&param.level()) {
-            Err(TypeError::InvalidConstructorParameterLevel {
-                ty: param.ty.clone(),
-                adt_level: adt_sort.clone(),
+            Err(TypeError {
+                span: param.span,
+                kind: TypeErrorKind::InvalidConstructorParameterLevel {
+                    ty: param.ty.clone(),
+                    adt_level: adt_sort.clone(),
+                },
             })
         } else {
             Ok(())

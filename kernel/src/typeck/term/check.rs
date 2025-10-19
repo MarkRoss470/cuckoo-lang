@@ -2,8 +2,8 @@ use crate::typeck::level::Level;
 use crate::typeck::term::{TypedTerm, TypedTermKindInner};
 use crate::typeck::{PrettyPrintContext, TypingEnvironment};
 use common::{Identifier, PrettyPrint};
-use std::io::Write;
 use parser::atoms::ident::Path;
+use std::io::Write;
 
 enum CheckContext<'a> {
     Root,
@@ -74,25 +74,28 @@ impl TypingEnvironment {
         }
 
         let true_ty = match term.term().inner() {
-            SortLiteral(l) => TypedTerm::sort_literal(l.succ()),
+            SortLiteral(l) => TypedTerm::sort_literal(l.succ(), term.span),
             AdtName(adt, level_args) => {
                 let adt_name = self.get_adt(*adt).header.name.borrow();
-                self.root.resolve(adt_name, level_args).unwrap().get_type()
+                self.root
+                    .resolve(adt_name, level_args, term.span)
+                    .unwrap()
+                    .get_type()
             }
             AdtConstructor(adt, constructor, level_args) => {
                 let adt = self.get_adt(*adt);
                 let adt_name = adt.header.name.borrow();
                 let constructor_name = adt.constructors[*constructor].name;
-                let adt_ns = self.root.resolve_namespace(adt_name).unwrap();
+                let adt_ns = self.root.resolve_namespace(adt_name, term.span).unwrap();
                 adt_ns
-                    .resolve(Path::from_id(&constructor_name), level_args)
+                    .resolve(Path::from_id(&constructor_name), level_args, term.span)
                     .unwrap()
                     .get_type()
             }
             AdtRecursor(adt, level_args) => {
                 let adt = self.get_adt(*adt);
                 let adt_name = adt.header.name.borrow();
-                let adt_ns = self.root.resolve_namespace(adt_name).unwrap();
+                let adt_ns = self.root.resolve_namespace(adt_name, term.span).unwrap();
                 adt_ns
                     .resolve(
                         Path::from_id(&Identifier::from_str(
@@ -100,6 +103,7 @@ impl TypingEnvironment {
                             &mut self.interner.borrow_mut(),
                         )),
                         level_args,
+                        term.span,
                     )
                     .unwrap()
                     .get_type()
@@ -134,10 +138,13 @@ impl TypingEnvironment {
                     },
                 );
 
-                TypedTerm::sort_literal(Level::smart_imax(
-                    &binder.ty.check_is_ty().unwrap(),
-                    &output.check_is_ty().unwrap(),
-                ))
+                TypedTerm::sort_literal(
+                    Level::smart_imax(
+                        &binder.ty.check_is_ty().unwrap(),
+                        &output.check_is_ty().unwrap(),
+                    ),
+                    term.span,
+                )
             }
             Lambda { binder, body } => {
                 self.check_term_with_context(binder.ty.clone(), context);
@@ -149,7 +156,7 @@ impl TypingEnvironment {
                     },
                 );
 
-                TypedTerm::make_pi_type(binder.clone(), body.get_type())
+                TypedTerm::make_pi_type(binder.clone(), body.get_type(), term.span)
             }
         };
 

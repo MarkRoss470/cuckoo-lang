@@ -1,6 +1,7 @@
 use crate::atoms::whitespace::SurroundWhitespaceExt;
 use crate::combinators::repeat::Repeat0Ext;
-use crate::{ParseContext, ParseDiagnostic, ParseResult};
+use crate::error::ParseDiagnostic;
+use crate::{ParseContext, ParseResult, SourceFile};
 use crate::{Parser, PrettyPrintContext};
 use common::{Interner, PrettyPrint, WithDiagnostics};
 use item::{Item, item};
@@ -14,7 +15,9 @@ pub struct Ast {
 }
 
 pub fn parse_file(interner: &mut Interner, content: &str) -> WithDiagnostics<Ast, ParseDiagnostic> {
+    let source = SourceFile::new(content);
     let context = ParseContext {
+        source: &source,
         interner,
         indent_levels: 0,
     };

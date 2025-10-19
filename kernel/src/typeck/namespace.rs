@@ -1,14 +1,18 @@
+use crate::typeck::error::TypeErrorKind;
 use crate::typeck::level::LevelArgs;
 use crate::typeck::term::TypedTerm;
 use crate::typeck::{PrettyPrintContext, TypeError};
-use std::collections::HashMap;
-use std::io::Write;
 use common::{Identifier, PrettyPrint};
 use parser::ast::item::LevelParameters;
+use parser::ast::term::LevelExprKind::Parameter;
 use parser::atoms::ident::{OwnedPath, Path};
+use parser::error::Span;
+use std::collections::HashMap;
+use std::io::Write;
 
 #[derive(Debug)]
 struct NamespaceItem {
+    span: Span,
     level_params: LevelParameters,
     value: TypedTerm,
 }
@@ -24,48 +28,79 @@ impl Namespace {
         Default::default()
     }
 
-    fn resolve_inner(&self, path: Path) -> Result<&NamespaceItem, TypeError> {
+    fn resolve_inner(&self, path: Path, span: Span) -> Result<&NamespaceItem, TypeError> {
         let (id, rest) = path.split_first();
 
         match rest {
-            None => match self.items.get(&id) {
-                None => Err(TypeError::NameNotResolved(path.to_owned())),
-                Some(v) => Ok(v),
-            },
+            None => self.resolve_ident(id, span),
             Some(rest) => match self.namespaces.get(&id) {
-                None => Err(TypeError::NameNotResolved(path.to_owned())),
-                Some(n) => n.resolve_inner(rest.clone()).map_err(|e| match e {
-                    TypeError::NameNotResolved(p) => TypeError::NameNotResolved(p.prepend(id)),
-                    _ => e,
+                None => Err(TypeError {
+                    span,
+                    kind: TypeErrorKind::NameNotResolved(path.to_owned()),
                 }),
+                Some(n) => n
+                    .resolve_inner(rest.clone(), span)
+                    .map_err(|e| match e.kind {
+                        TypeErrorKind::NameNotResolved(p) => TypeError {
+                            span,
+                            kind: TypeErrorKind::NameNotResolved(p.prepend(id)),
+                        },
+                        _ => e,
+                    }),
             },
         }
     }
 
-    pub fn resolve(&self, path: Path, level_args: &LevelArgs) -> Result<TypedTerm, TypeError> {
-        let item = self.resolve_inner(path)?;
+    fn resolve_ident(&self, id: Identifier, span: Span) -> Result<&NamespaceItem, TypeError> {
+        match self.items.get(&id) {
+            None => Err(TypeError {
+                span,
+                kind: TypeErrorKind::NameNotResolved(OwnedPath::from_id(id)),
+            }),
+            Some(v) => Ok(v),
+        }
+    }
+
+    pub fn resolve(
+        &self,
+        path: Path,
+        level_args: &LevelArgs,
+        span: Span,
+    ) -> Result<TypedTerm, TypeError> {
+        let item = self.resolve_inner(path, span)?;
 
         // Check that there are the right number of level arguments
         if item.level_params.count() != level_args.count() {
-            Err(TypeError::WrongNumberOfLevelArgs {
-                path: path.to_owned(),
-                expected: item.level_params.count(),
-                found: level_args.count(),
+            Err(TypeError {
+                span,
+                kind: TypeErrorKind::WrongNumberOfLevelArgs {
+                    path: path.to_owned(),
+                    expected: item.level_params.count(),
+                    found: level_args.count(),
+                },
             })
         } else {
             Ok(item.value.instantiate(level_args))
         }
     }
 
-    pub fn resolve_ty(&self, path: Path, level_args: &LevelArgs) -> Result<TypedTerm, TypeError> {
-        let item = self.resolve_inner(path)?;
+    pub fn resolve_ty(
+        &self,
+        path: Path,
+        level_args: &LevelArgs,
+        span: Span,
+    ) -> Result<TypedTerm, TypeError> {
+        let item = self.resolve_inner(path, span)?;
 
         // Check that there are the right number of level arguments
         if item.level_params.count() != level_args.count() {
-            Err(TypeError::WrongNumberOfLevelArgs {
-                path: path.to_owned(),
-                expected: item.level_params.count(),
-                found: level_args.count(),
+            Err(TypeError {
+                span,
+                kind: TypeErrorKind::WrongNumberOfLevelArgs {
+                    path: path.to_owned(),
+                    expected: item.level_params.count(),
+                    found: level_args.count(),
+                },
             })
         } else {
             Ok(item.value.get_type().instantiate(level_args))
@@ -77,6 +112,7 @@ impl Namespace {
         path: Path,
         level_params: LevelParameters,
         value: TypedTerm,
+        span: Span,
     ) -> Result<(), TypeError> {
         let (id, rest) = path.split_first();
 
@@ -85,11 +121,15 @@ impl Namespace {
         match rest {
             None => {
                 if self.items.contains_key(&id) {
-                    Err(TypeError::NameAlreadyDefined(id))
+                    Err(TypeError {
+                        span,
+                        kind: TypeErrorKind::NameAlreadyDefined(id),
+                    })
                 } else {
                     self.items.insert(
                         id,
                         NamespaceItem {
+                            span,
                             level_params,
                             value,
                         },
@@ -105,7 +145,7 @@ impl Namespace {
                 self.namespaces
                     .get_mut(&id)
                     .unwrap()
-                    .insert(rest, level_params, value)
+                    .insert(rest, level_params, value, span)
             }
         }
     }
@@ -123,29 +163,29 @@ impl Namespace {
         }
     }
 
-    pub fn resolve_namespace(&self, path: Path) -> Result<&Namespace, TypeError> {
+    pub fn resolve_namespace(&self, path: Path, span: Span) -> Result<&Namespace, TypeError> {
         let (id, rest) = path.split_first();
-        let ns = self
-            .namespaces
-            .get(&id)
-            .ok_or(TypeError::NameNotResolved(OwnedPath::from_id(id)))?;
+        let ns = self.namespaces.get(&id).ok_or(TypeError {
+            span,
+            kind: TypeErrorKind::NameNotResolved(OwnedPath::from_id(id)),
+        })?;
 
         match rest {
             None => Ok(ns),
-            Some(r) => ns.resolve_namespace(r),
+            Some(r) => ns.resolve_namespace(r, span),
         }
     }
 
-    pub fn resolve_namespace_mut(&mut self, path: Path) -> Result<&mut Namespace, TypeError> {
+    pub fn resolve_namespace_mut(&mut self, path: Path, span: Span) -> Result<&mut Namespace, TypeError> {
         let (id, rest) = path.split_first();
-        let ns = self
-            .namespaces
-            .get_mut(&id)
-            .ok_or(TypeError::NameNotResolved(OwnedPath::from_id(id)))?;
+        let ns = self.namespaces.get_mut(&id).ok_or(TypeError {
+            span,
+            kind: TypeErrorKind::NameNotResolved(OwnedPath::from_id(id)),
+        })?;
 
         match rest {
             None => Ok(ns),
-            Some(r) => ns.resolve_namespace_mut(r),
+            Some(r) => ns.resolve_namespace_mut(r, span),
         }
     }
 }
