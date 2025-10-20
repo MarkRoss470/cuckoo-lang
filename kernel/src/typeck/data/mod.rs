@@ -94,7 +94,7 @@ impl Adt {
         // or is mentioned in the constructor's indices
         for (i, parameter) in constructor.params.iter().rev().enumerate() {
             if let AdtConstructorParamKind::NonInductive(ty) = &parameter.kind {
-                let is_prop = ty.level().def_eq(&Level::zero());
+                let is_prop = ty.check_is_ty().unwrap().def_eq(&Level::zero());
                 let is_referenced = constructor
                     .indices
                     .iter()
