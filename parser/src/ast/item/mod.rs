@@ -6,10 +6,10 @@ use crate::ast::item::axiom::{AxiomDefinition, axiom_definition};
 use crate::ast::item::data::{DataDefinition, data_definition};
 use crate::ast::item::def::{ValueDefinition, value_definition};
 use crate::atoms::ident::identifier;
-use crate::atoms::whitespace::{SurroundWhitespaceExt, newline_and_indent, InBlockExt};
+use crate::atoms::whitespace::{InBlockExt, SurroundWhitespaceExt, newlines_and_indent};
 use crate::atoms::{char, location, special_operator, str_exact};
 use crate::combinators::error::OrErrorExt;
-use crate::combinators::modifiers::{DebugExt, IgnoreValExt, MapExt, VerifyExt, WithSpanExt};
+use crate::combinators::modifiers::{IgnoreValExt, MapExt, VerifyExt, WithSpanExt};
 use crate::combinators::repeat::FinalSeparatorBehaviour::AllowFinal;
 use crate::combinators::repeat::{Repeat0Ext, Repeat1WithSeparatorExt};
 use crate::combinators::tuples::{HeterogeneousTupleExt, HomogeneousTupleExt};
@@ -39,7 +39,7 @@ pub(super) fn item() -> impl Parser<Output = Item> {
 fn malformed_item() -> impl Parser<Output = Item> {
     (
         char().verify(|c| *c != '\n').ignore_value(),
-        newline_and_indent(),
+        newlines_and_indent(),
     )
         .alt()
         .repeat_0()
@@ -48,7 +48,7 @@ fn malformed_item() -> impl Parser<Output = Item> {
         .map(|(_, span)| Item::Malformed(span))
 }
 
-#[cfg_attr(any(test, debug_assertions), derive(PartialEq, Eq))]
+#[cfg_attr(any(test, feature = "test-utils"), derive(PartialEq, Eq))]
 #[derive(Debug, Clone)]
 pub struct LevelParameters {
     pub span: Span,
@@ -153,39 +153,38 @@ impl<'a> PrettyPrint<&'a Interner> for LevelParameters {
     }
 }
 
+#[cfg(any(test, feature = "test-utils"))]
+impl LevelParameters {
+    pub fn new(params: &[Identifier]) -> Self {
+        Self {
+            span: Span::dummy(),
+            ids: params.to_vec(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::{ParseAllExt, setup_context};
+    use crate::tests::ParserTestExt;
     use common::Identifier;
-
-    impl LevelParameters {
-        pub fn new(params: &[Identifier]) -> Self {
-            Self {
-                span: Span {},
-                ids: params.to_vec(),
-            }
-        }
-    }
 
     #[test]
     fn test_level_params() {
-        setup_context!(context);
+        let mut interner = Interner::new();
 
-        let id_u = Identifier::from_str("u", context.interner);
-        let id_v = Identifier::from_str("v", context.interner);
-        let id_w = Identifier::from_str("w", context.interner);
+        let id_u = Identifier::from_str("u", &mut interner);
+        let id_v = Identifier::from_str("v", &mut interner);
+        let id_w = Identifier::from_str("w", &mut interner);
 
         assert_eq!(
-            level_params().parse_all(".{u}", context.borrow()),
-            LevelParameters { ids: vec![id_u] }
+            level_params().parse_all(".{u}", &mut interner),
+            LevelParameters::new(&[id_u])
         );
 
         assert_eq!(
-            level_params().parse_all(".{ u , v,w,}", context.borrow()),
-            LevelParameters {
-                ids: vec![id_u, id_v, id_w]
-            }
+            level_params().parse_all(".{ u , v,w,}", &mut interner),
+            LevelParameters::new(&[id_u, id_v, id_w])
         );
     }
 }

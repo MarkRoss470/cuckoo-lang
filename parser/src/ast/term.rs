@@ -15,14 +15,14 @@ use crate::{ParseResult, Parser, PrettyPrintContext, parser};
 use common::{Identifier, Interner, PrettyPrint};
 use std::io::Write;
 
-#[cfg_attr(any(test, debug_assertions), derive(PartialEq, Eq))]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 #[derive(Debug, Clone)]
 pub struct LevelExpr {
     pub span: Span,
     pub kind: LevelExprKind,
 }
 
-#[cfg_attr(any(test, debug_assertions), derive(PartialEq, Eq))]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 #[derive(Debug, Clone)]
 pub enum LevelExprKind {
     Literal(usize),
@@ -42,7 +42,7 @@ impl LevelExprKind {
     pub const TYPE: Self = LevelExprKind::Literal(1);
 }
 
-#[cfg_attr(any(test, debug_assertions), derive(PartialEq, Eq))]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 #[derive(Debug, Clone, Default)]
 pub struct LevelArgs(Vec<LevelExpr>);
 
@@ -52,14 +52,14 @@ impl LevelArgs {
     }
 }
 
-#[cfg_attr(any(test, debug_assertions), derive(PartialEq, Eq))]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 #[derive(Debug, Clone)]
 pub struct Term {
     pub span: Span,
     pub kind: TermKind,
 }
 
-#[cfg_attr(any(test, debug_assertions), derive(PartialEq, Eq))]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 #[derive(Debug, Clone)]
 pub enum TermKind {
     /// The keywords `Prop` or `Type n`
@@ -104,7 +104,7 @@ impl Term {
     }
 }
 
-#[cfg_attr(any(test, debug_assertions), derive(PartialEq, Eq))]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 #[derive(Debug, Clone)]
 pub struct Binder {
     pub span: Span,
@@ -496,23 +496,42 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Binder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::{ParseAllExt, setup_context};
+    use crate::tests::{ParserTestExt};
 
     #[test]
     fn test_pi_type() {
-        setup_context!(context);
+        let mut interner = Interner::new();
+        let id_u = Identifier::from_str("u", &mut interner);
+        let id_a = Identifier::from_str("a", &mut interner);
+        let id_nat = Identifier::from_str("Nat", &mut interner);
 
-        let id_u = Identifier::from_str("u", context.interner);
-
+        let t1 = term().parse_all("u -> u", &mut interner);
+        let TermKind::PiType { binder, output } = t1.kind else {
+            panic!()
+        };
+        assert_eq!(binder.names, vec![None]);
         assert_eq!(
-            term().parse_all("u -> u", context),
-            Term::PiType {
-                binder: Box::new(Binder {
-                    names: None,
-                    ty: Term::Path(OwnedPath::from_id(id_u), LevelArgs::default())
-                }),
-                output: Box::new(Term::Path(OwnedPath::from_id(id_u), LevelArgs::default()))
-            }
-        )
+            binder.ty.kind,
+            TermKind::Path(OwnedPath::from_id(id_u), LevelArgs::default())
+        );
+        assert_eq!(
+            output.kind,
+            TermKind::Path(OwnedPath::from_id(id_u), LevelArgs::default())
+        );
+
+        let t2 = term().parse_all("(a _ : Nat) -> u", &mut interner);
+        let TermKind::PiType { binder, output } = t2.kind else {
+            panic!()
+        };
+        assert_eq!(binder.names, vec![Some(id_a), None]);
+        assert_eq!(
+            binder.ty.kind,
+            TermKind::Path(OwnedPath::from_id(id_nat), LevelArgs::default())
+        );
+        assert_eq!(
+            output.kind,
+            TermKind::Path(OwnedPath::from_id(id_u), LevelArgs::default())
+        );
+
     }
 }

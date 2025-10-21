@@ -1,5 +1,5 @@
 use crate::diagnostic::KernelError;
-use crate::typeck::{PrettyPrintContext, TypeError, TypedTerm, TypingEnvironment};
+use crate::typeck::{PrettyPrintContext, TypedTerm, TypingEnvironment};
 use common::PrettyPrint;
 use parser::ast::parse_file;
 use parser::error::{ParseDiagnostic, ParseDiagnosticKind};

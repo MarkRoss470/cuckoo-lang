@@ -5,7 +5,7 @@ use crate::combinators::modifiers::{IgnoreValExt, ReparseExt, VerifyExt, VerifyS
 use crate::combinators::repeat::FinalSeparatorBehaviour::ForbidFinal;
 use crate::combinators::repeat::{Repeat0Ext, Repeat1WithSeparatorExt};
 use crate::combinators::tuples::{HeterogeneousTupleExt, HomogeneousTupleExt};
-use common::{Identifier, InternKey, Interner, PrettyPrint};
+use common::{Identifier, Interner, PrettyPrint};
 use icu_properties::props::{IdContinue, IdStart};
 use icu_properties::{CodePointSetData, CodePointSetDataBorrowed};
 use std::io::Write;
@@ -115,7 +115,6 @@ pub(crate) fn path() -> impl Parser<Output = OwnedPath> {
         .map(OwnedPath)
 }
 
-
 impl<'a> PrettyPrint<&'a Interner> for OwnedPath {
     fn pretty_print(&self, out: &mut dyn Write, context: &'a Interner) -> std::io::Result<()> {
         let mut ids = self.0.iter();
@@ -133,7 +132,7 @@ impl<'a> PrettyPrint<&'a Interner> for OwnedPath {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::{ParseAllExt, setup_context};
+    use crate::tests::ParserTestExt;
 
     #[test]
     fn test_reserved_identifiers_sorted() {
@@ -143,66 +142,72 @@ mod tests {
 
     #[test]
     fn test_keywords_are_identifiers() {
-        setup_context!(context);
+        let mut interner = Interner::new();
 
         for kw in RESERVED_IDENTIFIERS {
-            identifier_like().parse_all(kw, context.borrow());
+            identifier_like().parse_all(kw, &mut interner);
         }
     }
 
     #[test]
     fn test_identifier() {
-        setup_context!(context);
+        let mut interner = Interner::new();
 
-        let id_test = Identifier::from_str("test", context.interner);
-        let id_test_10 = Identifier::from_str("test_10", context.interner);
-        let id_underscore_test = Identifier::from_str("_test", context.interner);
+        let id_test = Identifier::from_str("test", &mut interner);
+        let id_test_10 = Identifier::from_str("test_10", &mut interner);
+        let id_underscore_test = Identifier::from_str("_test", &mut interner);
+        let id_def_test = Identifier::from_str("def_test", &mut interner);
 
         assert_eq!(
-            identifier().parse_leaving("test id", " id", context.borrow()),
+            identifier().parse_leaving("test id", " id", &mut interner),
             id_test
         );
         assert_eq!(
-            identifier().parse_leaving("test,id", ",id", context.borrow()),
+            identifier().parse_leaving("test,id", ",id", &mut interner),
             id_test
         );
         assert_eq!(
-            identifier().parse_leaving("test_10-id", "-id", context.borrow()),
+            identifier().parse_leaving("test_10-id", "-id", &mut interner),
             id_test_10
         );
         assert_eq!(
-            identifier().parse_leaving("_test--id", "--id", context.borrow()),
+            identifier().parse_leaving("_test--id", "--id", &mut interner),
             id_underscore_test
         );
-        assert!(identifier().parse("10test", context.borrow()).is_none());
+        identifier().assert_no_match("10test", &mut interner);
 
-        // Keywords aren't identifiers
-        assert!(identifier().parse("def", context.borrow()).is_none());
-        assert!(identifier().parse("_", context.borrow()).is_none());
+        // Keywords aren't identifiers...
+        identifier().assert_no_match("def", &mut interner);
+        identifier().assert_no_match("_", &mut interner);
+        // ...but identifiers can start with them
+        assert_eq!(
+            identifier().parse_all("def_test", &mut interner),
+            id_def_test
+        );
     }
 
     #[test]
     fn test_path() {
-        setup_context!(context);
+        let mut interner = Interner::new();
 
-        let id_x = Identifier::from_str("x", context.interner);
-        let id_y = Identifier::from_str("y", context.interner);
-        let id_z = Identifier::from_str("z", context.interner);
+        let id_y = Identifier::from_str("y", &mut interner);
+        let id_x = Identifier::from_str("x", &mut interner);
+        let id_z = Identifier::from_str("z", &mut interner);
 
         assert_eq!(
-            path().parse_leaving("x.y.z ", " ", context.borrow()),
+            path().parse_leaving("x.y.z ", " ", &mut interner),
             OwnedPath(vec![id_x, id_y, id_z])
         );
         assert_eq!(
-            path().parse_leaving("x .y ", " .y ", context.borrow()),
+            path().parse_leaving("x .y ", " .y ", &mut interner),
             OwnedPath(vec![id_x])
         );
         assert_eq!(
-            path().parse_leaving("x. ", ". ", context.borrow()),
+            path().parse_leaving("x. ", ". ", &mut interner),
             OwnedPath(vec![id_x])
         );
         assert_eq!(
-            path().parse_leaving("x.{y}", ".{y}", context.borrow()),
+            path().parse_leaving("x.{y}", ".{y}", &mut interner),
             OwnedPath(vec![id_x])
         );
     }

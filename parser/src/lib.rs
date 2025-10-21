@@ -174,21 +174,17 @@ impl<'a> PrettyPrintContext<'a> {
 mod tests {
     use super::*;
 
-    macro_rules! setup_context {
-        ($context: ident) => {
-            let mut interner = ::common::Interner::new();
-            #[allow(unused_mut)]
-            let mut $context = $crate::ParseContext {
-                interner: &mut interner,
-                indent_levels: 0,
-            };
-        };
-    }
-
-    pub(crate) use setup_context;
-
-    pub(crate) trait ParseAllExt: Parser {
+    pub(crate) trait ParserTestExt: Parser {
+        fn assert_no_match_with_indent(&self, indent: usize, input: &str, interner: &mut Interner);
+        fn assert_no_match(&self, input: &str, interner: &mut Interner);
         fn parse_all(&self, input: &str, interner: &mut Interner) -> Self::Output;
+        fn parse_leaving_with_indent(
+            &self,
+            indent: usize,
+            input: &str,
+            unparsed: &str,
+            interner: &mut Interner,
+        ) -> Self::Output;
         fn parse_leaving(
             &self,
             input: &str,
@@ -197,9 +193,27 @@ mod tests {
         ) -> Self::Output;
     }
 
-    impl<P: Parser> ParseAllExt for P {
+    impl<P: Parser> ParserTestExt for P {
+        fn assert_no_match_with_indent(&self, indent: usize, input: &str, interner: &mut Interner) {
+            let source = SourceFile::new(input);
+            let mut context = ParseContext::new(interner, &source);
+            context.indent_levels = indent;
+
+            match self.parse(input, context) {
+                None => {}
+                Some(_) => {
+                    panic!("Parser should not have matched")
+                }
+            }
+        }
+
+        fn assert_no_match(&self, input: &str, interner: &mut Interner) {
+            self.assert_no_match_with_indent(0, input, interner);
+        }
+
         fn parse_all(&self, input: &str, interner: &mut Interner) -> Self::Output {
-            let context = ParseContext::new(interner, input);
+            let source = SourceFile::new(input);
+            let context = ParseContext::new(interner, &source);
 
             match self.parse(input, context) {
                 None => panic!("Parser should have recognised input"),
@@ -215,13 +229,16 @@ mod tests {
             }
         }
 
-        fn parse_leaving(
+        fn parse_leaving_with_indent(
             &self,
+            indent: usize,
             input: &str,
             unparsed: &str,
             interner: &mut Interner,
         ) -> Self::Output {
-            let context = ParseContext::new(interner, input);
+            let source = SourceFile::new(input);
+            let mut context = ParseContext::new(interner, &source);
+            context.indent_levels = indent;
 
             match self.parse(input, context) {
                 None => panic!("Parser should have recognised input"),
@@ -235,6 +252,15 @@ mod tests {
                     val.unwrap()
                 }
             }
+        }
+
+        fn parse_leaving(
+            &self,
+            input: &str,
+            unparsed: &str,
+            interner: &mut Interner,
+        ) -> Self::Output {
+            self.parse_leaving_with_indent(0, input, unparsed, interner)
         }
     }
 }

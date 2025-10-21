@@ -218,32 +218,50 @@ mod tests {
         let tyss = tys.succ();
 
         let binder = TypedBinder {
+            span: Span::dummy(),
             name: Some(id_t),
-            ty: TypedTerm::sort_literal(ty.clone()),
+            ty: TypedTerm::sort_literal(ty.clone(), Span::dummy()),
         };
         let context = context.with_binder(&binder);
 
         let binder = TypedBinder {
+            span: Span::dummy(),
             name: Some(id_x),
-            ty: TypedTerm::bound_variable(0, Some(id_t), TypedTerm::sort_literal(ty.clone())),
+            ty: TypedTerm::bound_variable(
+                0,
+                Some(id_t),
+                TypedTerm::sort_literal(ty.clone(), Span::dummy()),
+                Span::dummy(),
+            ),
         };
         let context = context.with_binder(&binder);
 
         assert_eq!(
             context
-                .resolve_path(Path::from_id(&id_t), &LevelArgs::default())
+                .resolve_path(Path::from_id(&id_t), &LevelArgs::default(), Span::dummy())
                 .unwrap(),
-            TypedTerm::bound_variable(1, Some(id_t), TypedTerm::sort_literal(ty.clone()))
+            TypedTerm::bound_variable(
+                1,
+                Some(id_t),
+                TypedTerm::sort_literal(ty.clone(), Span::dummy()),
+                Span::dummy()
+            )
         );
 
         assert_eq!(
             context
-                .resolve_path(Path::from_id(&id_x), &LevelArgs::default())
+                .resolve_path(Path::from_id(&id_x), &LevelArgs::default(), Span::dummy())
                 .unwrap(),
             TypedTerm::bound_variable(
                 0,
                 Some(id_x),
-                TypedTerm::bound_variable(1, Some(id_t), TypedTerm::sort_literal(ty.clone()))
+                TypedTerm::bound_variable(
+                    1,
+                    Some(id_t),
+                    TypedTerm::sort_literal(ty.clone(), Span::dummy()),
+                    Span::dummy()
+                ),
+                Span::dummy()
             )
         );
     }
@@ -264,8 +282,9 @@ mod tests {
         env.root
             .insert(
                 path_x.borrow(),
-                LevelParameters::default(),
-                TypedTerm::sort_literal(Level::zero()),
+                LevelParameters::new(&[]),
+                TypedTerm::sort_literal(Level::zero(), Span::dummy()),
+                Span::dummy(),
             )
             .unwrap();
 
@@ -274,15 +293,20 @@ mod tests {
         // The root context should only have id_x, and should check the number of level arguments
         assert_eq!(
             context
-                .resolve_path(path_x.borrow(), &LevelArgs::default())
+                .resolve_path(path_x.borrow(), &LevelArgs::default(), Span::dummy())
                 .unwrap(),
-            TypedTerm::sort_literal(Level::zero())
+            TypedTerm::sort_literal(Level::zero(), Span::dummy())
         );
         assert_eq!(
             context
-                .resolve_path(path_x.borrow(), &LevelArgs(vec![Level::zero()]))
-                .unwrap_err(),
-            TypeError::WrongNumberOfLevelArgs {
+                .resolve_path(
+                    path_x.borrow(),
+                    &LevelArgs(vec![Level::zero()]),
+                    Span::dummy()
+                )
+                .unwrap_err()
+                .kind,
+            TypeErrorKind::WrongNumberOfLevelArgs {
                 path: path_x.clone(),
                 expected: 0,
                 found: 1,
@@ -290,21 +314,24 @@ mod tests {
         );
         assert_eq!(
             context
-                .resolve_path(path_y.borrow(), &LevelArgs::default())
-                .unwrap_err(),
-            TypeError::NameNotResolved(path_y.clone())
+                .resolve_path(path_y.borrow(), &LevelArgs::default(), Span::dummy())
+                .unwrap_err()
+                .kind,
+            TypeErrorKind::NameNotResolved(path_y.clone())
         );
 
-        let sort_1 = TypedTerm::sort_literal(Level::constant(1));
+        let sort_1 = TypedTerm::sort_literal(Level::constant(1), Span::dummy());
         let context = TypingContext::Binders {
             binders: &[
                 TypedBinder {
+                    span: Span::dummy(),
                     name: Some(id_y),
                     ty: sort_1.clone(),
                 },
                 TypedBinder {
+                    span: Span::dummy(),
                     name: Some(id_z),
-                    ty: TypedTerm::bound_variable(0, Some(id_y), sort_1.clone()),
+                    ty: TypedTerm::bound_variable(0, Some(id_y), sort_1.clone(), Span::dummy()),
                 },
             ],
             parent: &context,
@@ -319,33 +346,44 @@ mod tests {
         // Check that x, y, and z resolve to the correct values
         assert_eq!(
             context
-                .resolve_path(path_x.borrow(), &LevelArgs::default())
+                .resolve_path(path_x.borrow(), &LevelArgs::default(), Span::dummy())
                 .unwrap(),
-            TypedTerm::sort_literal(Level::zero())
+            TypedTerm::sort_literal(Level::zero(), Span::dummy())
         );
         assert_eq!(
             context
-                .resolve_path(path_y.borrow(), &LevelArgs::default())
+                .resolve_path(path_y.borrow(), &LevelArgs::default(), Span::dummy())
                 .unwrap(),
-            TypedTerm::bound_variable(1, Some(id_y), TypedTerm::sort_literal(Level::constant(1)))
+            TypedTerm::bound_variable(
+                1,
+                Some(id_y),
+                TypedTerm::sort_literal(Level::constant(1), Span::dummy()),
+                Span::dummy()
+            )
         );
         assert_eq!(
             context
-                .resolve_path(path_z.borrow(), &LevelArgs::default())
+                .resolve_path(path_z.borrow(), &LevelArgs::default(), Span::dummy())
                 .unwrap(),
             TypedTerm::bound_variable(
                 0,
                 Some(id_z),
-                TypedTerm::bound_variable(1, Some(id_y), sort_1.clone())
+                TypedTerm::bound_variable(1, Some(id_y), sort_1.clone(), Span::dummy()),
+                Span::dummy()
             )
         );
 
         // Attempting to give level arguments for a local variable gives an error
         assert_eq!(
             context
-                .resolve_path(path_y.borrow(), &LevelArgs(vec![Level::zero()]))
-                .unwrap_err(),
-            TypeError::LevelArgumentGivenForLocalVariable(id_y),
+                .resolve_path(
+                    path_y.borrow(),
+                    &LevelArgs(vec![Level::zero()]),
+                    Span::dummy()
+                )
+                .unwrap_err()
+                .kind,
+            TypeErrorKind::LevelArgumentGivenForLocalVariable(id_y),
         );
     }
 }

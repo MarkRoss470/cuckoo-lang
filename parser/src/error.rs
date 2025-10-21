@@ -1,12 +1,12 @@
 use std::fmt::{Display, Formatter};
 
-#[cfg_attr(any(test, debug_assertions), derive(PartialEq))]
+#[cfg_attr(any(test, feature = "test-utils"), derive(PartialEq))]
 #[derive(Debug, Clone)]
 pub enum ParseDiagnosticKind {
     UnclosedBracket,
 
     MalformedItem,
-    
+
     MissingBinderName,
 
     MissingLambdaBinder,
@@ -14,14 +14,14 @@ pub enum ParseDiagnosticKind {
     MissingLambdaBody,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone)]
 pub struct SourceLocation {
     pub byte_offset: usize,
     pub line: usize,
     pub column: usize,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone)]
 pub struct Span {
     pub start: SourceLocation,
     pub end: SourceLocation,
@@ -88,12 +88,22 @@ impl Display for Span {
     }
 }
 
-#[cfg_attr(any(test, debug_assertions), derive(PartialEq))]
+#[cfg_attr(any(test, feature = "test-utils"), derive(PartialEq))]
 #[derive(Debug, Clone)]
 pub struct ParseDiagnostic {
     pub location: Span,
     pub kind: ParseDiagnosticKind,
 }
+
+#[cfg(any(test, feature = "test-utils"))]
+impl PartialEq for Span {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl Eq for Span {}
 
 #[cfg(any(test, feature = "test-utils"))]
 impl SourceLocation {

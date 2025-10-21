@@ -12,7 +12,6 @@ use crate::{Parser, PrettyPrintContext};
 use common::{Identifier, PrettyPrint};
 use std::io::Write;
 
-#[cfg_attr(any(test, debug_assertions), derive(PartialEq, Eq))]
 #[derive(Debug)]
 pub struct DataDefinition {
     pub span: Span,
@@ -23,7 +22,6 @@ pub struct DataDefinition {
     pub constructors: Vec<DataConstructor>,
 }
 
-#[cfg_attr(any(test, debug_assertions), derive(PartialEq, Eq))]
 #[derive(Debug)]
 pub struct DataConstructor {
     pub span: Span,
@@ -126,9 +124,9 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for DataConstructor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::term::{LevelArgs, LevelExpr};
+    use crate::ast::term::{LevelArgs, LevelExprKind, TermKind};
     use crate::atoms::ident::OwnedPath;
-    use crate::tests::{ParseAllExt, setup_context};
+    use crate::tests::ParserTestExt;
     use common::{Identifier, Interner};
 
     #[test]
@@ -138,16 +136,14 @@ mod tests {
         let id_false = Identifier::from_str("False", &mut interner);
         let data_false = data_definition().parse_all("data False : Prop where", &mut interner);
 
-        assert_eq!(
-            data_false,
-            DataDefinition {
-                name: OwnedPath::from_id(id_false),
-                level_params: LevelParameters::default(),
-                parameters: vec![],
-                family: Term::Sort(Box::new(LevelExpr::PROP)),
-                constructors: vec![],
-            }
-        );
+        assert_eq!(data_false.name, OwnedPath::from_id(id_false));
+        assert!(data_false.level_params.ids.is_empty());
+        assert!(data_false.parameters.is_empty());
+        let TermKind::Sort(false_level) = data_false.family.kind else {
+            panic!()
+        };
+        assert_eq!(false_level.kind, LevelExprKind::PROP);
+        assert!(data_false.constructors.is_empty());
 
         let id_nat = Identifier::from_str("Nat", &mut interner);
         let id_zero = Identifier::from_str("zero", &mut interner);
@@ -157,36 +153,37 @@ mod tests {
             &mut interner,
         );
 
+        assert_eq!(data_nat.name, OwnedPath::from_id(id_nat));
+        assert!(data_nat.level_params.ids.is_empty());
+        assert!(data_nat.parameters.is_empty());
+        let TermKind::Sort(nat_level) = data_nat.family.kind else {
+            panic!()
+        };
+        assert_eq!(nat_level.kind, LevelExprKind::TYPE);
+
+        let [constructor_zero, constructor_succ] = data_nat.constructors.as_slice() else {
+            panic!("Wrong number of constructors")
+        };
+
+        assert_eq!(constructor_zero.name, id_zero);
         assert_eq!(
-            data_nat,
-            DataDefinition {
-                name: OwnedPath::from_id(id_nat),
-                level_params: LevelParameters::default(),
-                parameters: vec![],
-                family: Term::Sort(Box::new(LevelExpr::TYPE)),
-                constructors: vec![
-                    DataConstructor {
-                        name: id_zero,
-                        telescope: Term::Path(OwnedPath::from_id(id_nat), LevelArgs::default())
-                    },
-                    DataConstructor {
-                        name: id_succ,
-                        telescope: Term::PiType {
-                            binder: Box::new(Binder {
-                                names: None,
-                                ty: Some(Term::Path(
-                                    OwnedPath::from_id(id_nat),
-                                    LevelArgs::default()
-                                ))
-                            }),
-                            output: Box::new(Term::Path(
-                                OwnedPath::from_id(id_nat),
-                                LevelArgs::default()
-                            ))
-                        }
-                    }
-                ],
-            }
+            constructor_zero.telescope.kind,
+            TermKind::Path(OwnedPath::from_id(id_nat), LevelArgs::default())
+        );
+
+        assert_eq!(constructor_succ.name, id_succ);
+        let TermKind::PiType { binder, output } = &constructor_succ.telescope.kind else {
+            panic!("Succ constructor should have been a pi type")
+        };
+
+        assert_eq!(binder.names, vec![None]);
+        assert_eq!(
+            binder.ty.kind,
+            TermKind::Path(OwnedPath::from_id(id_nat), LevelArgs::default())
+        );
+        assert_eq!(
+            output.kind,
+            TermKind::Path(OwnedPath::from_id(id_nat), LevelArgs::default())
         );
     }
 }

@@ -12,7 +12,6 @@ use crate::{Parser, PrettyPrintContext};
 use common::PrettyPrint;
 use std::io::Write;
 
-#[cfg_attr(any(test, debug_assertions), derive(PartialEq, Eq))]
 #[derive(Debug)]
 pub struct ValueDefinition {
     pub span: Span,

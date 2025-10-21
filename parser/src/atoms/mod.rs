@@ -30,7 +30,7 @@ pub(crate) fn str_exact(s: &str) -> impl Parser<Output = ()> {
 }
 
 /// Parses one character of input
-pub fn char() -> impl Parser<Output = char> {
+pub(crate) fn char() -> impl Parser<Output = char> {
     parser(move |input, _| {
         let mut chars = input.chars();
         let c = chars.next()?;
@@ -82,7 +82,8 @@ pub(super) fn special_operator(op: &str) -> impl Parser<Output = ()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::{ParseAllExt, setup_context};
+    use crate::tests::ParserTestExt;
+    use common::Interner;
 
     /// Checks that certain lists are sorted so that binary searches can be correctly performed on them
     #[test]
@@ -92,20 +93,10 @@ mod tests {
 
     #[test]
     fn test_str_exact() {
-        setup_context!(context);
+        let mut interner = Interner::new();
 
-        str_exact("test").parse_all("test", context.borrow());
-        assert_eq!(
-            str_exact("test")
-                .parse("test string", context.borrow())
-                .unwrap()
-                .0,
-            " string"
-        );
-        assert!(
-            str_exact("test")
-                .parse("not test", context.borrow())
-                .is_none()
-        );
+        str_exact("test").parse_all("test", &mut interner);
+        str_exact("test").parse_leaving("test string", " string", &mut interner);
+        str_exact("test").assert_no_match("not test", &mut interner);
     }
 }

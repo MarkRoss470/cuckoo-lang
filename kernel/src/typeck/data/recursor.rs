@@ -31,7 +31,7 @@ impl<'a> TypingEnvironment {
     /// # Examples
     ///
     /// The type of the recursor of the `Nat` type is (up to variable renaming):
-    /// ```
+    /// ```plaintext
     ///     -- Nat has no parameters, so there is nothing before the motive
     ///     -- Motive
     /// (motive : Nat -> Sort m)
@@ -47,7 +47,7 @@ impl<'a> TypingEnvironment {
     /// ```
     ///
     /// The type of the recursor of the `List` type is:
-    /// ```
+    /// ```plaintext
     ///     -- Parameters
     /// (T : Type u)
     ///     -- Motive
@@ -64,7 +64,7 @@ impl<'a> TypingEnvironment {
     /// ```
     ///
     /// The type of the recursor of the `Eq` type is:
-    /// ```
+    /// ```plaintext
     ///     -- Parameters
     /// (T : Sort u)
     /// -> (x : T)
@@ -81,13 +81,13 @@ impl<'a> TypingEnvironment {
     /// ```
     ///
     /// For an example with more complex induction principles, the accessibility relation `Acc` defined as:
-    /// ```
+    /// ```plaintext
     /// data Acc.{u} (T : Sort u) (R : T -> T -> Prop) : T -> Prop where
     ///   | acc : (x : T) -> ((y : T) -> R y x -> Acc T R y) -> Acc T R x
     /// ```
     ///
     /// has a recursor of type:
-    /// ```
+    /// ```plaintext
     /// (T : Sort u)
     /// -> (R : T -> T -> Prop)
     /// -> (motive : (x : T) -> Acc T R x -> Sort m)

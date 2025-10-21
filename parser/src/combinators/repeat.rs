@@ -255,42 +255,42 @@ impl<P: Parser> Fold1Ext for P {
 
 #[cfg(test)]
 mod tests {
-    use common::Identifier;
     use super::*;
-    use crate::atoms::ident::{identifier};
+    use crate::atoms::ident::identifier;
     use crate::atoms::whitespace::whitespace;
     use crate::combinators::repeat::FinalSeparatorBehaviour::{AllowFinal, ForbidFinal};
-    use crate::tests::{ParseAllExt, setup_context};
+    use crate::tests::ParserTestExt;
+    use common::{Identifier, Interner};
 
     #[test]
     fn test_repeat_1_with_separator() {
-        setup_context!(context);
+        let mut interner = Interner::new();
 
-        let id_x = Identifier::from_str("x", context.interner);
-        let id_y = Identifier::from_str("y", context.interner);
-        let id_z = Identifier::from_str("z", context.interner);
+        let id_x = Identifier::from_str("x", &mut interner);
+        let id_y = Identifier::from_str("y", &mut interner);
+        let id_z = Identifier::from_str("z", &mut interner);
 
         let p = identifier().repeat_1_with_separator(AllowFinal, whitespace());
 
-        assert!(p.parse("", context.borrow()).is_none());
-        assert!(p.parse(" ", context.borrow()).is_none());
-        assert!(p.parse(" x", context.borrow()).is_none());
-        assert_eq!(p.parse_all("x", context.borrow()), vec![id_x]);
-        assert_eq!(p.parse_all("x ", context.borrow()), vec![id_x]);
+        p.assert_no_match("", &mut interner);
+        p.assert_no_match(" ", &mut interner);
+        p.assert_no_match(" x", &mut interner);
+        assert_eq!(p.parse_all("x", &mut interner), vec![id_x]);
+        assert_eq!(p.parse_all("x ", &mut interner), vec![id_x]);
         assert_eq!(
-            p.parse_all("x \ny  z --comment", context.borrow()),
+            p.parse_all("x \ny  z --comment", &mut interner),
             vec![id_x, id_y, id_z]
         );
 
         let p = identifier().repeat_1_with_separator(ForbidFinal, whitespace());
 
-        assert!(p.parse("", context.borrow()).is_none());
-        assert!(p.parse(" ", context.borrow()).is_none());
-        assert!(p.parse(" x", context.borrow()).is_none());
-        assert_eq!(p.parse_all("x", context.borrow()), vec![id_x]);
-        assert_eq!(p.parse_leaving("x ", " ", context.borrow()), vec![id_x]);
+        p.assert_no_match("", &mut interner);
+        p.assert_no_match(" ", &mut interner);
+        p.assert_no_match(" x", &mut interner);
+        assert_eq!(p.parse_all("x", &mut interner), vec![id_x]);
+        assert_eq!(p.parse_leaving("x ", " ", &mut interner), vec![id_x]);
         assert_eq!(
-            p.parse_leaving("x \ny  z --comment", " --comment", context.borrow()),
+            p.parse_leaving("x \ny  z --comment", " --comment", &mut interner),
             vec![id_x, id_y, id_z]
         );
     }

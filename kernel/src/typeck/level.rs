@@ -892,8 +892,8 @@ mod tests {
 
         let parameters = LevelParameters::new(&[id_0, id_1, id_0]);
         assert_eq!(
-            env.set_level_params(parameters),
-            Err(TypeError::DuplicateLevelParameter(id_0))
+            env.set_level_params(parameters).unwrap_err().kind,
+            TypeErrorKind::DuplicateLevelParameter(id_0)
         );
     }
 
@@ -910,49 +910,64 @@ mod tests {
         let parameters = LevelParameters::new(&[id_0, id_1]);
         env.set_level_params(parameters).unwrap();
 
+        fn l(kind: LevelExprKind) -> LevelExpr {
+            LevelExpr {
+                span: Span::dummy(),
+                kind,
+            }
+        }
+
         // Constants
         assert_eq!(
-            env.resolve_level(&LevelExpr::Literal(0)).unwrap(),
+            env.resolve_level(&l(LevelExprKind::Literal(0))).unwrap(),
             Level::zero()
         );
         assert_eq!(
-            env.resolve_level(&LevelExpr::Literal(1)).unwrap(),
+            env.resolve_level(&l(LevelExprKind::Literal(1))).unwrap(),
             Level::zero().succ()
         );
         assert_eq!(
-            env.resolve_level(&LevelExpr::Literal(2)).unwrap(),
+            env.resolve_level(&l(LevelExprKind::Literal(2))).unwrap(),
             Level::zero().succ().succ()
         );
 
         // Parameters
         assert_eq!(
-            env.resolve_level(&LevelExpr::Parameter(id_0)).unwrap(),
+            env.resolve_level(&l(LevelExprKind::Parameter(id_0)))
+                .unwrap(),
             param_0
         );
         assert_eq!(
-            env.resolve_level(&LevelExpr::Parameter(id_1)).unwrap(),
+            env.resolve_level(&l(LevelExprKind::Parameter(id_1)))
+                .unwrap(),
             param_1
         );
         assert_eq!(
-            env.resolve_level(&LevelExpr::Parameter(id_2)),
-            Err(TypeError::LevelParameterNotFound(id_2))
+            env.resolve_level(&l(LevelExprKind::Parameter(id_2)))
+                .unwrap_err()
+                .kind,
+            TypeErrorKind::LevelParameterNotFound(id_2)
         );
 
         // Max and Imax
         assert_eq!(
-            env.resolve_level(&LevelExpr::Max(
-                Box::new(LevelExpr::Literal(1)),
-                Box::new(LevelExpr::Parameter(id_0))
-            ))
+            env.resolve_level(&l(LevelExprKind::Max(
+                Box::new(l(LevelExprKind::Literal(1))),
+                Box::new(l(LevelExprKind::Parameter(id_0)))
+            )))
             .unwrap(),
             Level::constant(1).max(&param_0)
         );
 
         assert_eq!(
-            env.resolve_level(&LevelExpr::IMax(
-                Box::new(LevelExpr::Succ(Box::new(LevelExpr::Parameter(id_1)))),
-                Box::new(LevelExpr::Succ(Box::new(LevelExpr::Literal(1))))
-            ))
+            env.resolve_level(&l(LevelExprKind::IMax(
+                Box::new(l(LevelExprKind::Succ(Box::new(l(
+                    LevelExprKind::Parameter(id_1)
+                ))))),
+                Box::new(l(LevelExprKind::Succ(Box::new(l(LevelExprKind::Literal(
+                    1
+                ))))))
+            )))
             .unwrap(),
             param_1.succ().imax(&Level::constant(2))
         );

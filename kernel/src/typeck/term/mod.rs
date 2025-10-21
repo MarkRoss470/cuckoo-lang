@@ -8,13 +8,13 @@ mod tests;
 
 use crate::typeck::level::{Level, LevelArgs};
 use crate::typeck::{AdtIndex, AxiomIndex, PrettyPrintContext};
-use std::io::Write;
-use std::rc::Rc;
 use common::{Identifier, PrettyPrint};
 use parser::atoms::ident::OwnedPath;
 use parser::error::Span;
+use std::io::Write;
+use std::rc::Rc;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Eq)]
 pub(crate) struct TypedTerm {
     span: Span,
     level: Level,
@@ -76,6 +76,12 @@ pub struct TypedBinder {
 pub enum Abbreviation {
     Constant(OwnedPath, LevelArgs),
     Application(Rc<Abbreviation>, TypedTerm),
+}
+
+impl PartialEq for TypedTerm {
+    fn eq(&self, other: &Self) -> bool {
+        self.level == other.level && self.ty == other.ty && self.term == other.term
+    }
 }
 
 impl PartialEq for Abbreviation {

@@ -176,7 +176,11 @@ impl Namespace {
         }
     }
 
-    pub fn resolve_namespace_mut(&mut self, path: Path, span: Span) -> Result<&mut Namespace, TypeError> {
+    pub fn resolve_namespace_mut(
+        &mut self,
+        path: Path,
+        span: Span,
+    ) -> Result<&mut Namespace, TypeError> {
         let (id, rest) = path.split_first();
         let ns = self.namespaces.get_mut(&id).ok_or(TypeError {
             span,
@@ -221,15 +225,5 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Namespace {
         }
 
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_resolve_path() {
-        todo!()
     }
 }

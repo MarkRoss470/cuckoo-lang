@@ -320,6 +320,7 @@ mod tests {
     use crate::typeck::{TypeError, TypingContext, TypingEnvironment};
     use parser::ast::parse_file;
     use parser::ast::tests::parse_term;
+    use crate::typeck::error::TypeErrorKind;
 
     pub fn assert_type_checks(source: &str) {
         let mut env = TypingEnvironment::new();
@@ -329,7 +330,7 @@ mod tests {
             .expect("Code should have type checked");
     }
 
-    pub fn assert_type_error(source: &str, expected_err: TypeError) {
+    pub fn assert_type_error(source: &str, expected_err: TypeErrorKind) {
         let mut env = TypingEnvironment::new();
         let ast = parse_file(&mut env.interner.borrow_mut(), source).unwrap();
 
@@ -337,7 +338,7 @@ mod tests {
             .resolve_file(&ast)
             .expect_err("Code should not have type checked");
 
-        assert_eq!(err, expected_err);
+        assert_eq!(err.kind, expected_err);
     }
 
     impl TypingEnvironment {

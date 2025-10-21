@@ -1,7 +1,7 @@
 use crate::atoms::whitespace::SurroundWhitespaceExt;
 use crate::combinators::repeat::Repeat0Ext;
 use crate::error::ParseDiagnostic;
-use crate::{ParseContext, ParseResult, SourceFile};
+use crate::{ParseContext, SourceFile};
 use crate::{Parser, PrettyPrintContext};
 use common::{Interner, PrettyPrint, WithDiagnostics};
 use item::{Item, item};
@@ -54,9 +54,12 @@ impl Ast {
 pub mod tests {
     use super::*;
     use crate::ast::term::{Term, term};
+    use crate::ParseResult;
 
     pub fn parse_term(interner: &mut Interner, source: &str) -> ParseResult<Term> {
+        let source_file = SourceFile::new(source);
         let context = ParseContext {
+            source: &source_file,
             interner,
             indent_levels: 0,
         };
