@@ -1,0 +1,1 @@
+ERROR at 2:9-2:13: Invalid resultant type for constructor. Constructor c should result in an application of Invalid, but it results in Sort 0

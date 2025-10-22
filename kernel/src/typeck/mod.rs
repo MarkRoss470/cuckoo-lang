@@ -245,7 +245,7 @@ pub struct PrettyPrintContext<'a> {
 }
 
 impl<'a> PrettyPrintContext<'a> {
-    fn new(environment: &'a TypingEnvironment) -> Self {
+    pub(crate) fn new(environment: &'a TypingEnvironment) -> Self {
         Self {
             environment,
             indent_levels: 0,

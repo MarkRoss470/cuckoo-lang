@@ -1,0 +1,6 @@
+ERROR at 2:9-2:16: Invalid level for constructor parameter - this parameter is of type
+  Sort u
+at level
+  (u + 1)
+which is not less than or equal to the inductive type's level
+  1

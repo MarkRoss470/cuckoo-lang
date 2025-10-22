@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::io::Write;
 use string_interner::symbol::SymbolU32;
 use string_interner::{DefaultBackend, StringInterner};
@@ -119,8 +120,16 @@ impl<T, D> WithDiagnostics<T, D> {
         self
     }
 
-    pub fn unwrap(self) -> T {
-        assert!(self.diagnostics.is_empty());
+    pub fn unwrap(self) -> T
+    where
+        D: Debug,
+    {
+        if !self.diagnostics.is_empty() {
+            panic!(
+                "Called unwrap when there are diagnostics: {:?}",
+                self.diagnostics
+            )
+        }
         self.value
     }
 

@@ -14,7 +14,7 @@ use parser::error::Span;
 use std::io::Write;
 use std::rc::Rc;
 
-#[derive(Debug, Clone, Eq)]
+#[derive(Debug, Clone)]
 pub(crate) struct TypedTerm {
     span: Span,
     level: Level,
@@ -22,13 +22,13 @@ pub(crate) struct TypedTerm {
     term: TypedTermKind,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TypedTermKind {
     inner: Rc<TypedTermKindInner>,
     abbreviation: Option<Rc<Abbreviation>>,
 }
 
-#[derive(Debug, Clone, Eq)]
+#[derive(Debug, Clone)]
 enum TypedTermKindInner {
     /// The keywords `Sort n`, `Prop` or `Type n`
     SortLiteral(Level),
@@ -65,14 +65,14 @@ enum TypedTermKindInner {
     },
 }
 
-#[derive(Debug, Clone, Eq)]
+#[derive(Debug, Clone)]
 pub struct TypedBinder {
     pub span: Span,
     pub name: Option<Identifier>,
     pub ty: TypedTerm,
 }
 
-#[derive(Debug, Clone, Eq)]
+#[derive(Debug, Clone)]
 pub enum Abbreviation {
     Constant(OwnedPath, LevelArgs),
     Application(Rc<Abbreviation>, TypedTerm),

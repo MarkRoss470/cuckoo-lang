@@ -67,3 +67,32 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for ParseDiagnostic {
         }
     }
 }
+
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    use test_each_file::test_each_file;
+
+    fn test_case([file, out]: [&str; 2]) {
+        let mut env = TypingEnvironment::new();
+        let ast = parse_file(&mut env.interner.borrow_mut(), file).unwrap();
+
+        let res = env.resolve_file(&ast);
+
+        match res {
+            Ok(()) => {
+                assert_eq!(out, "success", "Typechecking should not have succeeded")
+            }
+            Err(e) => {
+                let mut s = Vec::new();
+                e.pretty_print(&mut s, PrettyPrintContext::new(&env))
+                    .unwrap();
+                let s = String::from_utf8(s).unwrap();
+
+                assert_eq!(out, s, "Error did not match file content");
+            }
+        }
+    }
+    
+    test_each_file! { for ["ck", "out"] in "./kernel/tests" => test_case }
+}

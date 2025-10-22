@@ -6,14 +6,14 @@ use parser::atoms::ident::OwnedPath;
 use parser::error::Span;
 use std::io::Write;
 
-#[cfg_attr(any(test, debug_assertions), derive(PartialEq))]
+#[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug, Clone)]
 pub struct TypeError {
     pub span: Span,
     pub kind: TypeErrorKind,
 }
 
-#[cfg_attr(any(test, debug_assertions), derive(PartialEq))]
+#[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug, Clone)]
 pub enum TypeErrorKind {
     /// A feature was encountered which is not supported in the kernel
@@ -182,7 +182,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
             TypeErrorKind::MayOrMayNotBeProp(level) => {
                 write!(
                     out,
-                    "Inductive types must either always be in Prop or always not be in Prop, but the level "
+                    "Inductive types must either always be in Prop or always not be in Prop, but the level"
                 )?;
                 context.borrow_indented().newline(out)?;
                 level.pretty_print(out, context.borrow_indented())?;
@@ -216,7 +216,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
                 write!(out, " cannot be referenced here. ")?;
                 write!(
                     out,
-                    "The inductive datatype being constructed can only be referenced in strictly positive positions. "
+                    "The inductive datatype being constructed can only be referenced in strictly positive positions."
                 )
             }
             TypeErrorKind::MismatchedAdtParameter { found, expected } => {

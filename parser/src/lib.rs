@@ -32,7 +32,7 @@ impl<'a> SourceFile<'a> {
                     .bytes()
                     .enumerate()
                     .filter(|(_, c)| *c == b'\n')
-                    .map(|(i, _)| i),
+                    .map(|(i, _)| i + 1),
             )
             .collect();
 
@@ -262,5 +262,30 @@ mod tests {
         ) -> Self::Output {
             self.parse_leaving_with_indent(0, input, unparsed, interner)
         }
+    }
+
+    #[test]
+    fn test_location_of() {
+        let source = "here is some text.\nthis is a new line.\n   \n   Here is another.";
+        let file = SourceFile::new(source);
+
+        assert_eq!(file.location_of_offset(0).line, 1);
+        assert_eq!(file.location_of_offset(0).column, 1);
+        assert_eq!(file.location_of_offset(10).line, 1);
+        assert_eq!(file.location_of_offset(10).column, 11);
+        assert_eq!(file.location_of_offset(17).line, 1);
+        assert_eq!(file.location_of_offset(17).column, 18);
+        assert_eq!(file.location_of_offset(18).line, 1);
+        assert_eq!(file.location_of_offset(18).column, 19);
+        assert_eq!(file.location_of_offset(19).line, 2);
+        assert_eq!(file.location_of_offset(19).column, 1);
+        assert_eq!(file.location_of_offset(25).line, 2);
+        assert_eq!(file.location_of_offset(25).column, 7);
+        assert_eq!(file.location_of_offset(38).line, 2);
+        assert_eq!(file.location_of_offset(38).column, 20);
+        assert_eq!(file.location_of_offset(39).line, 3);
+        assert_eq!(file.location_of_offset(39).column, 1);
+        assert_eq!(file.location_of_offset(61).line, 4);
+        assert_eq!(file.location_of_offset(61).column, 19);
     }
 }

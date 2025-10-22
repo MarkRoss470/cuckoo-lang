@@ -1,0 +1,1 @@
+ERROR at 4:15-4:23: Invalid cannot be referenced here. The inductive datatype being constructed can only be referenced in strictly positive positions.

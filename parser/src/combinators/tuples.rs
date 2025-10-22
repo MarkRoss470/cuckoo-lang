@@ -22,9 +22,9 @@ pub(crate) trait HeterogeneousTupleExt {
     ) -> impl Parser<Output = U>;
 }
 
-/// Implements the [`HeterogeneousTupleExt`] trait for a tuple, given a list of generic type parameter names
+/// Implements the [`HeterogeneousTupleExt`] trait for a tuple, given a list.ck of generic type parameter names
 macro_rules! heterogeneous_tuple_impl {
-    // Takes a list of generic type parameter names and expands to an implementation for the generic tuple with those type parameters
+    // Takes a list.ck of generic type parameter names and expands to an implementation for the generic tuple with those type parameters
     ($($parser_param: ident)*) => {
         // We are using generic parameter names as variable names for macro magic
         #[allow(non_snake_case)]
@@ -97,9 +97,9 @@ pub(crate) trait HomogeneousTupleExt<T> {
     fn alt(self) -> impl Parser<Output = T>;
 }
 
-/// Implements the [`HomogeneousTupleExt`] trait for a tuple, given a list of generic type parameter names
+/// Implements the [`HomogeneousTupleExt`] trait for a tuple, given a list.ck of generic type parameter names
 macro_rules! homogeneous_tuple_impl {
-    // Takes a list of generic type parameter names and expands to an implementation for the generic tuple with those type parameters
+    // Takes a list.ck of generic type parameter names and expands to an implementation for the generic tuple with those type parameters
     ($($type_param: ident)*) => {
 
         // We are using generic parameter names as variable names for macro magic

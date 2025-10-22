@@ -126,7 +126,7 @@ pub struct AdtConstructor {
     pub indices: Vec<TypedTerm>,
 }
 
-#[cfg_attr(any(test, debug_assertions), derive(PartialEq))]
+#[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
 pub struct AdtConstructorParam {
     pub span: Span,
@@ -135,7 +135,7 @@ pub struct AdtConstructorParam {
     pub kind: AdtConstructorParamKind,
 }
 
-#[cfg_attr(any(test, debug_assertions), derive(PartialEq))]
+#[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
 pub enum AdtConstructorParamKind {
     Inductive {

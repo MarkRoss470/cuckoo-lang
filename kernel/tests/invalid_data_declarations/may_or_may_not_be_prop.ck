@@ -1,0 +1,1 @@
+data Invalid.{u} : Sort u where

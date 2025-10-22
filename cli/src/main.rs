@@ -1,7 +1,7 @@
 use kernel::KernelEnvironment;
 
 fn main() {
-    let content = std::fs::read("examples/test").unwrap();
+    let content = std::fs::read("examples/test.ck").unwrap();
     let content = String::from_utf8(content).unwrap();
 
     let mut env = KernelEnvironment::new();
