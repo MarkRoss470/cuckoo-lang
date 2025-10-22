@@ -1,4 +1,3 @@
-use crate::diagnostic::KernelError::Type;
 use crate::typeck::error::TypeErrorKind;
 use crate::typeck::level::{Level, LevelArgs};
 use crate::typeck::term::{TypedBinder, TypedTerm};

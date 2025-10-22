@@ -93,6 +93,6 @@ mod integration_tests {
             }
         }
     }
-    
+
     test_each_file! { for ["ck", "out"] in "./kernel/tests" => test_case }
 }
