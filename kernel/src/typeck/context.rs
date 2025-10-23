@@ -148,6 +148,7 @@ impl<'a> TypingContext<'a> {
 
         // Resolve the type of the binder, and check that it actually is a type
         let binder_ty = self.resolve_term(&binder.ty)?;
+        binder_ty.check_is_ty()?;
         let binder = TypedBinder {
             span: binder.span,
             name: *binder_name,
@@ -159,7 +160,8 @@ impl<'a> TypingContext<'a> {
 
         // Resolve the output type in this new context
         let output = c.resolve_term(&output)?;
-
+        output.check_is_ty()?;
+        
         Ok(TypedTerm::make_pi_type(binder, output, span))
     }
 
