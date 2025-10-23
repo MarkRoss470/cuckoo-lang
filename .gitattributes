@@ -1,0 +1,2 @@
+-- Make github detect .ck files as cuckoo files
+*.ck linguist-language=Cuckoo
