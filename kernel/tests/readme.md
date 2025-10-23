@@ -8,5 +8,8 @@ should contain the error message which the kernel is expected to produce.
 # TODOs
 * Check level defeq for imax
 * Check that levels which shouldn't be defeq aren't
+* Check that giving the wrong number of level args gives an error
+* Check for panics when different parts of a data declaration are not types which should be
 * Check deduced types for applications and lambdas
 * Check defeq on terms
+* Check namespacing (collisions etc.)
