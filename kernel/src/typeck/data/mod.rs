@@ -1,6 +1,6 @@
 use crate::typeck::error::TypeErrorKind;
 use crate::typeck::level::{Level, LevelArgs};
-use crate::typeck::term::{TypedBinder, TypedTerm};
+use crate::typeck::term::{TypedBinder, TypedTerm, TypedTermKind};
 use crate::typeck::{AdtIndex, PrettyPrintContext, TypeError, TypingContext, TypingEnvironment};
 use common::{Identifier, PrettyPrint};
 use parser::ast::item::LevelParameters;
@@ -90,14 +90,14 @@ impl Adt {
         let constructor = self.constructors.first().unwrap();
 
         // Check that each non-recursive parameter of the constructor is either a proposition,
-        // or is mentioned in the constructor's indices
+        // or is one of the constructor's indices
         for (i, parameter) in constructor.params.iter().rev().enumerate() {
             if let AdtConstructorParamKind::NonInductive(ty) = &parameter.kind {
                 let is_prop = ty.check_is_ty().unwrap().def_eq(&Level::zero());
                 let is_referenced = constructor
                     .indices
                     .iter()
-                    .any(|t| t.term().references_bound_variable(i));
+                    .any(|t| t.term() == TypedTermKind::bound_variable(i, parameter.name));
 
                 if !(is_prop || is_referenced) {
                     return false;
