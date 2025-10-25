@@ -7,7 +7,7 @@ use crate::ast::item::data::{DataDefinition, data_definition};
 use crate::ast::item::def::{ValueDefinition, value_definition};
 use crate::atoms::ident::identifier;
 use crate::atoms::whitespace::{InBlockExt, SurroundWhitespaceExt, newlines_and_indent};
-use crate::atoms::{char, location, special_operator, str_exact};
+use crate::atoms::{char, span, special_operator, str_exact};
 use crate::combinators::error::OrErrorExt;
 use crate::combinators::modifiers::{IgnoreValExt, MapExt, VerifyExt, WithSpanExt};
 use crate::combinators::repeat::FinalSeparatorBehaviour::AllowFinal;
@@ -33,7 +33,7 @@ pub(super) fn item() -> impl Parser<Output = Item> {
         axiom_definition().map(Item::Axiom),
     )
         .alt()
-        .or_else_error(ParseDiagnosticKind::MalformedItem, malformed_item())
+        .or_else_error(||ParseDiagnosticKind::MalformedItem, malformed_item())
 }
 
 fn malformed_item() -> impl Parser<Output = Item> {
@@ -112,10 +112,7 @@ fn level_params() -> impl Parser<Output = LevelParameters> {
                 .sequence_with_whitespace()
                 .with_span()
                 .map(|((_, _, ids, _), span)| LevelParameters { span, ids }),
-            location().map(|l| LevelParameters {
-                span: Span::point(l),
-                ids: vec![]
-            })
+            span().map(|span| LevelParameters { span, ids: vec![] })
         )
             .alt()
     )

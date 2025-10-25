@@ -139,7 +139,7 @@ impl<'a> TypingEnvironment {
         // Add parameters for each of the ADT's indices
         for (i, index) in adt.header.indices.iter().enumerate() {
             recursor_params.push(TypedBinder {
-                span: index.span,
+                span: index.span.clone(),
                 name: index.name,
                 ty: index.ty.clone_incrementing(i, adt.constructors.len() + 1),
             })
@@ -255,7 +255,7 @@ fn make_motive(
             motive_offset,
             Some(motive_id),
             motive_ty.clone_incrementing(0, motive_offset + 1),
-            span,
+            span.clone(),
         ),
         indices
             .into_iter()
@@ -386,7 +386,7 @@ fn calculate_constructor_induction_rule(
         .iter()
         .enumerate()
         .map(|(i, param)| TypedBinder {
-            span: param.span,
+            span: param.span.clone(),
             name: param.name,
             ty: reindex(i, &param.ty),
         })
@@ -467,7 +467,7 @@ fn generate_inductive_parameter_principles(
                     induction_rule_params.len() - param_index + param_params.len(),
                 ),
             ),
-            param.span,
+            param.span.clone(),
         );
 
         let ty = calculate_inductive_parameter_principle(
@@ -481,11 +481,11 @@ fn generate_inductive_parameter_principles(
             },
             |offset, indices, val| motive(induction_rule_params.len() + offset, indices, val),
             param_val,
-            param.span,
+            param.span.clone(),
         );
 
         induction_rule_params.push(TypedBinder {
-            span: param.span,
+            span: param.span.clone(),
             name: param.name,
             ty,
         })
@@ -522,7 +522,7 @@ fn calculate_inductive_parameter_principle(
         .iter()
         .enumerate()
         .map(|(i, param)| TypedBinder {
-            span: param.span,
+            span: param.span.clone(),
             name: param.name,
             ty: reindex(i, &param.ty),
         });
@@ -540,7 +540,7 @@ fn calculate_inductive_parameter_principle(
         param_params.iter().enumerate().map(|(i, param)| {
             TypedTermKind::bound_variable(param_params.len() - i - 1, param.name)
         }),
-        span,
+        span.clone(),
     );
 
     let motive = motive(param_params.len(), param_indices, inductive_val);

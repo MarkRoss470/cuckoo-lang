@@ -422,7 +422,7 @@ impl TypingEnvironment {
             LevelExprKind::Literal(l) => {
                 if *l > 8 {
                     Err(TypeError {
-                        span: arg.span,
+                        span: arg.span.clone(),
                         kind: TypeErrorKind::LevelLiteralTooBig(*l),
                     })
                 } else {
@@ -436,7 +436,7 @@ impl TypingEnvironment {
                         .unwrap()
                         .lookup(name)
                         .ok_or(TypeError {
-                            span: arg.span,
+                            span: arg.span.clone(),
                             kind: TypeErrorKind::LevelParameterNotFound(*name),
                         })?;
                 Ok(Level::parameter(index, *name))
@@ -456,8 +456,8 @@ impl TypingEnvironment {
                 Ok(u.imax(&v))
             }
 
-            LevelExprKind::Underscore => Err(TypeError::unsupported(arg.span, "Level inference")),
-            LevelExprKind::Malformed => Err(TypeError::unsupported(arg.span, "Malformed levels")),
+            LevelExprKind::Underscore => Err(TypeError::unsupported(arg.span.clone(), "Level inference")),
+            LevelExprKind::Malformed => Err(TypeError::unsupported(arg.span.clone(), "Malformed levels")),
         }
     }
 }

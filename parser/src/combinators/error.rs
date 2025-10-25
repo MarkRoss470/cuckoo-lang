@@ -3,23 +3,23 @@ use crate::error::{ParseDiagnostic, ParseDiagnosticKind};
 use crate::{ParseResult, Parser, parser};
 
 pub trait OrErrorExt: Parser {
-    fn or_error(self, error: ParseDiagnosticKind) -> impl Parser<Output = ()>;
+    fn or_error(self, error: impl Fn() -> ParseDiagnosticKind) -> impl Parser<Output = ()>;
 
     fn or_else_error(
         self,
-        error: ParseDiagnosticKind,
+        error: impl Fn() -> ParseDiagnosticKind,
         or_else: impl Parser<Output = Self::Output>,
     ) -> impl Parser<Output = Self::Output>;
 }
 
 impl<P: Parser> OrErrorExt for P {
-    fn or_error(self, error: ParseDiagnosticKind) -> impl Parser<Output = ()> {
+    fn or_error(self, error: impl Fn() -> ParseDiagnosticKind) -> impl Parser<Output = ()> {
         parser(
             move |input, mut context| match self.parse(input, context.borrow()) {
                 Some((rest, res)) => Some((rest, res.with_value(()))),
                 None => Some((
                     input,
-                    ParseResult::new(()).with_error(context.diagnostic_at(input, error.clone())),
+                    ParseResult::new(()).with_error(context.diagnostic_at(input, error())),
                 )),
             },
         )
@@ -27,7 +27,7 @@ impl<P: Parser> OrErrorExt for P {
 
     fn or_else_error(
         self,
-        error: ParseDiagnosticKind,
+        error: impl Fn() -> ParseDiagnosticKind,
         or_else: impl Parser<Output = Self::Output>,
     ) -> impl Parser<Output = Self::Output> {
         let or_else = or_else.with_span();
@@ -39,13 +39,13 @@ impl<P: Parser> OrErrorExt for P {
                         .parse(input, context.borrow())
                         .expect("Fallback parser should have matched");
 
-                    let span = res.value.1;
+                    let span = res.value.1.clone();
 
                     Some((
                         rest,
                         res.map(|(v, _)| v).with_error(ParseDiagnostic {
                             location: span,
-                            kind: error.clone(),
+                            kind: error(),
                         }),
                     ))
                 }

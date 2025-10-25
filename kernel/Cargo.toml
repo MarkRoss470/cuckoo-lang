@@ -10,3 +10,6 @@ parser = {workspace = true}
 [dev-dependencies]
 parser = {workspace =  true, features = ["test-utils"]}
 test_each_file = "0.3.6"
+
+[features]
+test-utils = ["parser/test-utils"]

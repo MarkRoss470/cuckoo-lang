@@ -32,17 +32,17 @@ impl Namespace {
         let (id, rest) = path.split_first();
 
         match rest {
-            None => self.resolve_ident(id, span),
+            None => self.resolve_ident(id, span.clone()),
             Some(rest) => match self.namespaces.get(&id) {
                 None => Err(TypeError {
                     span,
                     kind: TypeErrorKind::NameNotResolved(path.to_owned()),
                 }),
                 Some(n) => n
-                    .resolve_inner(rest.clone(), span)
+                    .resolve_inner(rest.clone(), span.clone())
                     .map_err(|e| match e.kind {
                         TypeErrorKind::NameNotResolved(p) => TypeError {
-                            span,
+                            span: span.clone(),
                             kind: TypeErrorKind::NameNotResolved(p.prepend(id)),
                         },
                         _ => e,
@@ -67,7 +67,7 @@ impl Namespace {
         level_args: &LevelArgs,
         span: Span,
     ) -> Result<TypedTerm, TypeError> {
-        let item = self.resolve_inner(path, span)?;
+        let item = self.resolve_inner(path, span.clone())?;
 
         // Check that there are the right number of level arguments
         if item.level_params.count() != level_args.count() {
@@ -90,7 +90,7 @@ impl Namespace {
         level_args: &LevelArgs,
         span: Span,
     ) -> Result<TypedTerm, TypeError> {
-        let item = self.resolve_inner(path, span)?;
+        let item = self.resolve_inner(path, span.clone())?;
 
         // Check that there are the right number of level arguments
         if item.level_params.count() != level_args.count() {
@@ -166,7 +166,7 @@ impl Namespace {
     pub fn resolve_namespace(&self, path: Path, span: Span) -> Result<&Namespace, TypeError> {
         let (id, rest) = path.split_first();
         let ns = self.namespaces.get(&id).ok_or(TypeError {
-            span,
+            span: span.clone(),
             kind: TypeErrorKind::NameNotResolved(OwnedPath::from_id(id)),
         })?;
 
@@ -183,7 +183,7 @@ impl Namespace {
     ) -> Result<&mut Namespace, TypeError> {
         let (id, rest) = path.split_first();
         let ns = self.namespaces.get_mut(&id).ok_or(TypeError {
-            span,
+            span: span.clone(),
             kind: TypeErrorKind::NameNotResolved(OwnedPath::from_id(id)),
         })?;
 

@@ -1,10 +1,12 @@
 use crate::atoms::whitespace::SurroundWhitespaceExt;
 use crate::combinators::repeat::Repeat0Ext;
-use crate::error::ParseDiagnostic;
-use crate::{ParseContext, SourceFile};
+use crate::error::{ParseDiagnostic, ParseDiagnosticKind, SourceLocation, Span};
+use crate::{ParseContext, Source, SourceFile, SourceFromFileError};
 use crate::{Parser, PrettyPrintContext};
 use common::{Interner, PrettyPrint, WithDiagnostics};
 use item::{Item, item};
+use std::path::PathBuf;
+use std::rc::Rc;
 
 pub mod item;
 pub mod term;
@@ -14,8 +16,7 @@ pub struct Ast {
     pub items: Vec<Item>,
 }
 
-pub fn parse_file(interner: &mut Interner, content: &str) -> WithDiagnostics<Ast, ParseDiagnostic> {
-    let source = SourceFile::new(content);
+pub fn parse_file(interner: &mut Interner, source: &SourceFile) -> WithDiagnostics<Ast, ParseDiagnostic> {
     let context = ParseContext {
         source: &source,
         interner,
@@ -25,7 +26,7 @@ pub fn parse_file(interner: &mut Interner, content: &str) -> WithDiagnostics<Ast
     let (rest, res) = item()
         .surround_whitespace()
         .repeat_0()
-        .parse(content, context)
+        .parse(&source.content, context)
         .unwrap();
 
     if !rest.is_empty() {
@@ -53,11 +54,11 @@ impl Ast {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::*;
-    use crate::ast::term::{Term, term};
     use crate::ParseResult;
+    use crate::ast::term::{Term, term};
 
     pub fn parse_term(interner: &mut Interner, source: &str) -> ParseResult<Term> {
-        let source_file = SourceFile::new(source);
+        let source_file = SourceFile::test_source(source);
         let context = ParseContext {
             source: &source_file,
             interner,

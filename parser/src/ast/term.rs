@@ -1,7 +1,7 @@
 use crate::atoms::ident::{OwnedPath, identifier, keyword, path};
 use crate::atoms::literal::nat_literal;
 use crate::atoms::whitespace::{SurroundWhitespaceExt, whitespace};
-use crate::atoms::{just, location, special_operator, str_exact};
+use crate::atoms::{just, span, special_operator, str_exact};
 use crate::combinators::error::OrErrorExt;
 use crate::combinators::modifiers::InBoxExt;
 use crate::combinators::modifiers::MapExt;
@@ -89,16 +89,16 @@ pub enum TermKind {
 }
 
 impl Term {
-    fn malformed_at(location: SourceLocation) -> Self {
+    fn malformed_at(span: Span) -> Self {
         Self {
-            span: Span::point(location),
+            span,
             kind: TermKind::Malformed,
         }
     }
 
-    fn underscore_at(location: SourceLocation) -> Self {
+    fn underscore_at(span: Span) -> Self {
         Self {
-            span: Span::point(location),
+            span,
             kind: TermKind::Underscore,
         }
     }
@@ -142,16 +142,16 @@ fn lambda_precedence_term() -> impl Parser<Output = Term> {
             (
                 keyword("fun"),
                 lambda_binders(),
-                special_operator("=>").or_error(ParseDiagnosticKind::MissingLambdaArrow),
+                special_operator("=>").or_error(|| ParseDiagnosticKind::MissingLambdaArrow),
                 lambda_precedence_term()
-                    .or_else_error(ParseDiagnosticKind::MissingLambdaBody, malformed_term()),
+                    .or_else_error(|| ParseDiagnosticKind::MissingLambdaBody, malformed_term()),
             )
                 .sequence_with_whitespace()
                 .with_span()
                 .map(|((_, binders, _, body), span)| binders.into_iter().rfold(
                     body,
                     |body, binder| Term {
-                        span,
+                        span: span.clone(),
                         kind: TermKind::Lambda {
                             binder: Box::new(binder),
                             body: Box::new(body)
@@ -169,7 +169,7 @@ fn lambda_binders() -> impl Parser<Output = Vec<Binder>> {
         (
             bracketed_binder(),
             identifier().with_span().map(|(id, span)| Binder {
-                span,
+                span: span.clone(),
                 names: vec![Some(id)],
                 ty: Term {
                     span,
@@ -180,12 +180,12 @@ fn lambda_binders() -> impl Parser<Output = Vec<Binder>> {
             .alt()
             .repeat_1()
             .or_else_error(
-                ParseDiagnosticKind::MissingLambdaBinder,
-                location().map(|l| {
+                || ParseDiagnosticKind::MissingLambdaBinder,
+                span().map(|span| {
                     vec![Binder {
-                        span: Span::point(l),
+                        span: span.clone(),
                         names: vec![None],
-                        ty: Term::underscore_at(l),
+                        ty: Term::underscore_at(span),
                     }]
                 }),
             )
@@ -218,7 +218,7 @@ pub(crate) fn bracketed_binder() -> impl Parser<Output = Binder> {
                 .alt()
                 .surround_whitespace()
                 .repeat_1()
-                .or_else_error(ParseDiagnosticKind::MissingBinderName, just(vec![None])),
+                .or_else_error(||ParseDiagnosticKind::MissingBinderName, just(vec![None])),
             special_operator(":"),
             term(),
             str_exact(")"),
@@ -234,7 +234,7 @@ pub(crate) fn binder() -> impl Parser<Output = Binder> {
         (
             bracketed_binder(),
             application_precedence_term().map(|ty| Binder {
-                span: ty.span,
+                span: ty.span.clone(),
                 names: vec![None],
                 ty
             }),
@@ -246,7 +246,7 @@ pub(crate) fn binder() -> impl Parser<Output = Binder> {
 fn application_precedence_term() -> impl Parser<Output = Term> {
     rec!(
         sort_precedence_term().then_fold(atomic_term(), |l, r| Term {
-            span: l.span.union(r.span),
+            span: l.span.union(&r.span),
             kind: TermKind::Application {
                 function: Box::new(l),
                 argument: Box::new(r),
@@ -496,7 +496,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Binder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::{ParserTestExt};
+    use crate::tests::ParserTestExt;
 
     #[test]
     fn test_pi_type() {
@@ -532,6 +532,5 @@ mod tests {
             output.kind,
             TermKind::Path(OwnedPath::from_id(id_u), LevelArgs::default())
         );
-
     }
 }

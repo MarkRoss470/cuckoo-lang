@@ -1,1 +1,1 @@
-ERROR at 2:10-2:17: Invalid cannot be referenced here. The inductive datatype being constructed can only be referenced in strictly positive positions.
+ERROR at tests/data/invalid/non_strictly_positive_1.ck 2:10-2:17: Invalid cannot be referenced here. The inductive datatype being constructed can only be referenced in strictly positive positions.

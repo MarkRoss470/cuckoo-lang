@@ -189,10 +189,7 @@ impl<P: Parser> WithSpanExt for P {
                 res.map(|v| {
                     (
                         v,
-                        Span {
-                            start: context.location_of(input),
-                            end: context.location_of(rest),
-                        },
+                        context.location_of(input).union(&context.location_of(rest)),
                     )
                 }),
             ))

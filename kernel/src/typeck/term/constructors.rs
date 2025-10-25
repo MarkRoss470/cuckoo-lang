@@ -109,7 +109,7 @@ impl TypedTerm {
     pub fn make_lambda(binder: TypedBinder, body: TypedTerm, span: Span) -> TypedTerm {
         TypedTerm::value_of_type(
             TypedTermKind::lambda(binder.clone(), body.clone()),
-            TypedTerm::make_pi_type(binder, body.get_type(), span),
+            TypedTerm::make_pi_type(binder, body.get_type(), span.clone()),
             span,
         )
     }
@@ -120,7 +120,7 @@ impl TypedTerm {
         span: Span,
     ) -> TypedTerm {
         binders.into_iter().rfold(output, |acc, binder| {
-            TypedTerm::make_pi_type(binder, acc, span)
+            TypedTerm::make_pi_type(binder, acc, span.clone())
         })
     }
 
@@ -136,9 +136,9 @@ impl TypedTerm {
                 panic!("`res` should have been a function type")
             };
 
-            let param = TypedTerm::value_of_type(param, binder.ty, span);
+            let param = TypedTerm::value_of_type(param, binder.ty, span.clone());
             let output = output.replace_binder(0, &param);
-            res = TypedTerm::make_application(res, param, output, span);
+            res = TypedTerm::make_application(res, param, output, span.clone());
         }
 
         res
@@ -150,7 +150,7 @@ impl TypedTerm {
         span: Span,
     ) -> TypedTerm {
         binders.into_iter().rfold(body, |acc, binder| {
-            TypedTerm::make_lambda(binder, acc, span)
+            TypedTerm::make_lambda(binder, acc, span.clone())
         })
     }
 }

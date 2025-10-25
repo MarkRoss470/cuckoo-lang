@@ -12,20 +12,79 @@ pub mod error;
 
 use crate::error::{ParseDiagnostic, ParseDiagnosticKind, SourceLocation, Span};
 use common::{Interner, WithDiagnostics};
+use std::fmt::{Display, Formatter};
 use std::io::Write;
-use std::iter;
+use std::path::PathBuf;
+use std::rc::Rc;
+use std::string::FromUtf8Error;
+use std::{fs, io, iter};
 
 type ParseResult<T> = WithDiagnostics<T, ParseDiagnostic>;
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum Source {
+    File(PathBuf),
+    TestSource,
+}
+
 #[derive(Debug)]
-pub struct SourceFile<'a> {
-    source: &'a str,
+pub struct SourceFile {
+    source: Rc<Source>,
+    content: String,
     /// The byte offsets into `source` of every newline
     line_start_offsets: Vec<usize>,
 }
 
-impl<'a> SourceFile<'a> {
-    pub fn new(source: &'a str) -> Self {
+#[derive(Debug)]
+pub enum SourceFromFileError {
+    IoError(io::Error),
+    FromUtf8Error(FromUtf8Error),
+}
+
+impl From<io::Error> for SourceFromFileError {
+    fn from(value: io::Error) -> Self {
+        Self::IoError(value)
+    }
+}
+
+impl From<FromUtf8Error> for SourceFromFileError {
+    fn from(value: FromUtf8Error) -> Self {
+        Self::FromUtf8Error(value)
+    }
+}
+
+impl Display for SourceFromFileError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SourceFromFileError::IoError(e) => write!(f, "{e}"),
+            SourceFromFileError::FromUtf8Error(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl SourceFile {
+    pub fn from_file(path: PathBuf) -> Result<Self, SourceFromFileError> {
+        let content = fs::read(&path)?;
+        let content = String::from_utf8(content)?;
+
+        let line_start_offsets = Self::calculate_line_start_offsets(&content);
+
+        Ok(Self {
+            source: Rc::new(Source::File(path)),
+            content,
+            line_start_offsets,
+        })
+    }
+
+    pub fn test_source(content: &str) -> Self {
+        Self {
+            source: Rc::new(Source::TestSource),
+            content: content.to_string(),
+            line_start_offsets: Self::calculate_line_start_offsets(content),
+        }
+    }
+
+    fn calculate_line_start_offsets(source: &str) -> Vec<usize> {
         let line_start_offsets = iter::once(0)
             .chain(
                 source
@@ -35,35 +94,37 @@ impl<'a> SourceFile<'a> {
                     .map(|(i, _)| i + 1),
             )
             .collect();
-
-        Self {
-            source,
-            line_start_offsets,
-        }
+        line_start_offsets
     }
 
-    pub fn location_of_offset(&self, byte_offset: usize) -> SourceLocation {
+    pub fn location_of_offset(&self, byte_offset: usize) -> Span {
         let line = self
             .line_start_offsets
             .partition_point(|line_start| *line_start <= byte_offset);
 
-        SourceLocation {
+        let location = SourceLocation {
             byte_offset,
             line,
             column: byte_offset - self.line_start_offsets[line - 1] + 1,
+        };
+
+        Span {
+            source: self.source.clone(),
+            start: location,
+            end: location,
         }
     }
 }
 
 #[derive(Debug)]
 struct ParseContext<'a> {
-    source: &'a SourceFile<'a>,
+    source: &'a SourceFile,
     interner: &'a mut Interner,
     indent_levels: usize,
 }
 
 impl<'a> ParseContext<'a> {
-    fn new(interner: &'a mut Interner, source: &'a SourceFile<'a>) -> Self {
+    fn new(interner: &'a mut Interner, source: &'a SourceFile) -> Self {
         Self {
             source,
             interner,
@@ -95,14 +156,14 @@ impl<'a> ParseContext<'a> {
         }
     }
 
-    fn location_of(&self, rest: &str) -> SourceLocation {
+    fn location_of(&self, rest: &str) -> Span {
         self.source
-            .location_of_offset(self.source.source.len() - rest.len())
+            .location_of_offset(self.source.content.len() - rest.len())
     }
 
     fn diagnostic_at(&self, rest: &str, kind: ParseDiagnosticKind) -> ParseDiagnostic {
         ParseDiagnostic {
-            location: Span::point(self.location_of(rest)),
+            location: self.location_of(rest),
             kind,
         }
     }
@@ -195,7 +256,7 @@ mod tests {
 
     impl<P: Parser> ParserTestExt for P {
         fn assert_no_match_with_indent(&self, indent: usize, input: &str, interner: &mut Interner) {
-            let source = SourceFile::new(input);
+            let source = SourceFile::test_source(input);
             let mut context = ParseContext::new(interner, &source);
             context.indent_levels = indent;
 
@@ -212,7 +273,7 @@ mod tests {
         }
 
         fn parse_all(&self, input: &str, interner: &mut Interner) -> Self::Output {
-            let source = SourceFile::new(input);
+            let source = SourceFile::test_source(input);
             let context = ParseContext::new(interner, &source);
 
             match self.parse(input, context) {
@@ -236,7 +297,7 @@ mod tests {
             unparsed: &str,
             interner: &mut Interner,
         ) -> Self::Output {
-            let source = SourceFile::new(input);
+            let source = SourceFile::test_source(input);
             let mut context = ParseContext::new(interner, &source);
             context.indent_levels = indent;
 
@@ -267,25 +328,25 @@ mod tests {
     #[test]
     fn test_location_of() {
         let source = "here is some text.\nthis is a new line.\n   \n   Here is another.";
-        let file = SourceFile::new(source);
+        let file = SourceFile::test_source(source);
 
-        assert_eq!(file.location_of_offset(0).line, 1);
-        assert_eq!(file.location_of_offset(0).column, 1);
-        assert_eq!(file.location_of_offset(10).line, 1);
-        assert_eq!(file.location_of_offset(10).column, 11);
-        assert_eq!(file.location_of_offset(17).line, 1);
-        assert_eq!(file.location_of_offset(17).column, 18);
-        assert_eq!(file.location_of_offset(18).line, 1);
-        assert_eq!(file.location_of_offset(18).column, 19);
-        assert_eq!(file.location_of_offset(19).line, 2);
-        assert_eq!(file.location_of_offset(19).column, 1);
-        assert_eq!(file.location_of_offset(25).line, 2);
-        assert_eq!(file.location_of_offset(25).column, 7);
-        assert_eq!(file.location_of_offset(38).line, 2);
-        assert_eq!(file.location_of_offset(38).column, 20);
-        assert_eq!(file.location_of_offset(39).line, 3);
-        assert_eq!(file.location_of_offset(39).column, 1);
-        assert_eq!(file.location_of_offset(61).line, 4);
-        assert_eq!(file.location_of_offset(61).column, 19);
+        assert_eq!(file.location_of_offset(0).start.line, 1);
+        assert_eq!(file.location_of_offset(0).start.column, 1);
+        assert_eq!(file.location_of_offset(10).start.line, 1);
+        assert_eq!(file.location_of_offset(10).start.column, 11);
+        assert_eq!(file.location_of_offset(17).start.line, 1);
+        assert_eq!(file.location_of_offset(17).start.column, 18);
+        assert_eq!(file.location_of_offset(18).start.line, 1);
+        assert_eq!(file.location_of_offset(18).start.column, 19);
+        assert_eq!(file.location_of_offset(19).start.line, 2);
+        assert_eq!(file.location_of_offset(19).start.column, 1);
+        assert_eq!(file.location_of_offset(25).start.line, 2);
+        assert_eq!(file.location_of_offset(25).start.column, 7);
+        assert_eq!(file.location_of_offset(38).start.line, 2);
+        assert_eq!(file.location_of_offset(38).start.column, 20);
+        assert_eq!(file.location_of_offset(39).start.line, 3);
+        assert_eq!(file.location_of_offset(39).start.column, 1);
+        assert_eq!(file.location_of_offset(61).start.line, 4);
+        assert_eq!(file.location_of_offset(61).start.column, 19);
     }
 }

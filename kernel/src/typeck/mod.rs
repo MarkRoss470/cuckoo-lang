@@ -15,7 +15,8 @@ use crate::typeck::data::Adt;
 use crate::typeck::level::LevelArgs;
 use crate::typeck::namespace::Namespace;
 use crate::typeck::term::{Abbreviation, TypedBinder};
-use common::{Interner, PrettyPrint, WithDiagnostics};
+use common::{Interner, PrettyPrint};
+use parser::SourceFile;
 use parser::ast::item::axiom::AxiomDefinition;
 use parser::ast::item::def::ValueDefinition;
 use parser::ast::item::{Item, LevelParameters};
@@ -61,6 +62,20 @@ impl TypingEnvironment {
         }
     }
 
+    pub fn load(&mut self, source: &SourceFile) -> Result<(), KernelError> {
+        let res = parse_file(&mut self.interner.borrow_mut(), source);
+        if !res.diagnostics.is_empty() {
+            return Err(KernelError::Parse(res.diagnostics[0].value.clone()));
+        }
+
+        self.load_ast(&res.value).map_err(KernelError::Type)
+    }
+
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn load_str(&mut self, source: &str) -> Result<(), KernelError> {
+        self.load(&SourceFile::test_source(source))
+    }
+
     fn get_adt(&self, id: AdtIndex) -> &Adt {
         &self.adts[id.0]
     }
@@ -78,13 +93,15 @@ impl TypingEnvironment {
         self.root.resolve(path, level_args, span)
     }
 
-    pub fn resolve_file(&mut self, ast: &Ast) -> Result<(), TypeError> {
+    pub fn load_ast(&mut self, ast: &Ast) -> Result<(), TypeError> {
         for item in &ast.items {
             match item {
                 Item::DataDefinition(dd) => self.resolve_adt(dd)?,
                 Item::ValueDefinition(vd) => self.resolve_value_definition(vd)?,
                 Item::Axiom(ad) => self.resolve_axiom_definition(ad)?,
-                Item::Malformed(span) => Err(TypeError::unsupported(*span, "Malformed items"))?,
+                Item::Malformed(span) => {
+                    Err(TypeError::unsupported(span.clone(), "Malformed items"))?
+                }
             }
         }
 
@@ -101,7 +118,7 @@ impl TypingEnvironment {
         // Desugar `def` parameters to pi types and lambda expressions
         for binder in ast.binders.iter().rev() {
             ty = Term {
-                span: ast.span,
+                span: ast.span.clone(),
                 kind: TermKind::PiType {
                     binder: Box::new(binder.clone()),
                     output: Box::new(ty),
@@ -109,7 +126,7 @@ impl TypingEnvironment {
             };
 
             value = Term {
-                span: ast.span,
+                span: ast.span.clone(),
                 kind: TermKind::Lambda {
                     binder: Box::new(binder.clone()),
                     body: Box::new(value),
@@ -139,8 +156,12 @@ impl TypingEnvironment {
         #[cfg(debug_assertions)]
         self.check_term(term.clone());
 
-        self.root
-            .insert(ast.path.borrow(), ast.level_params.clone(), term, ast.span)?;
+        self.root.insert(
+            ast.path.borrow(),
+            ast.level_params.clone(),
+            term,
+            ast.span.clone(),
+        )?;
 
         // Remove the level parameters from the context
         self.clear_level_params();
@@ -173,7 +194,7 @@ impl TypingEnvironment {
         // Desugar axiom parameters to pi types
         for binder in ast.binders.iter().rev() {
             ty = Term {
-                span: ast.span,
+                span: ast.span.clone(),
                 kind: TermKind::PiType {
                     binder: Box::new(binder.clone()),
                     output: Box::new(ty),
@@ -190,11 +211,15 @@ impl TypingEnvironment {
             axiom.index,
             ty,
             LevelArgs::from_level_parameters(&ast.level_params),
-            ast.span,
+            ast.span.clone(),
         );
 
-        self.root
-            .insert(ast.path.borrow(), ast.level_params.clone(), term, ast.span)?;
+        self.root.insert(
+            ast.path.borrow(),
+            ast.level_params.clone(),
+            term,
+            ast.span.clone(),
+        )?;
 
         // Remove the level parameters from the context
         self.clear_level_params();
@@ -316,29 +341,32 @@ impl<'a> TypingEnvironment {
 
 #[cfg(test)]
 mod tests {
-    use crate::typeck::term::TypedTerm;
-    use crate::typeck::{TypeError, TypingContext, TypingEnvironment};
-    use parser::ast::parse_file;
-    use parser::ast::tests::parse_term;
+    use crate::diagnostic::KernelError;
     use crate::typeck::error::TypeErrorKind;
+    use crate::typeck::term::TypedTerm;
+    use crate::typeck::{TypingContext, TypingEnvironment};
+    use parser::ast::tests::parse_term;
 
     pub fn assert_type_checks(source: &str) {
         let mut env = TypingEnvironment::new();
-        let ast = parse_file(&mut env.interner.borrow_mut(), source).unwrap();
 
-        env.resolve_file(&ast)
-            .expect("Code should have type checked");
+        env.load_str(source).expect("Code should have type checked");
     }
 
     pub fn assert_type_error(source: &str, expected_err: TypeErrorKind) {
         let mut env = TypingEnvironment::new();
-        let ast = parse_file(&mut env.interner.borrow_mut(), source).unwrap();
-
         let err = env
-            .resolve_file(&ast)
+            .load_str(source)
             .expect_err("Code should not have type checked");
 
-        assert_eq!(err.kind, expected_err);
+        match err {
+            KernelError::Parse(d) => {
+                panic!("Expected type error, but found parse diagnostic {d:?}")
+            }
+            KernelError::Type(err) => {
+                assert_eq!(err.kind, expected_err);
+            }
+        }
     }
 
     impl TypingEnvironment {

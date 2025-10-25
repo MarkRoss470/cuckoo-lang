@@ -4,14 +4,14 @@ pub mod whitespace;
 
 use crate::combinators::modifiers::{IgnoreValExt, MapExt, ReparseExt, VerifyExt, VerifyStrExt};
 use crate::combinators::repeat::Repeat1Ext;
-use crate::error::SourceLocation;
+use crate::error::{SourceLocation, Span};
 use crate::{ParseResult, Parser, parser};
 use common::InternKey;
 use icu_properties::props::Math;
 use icu_properties::{CodePointSetData, CodePointSetDataBorrowed};
 
 /// Always matches, consuming no input and returning the source location of the start of the input
-pub(crate) fn location() -> impl Parser<Output = SourceLocation> {
+pub(crate) fn span() -> impl Parser<Output = Span> {
     parser(move |input, context| Some((input, ParseResult::new(context.location_of(input)))))
 }
 

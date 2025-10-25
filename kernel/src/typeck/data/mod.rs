@@ -49,9 +49,9 @@ impl AdtHeader {
     fn type_constructor(&self) -> TypedTerm {
         TypedTerm::adt_name(
             self.index,
-            TypedTerm::make_telescope(self.parameters.clone(), self.family.clone(), self.span),
+            TypedTerm::make_telescope(self.parameters.clone(), self.family.clone(), self.span.clone()),
             LevelArgs::from_level_parameters(&self.level_params),
-            self.span,
+            self.span.clone(),
         )
     }
 
@@ -64,7 +64,7 @@ impl AdtHeader {
         TypedTerm::adt_constructor(
             self.index,
             index,
-            TypedTerm::make_telescope(self.parameters.clone(), type_without_adt_params, span),
+            TypedTerm::make_telescope(self.parameters.clone(), type_without_adt_params, span.clone()),
             LevelArgs::from_level_parameters(&self.level_params),
             span,
         )
@@ -171,7 +171,7 @@ impl<'a> TypingEnvironment {
         // Add a stub ADT to `self.ads` so that if this ADT shows up in any errors while resolving the constructors,
         // it can be printed properly
         self.adts.push(Adt {
-            span: ast.span,
+            span: ast.span.clone(),
             header,
             constructors: vec![],
             is_large_eliminating: false,
@@ -261,7 +261,7 @@ impl<'a> TypingEnvironment {
         for param in &ast.parameters {
             let [binder_name] = param.names.as_slice() else {
                 return Err(TypeError::unsupported(
-                    param.span,
+                    param.span.clone(),
                     "Multiple names in a binder",
                 ));
             };
@@ -269,7 +269,7 @@ impl<'a> TypingEnvironment {
             let context = root.with_binders(&parameters);
             let ty = context.resolve_term(&param.ty)?;
             parameters.push(TypedBinder {
-                span: param.span,
+                span: param.span.clone(),
                 name: *binder_name,
                 ty,
             })
@@ -308,7 +308,7 @@ impl<'a> TypingEnvironment {
         };
 
         Ok(AdtHeader {
-            span: ast.span.start_point().union(ast.family.span),
+            span: ast.span.start_point().union(&ast.family.span),
             index,
             name: ast.name.clone(),
             level_params: ast.level_params.clone(),
@@ -382,9 +382,9 @@ impl<'a> TypingEnvironment {
         }
 
         Ok(AdtConstructor {
-            span: constructor.span,
+            span: constructor.span.clone(),
             name: constructor.name,
-            constant: header.constructor(index, ty.clone(), constructor.span),
+            constant: header.constructor(index, ty.clone(), constructor.span.clone()),
             type_without_adt_params: ty.clone(),
             params: processed_params,
             indices: arguments,
@@ -462,7 +462,7 @@ impl<'a> TypingEnvironment {
                 param
                     .ty
                     .clone_incrementing(0, constructor_params.len() + header.parameters.len() - i),
-                param.span,
+                param.span.clone(),
             );
 
             if !self.def_eq(arguments[i].clone(), expected.clone()) {
@@ -491,7 +491,7 @@ impl<'a> TypingEnvironment {
     ) -> Result<(), TypeError> {
         if !adt_sort.is_geq(&param.level()) {
             Err(TypeError {
-                span: param.span,
+                span: param.span.clone(),
                 kind: TypeErrorKind::InvalidConstructorParameterLevel {
                     ty: param.ty.clone(),
                     adt_level: adt_sort.clone(),

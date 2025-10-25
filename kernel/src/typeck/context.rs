@@ -8,21 +8,23 @@ use parser::error::Span;
 
 impl<'a> TypingContext<'a> {
     pub(super) fn resolve_term(&self, term: &Term) -> Result<TypedTerm, TypeError> {
+        let span = term.span.clone();
+
         match &term.kind {
-            TermKind::Sort(u) => Ok(TypedTerm::sort_literal(self.resolve_level(u)?, term.span)),
+            TermKind::Sort(u) => Ok(TypedTerm::sort_literal(self.resolve_level(u)?, span)),
             TermKind::Path(id, level_args) => self.resolve_path(
                 id.borrow(),
                 &self.resolve_level_args(level_args.clone())?,
-                term.span,
+                span,
             ),
             TermKind::Application { function, argument } => {
-                self.resolve_application(function, argument, term.span)
+                self.resolve_application(function, argument, span)
             }
-            TermKind::PiType { binder, output } => self.resolve_pi_type(binder, output, term.span),
-            TermKind::Lambda { binder, body } => self.resolve_lambda(binder, body, term.span),
+            TermKind::PiType { binder, output } => self.resolve_pi_type(binder, output, span),
+            TermKind::Lambda { binder, body } => self.resolve_lambda(binder, body, span),
 
-            TermKind::Malformed => Err(TypeError::unsupported(term.span, "Malformed terms")),
-            TermKind::Underscore => Err(TypeError::unsupported(term.span, "Type inference")),
+            TermKind::Malformed => Err(TypeError::unsupported(span, "Malformed terms")),
+            TermKind::Underscore => Err(TypeError::unsupported(span, "Type inference")),
         }
     }
 
@@ -85,7 +87,7 @@ impl<'a> TypingContext<'a> {
         level_args: &LevelArgs,
         span: Span,
     ) -> Result<TypedTerm, TypeError> {
-        self.resolve_path_inner(path, level_args, span)
+        self.resolve_path_inner(path, level_args, span.clone())
             .map(|(t, i)| {
                 // The term includes its own binder while the type doesn't, so the type needs to be incremented by one more than the term
                 TypedTerm::value_of_type(
@@ -141,7 +143,7 @@ impl<'a> TypingContext<'a> {
     ) -> Result<TypedTerm, TypeError> {
         let [binder_name] = binder.names.as_slice() else {
             return Err(TypeError::unsupported(
-                binder.span,
+                binder.span.clone(),
                 "Multiple names in a binder",
             ));
         };
@@ -150,7 +152,7 @@ impl<'a> TypingContext<'a> {
         let binder_ty = self.resolve_term(&binder.ty)?;
         binder_ty.check_is_ty()?;
         let binder = TypedBinder {
-            span: binder.span,
+            span: binder.span.clone(),
             name: *binder_name,
             ty: binder_ty,
         };
@@ -161,7 +163,7 @@ impl<'a> TypingContext<'a> {
         // Resolve the output type in this new context
         let output = c.resolve_term(&output)?;
         output.check_is_ty()?;
-        
+
         Ok(TypedTerm::make_pi_type(binder, output, span))
     }
 
@@ -173,7 +175,7 @@ impl<'a> TypingContext<'a> {
     ) -> Result<TypedTerm, TypeError> {
         let [binder_name] = binder.names.as_slice() else {
             return Err(TypeError::unsupported(
-                binder.span,
+                binder.span.clone(),
                 "Multiple names in a binder",
             ));
         };
@@ -183,7 +185,7 @@ impl<'a> TypingContext<'a> {
         binder_ty.check_is_ty()?;
 
         let binder = TypedBinder {
-            span: binder.span,
+            span: binder.span.clone(),
             name: *binder_name,
             ty: binder_ty,
         };

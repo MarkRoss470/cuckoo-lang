@@ -4,5 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-common = {workspace = true}
+parser = {workspace = true}
 kernel = {workspace = true}
+
+[dev-dependencies]
+kernel = {workspace =  true, features = ["test-utils"]}

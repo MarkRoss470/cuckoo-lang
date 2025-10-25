@@ -1,7 +1,7 @@
 use crate::diagnostic::KernelError;
 use crate::typeck::{PrettyPrintContext, TypedTerm, TypingEnvironment};
 use common::PrettyPrint;
-use parser::ast::parse_file;
+use parser::SourceFile;
 use parser::error::{ParseDiagnostic, ParseDiagnosticKind};
 use std::io::Write;
 
@@ -16,13 +16,13 @@ impl KernelEnvironment {
         Self(TypingEnvironment::new())
     }
 
-    pub fn check_str(&mut self, source: &str) -> Result<(), KernelError> {
-        let res = parse_file(&mut self.0.interner.borrow_mut(), source);
-        if !res.diagnostics.is_empty() {
-            return Err(KernelError::Parse(res.diagnostics[0].value.clone()));
-        }
+    pub fn load(&mut self, source: &SourceFile) -> Result<(), KernelError> {
+        self.0.load(source)
+    }
 
-        self.0.resolve_file(&res.value).map_err(KernelError::Type)
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn check_str(&mut self, source: &str) -> Result<(), KernelError> {
+        self.0.load_str(source)
     }
 
     pub fn pretty_print(&self) {
@@ -71,17 +71,21 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for ParseDiagnostic {
 #[cfg(test)]
 mod integration_tests {
     use super::*;
-    use test_each_file::test_each_file;
+    use std::fs;
+    use std::path::Path;
+    use test_each_file::test_each_path;
 
-    fn test_case([file, out]: [&str; 2]) {
+    fn test_case([file, out]: [&Path; 2]) {
         let mut env = TypingEnvironment::new();
-        let ast = parse_file(&mut env.interner.borrow_mut(), file).unwrap();
+        let out_content = fs::read(out).unwrap();
+        let out_content = String::from_utf8(out_content).unwrap();
 
-        let res = env.resolve_file(&ast);
-
-        match res {
+        match env.load(&SourceFile::from_file(file.to_path_buf()).unwrap()) {
             Ok(()) => {
-                assert_eq!(out, "success", "Typechecking should not have succeeded")
+                assert_eq!(
+                    out_content, "success",
+                    "Typechecking should not have succeeded"
+                )
             }
             Err(e) => {
                 let mut s = Vec::new();
@@ -89,10 +93,10 @@ mod integration_tests {
                     .unwrap();
                 let s = String::from_utf8(s).unwrap();
 
-                assert_eq!(out, s, "Error did not match file content");
+                assert_eq!(out_content, s, "Error did not match file content");
             }
         }
     }
 
-    test_each_file! { for ["ck", "out"] in "./kernel/tests" => test_case }
+    test_each_path! {for ["ck", "out"] in "./kernel/tests" => test_case}
 }

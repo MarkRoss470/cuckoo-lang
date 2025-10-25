@@ -1,11 +1,32 @@
 use kernel::KernelEnvironment;
+use parser::{SourceFile, SourceFromFileError};
+use std::convert::Infallible;
+use std::path::PathBuf;
 
 fn main() {
-    let content = std::fs::read("examples/test.ck").unwrap();
-    let content = String::from_utf8(content).unwrap();
+    let args = std::env::args();
+    let Some(file) = args.skip(1).next() else {
+        println!("Expected filename argument");
+        return;
+    };
+    let path = match PathBuf::try_from(&file) {
+        Ok(path) => path,
+        Err(e) => {
+            println!("Expected '{file}' to be a path: {e}");
+            return;
+        }
+    };
 
+    let source = match SourceFile::from_file(path) {
+        Ok(source) => source,
+        Err(e) => {
+            println!("Error loading '{file}': {e}");
+            return;
+        }
+    };
     let mut env = KernelEnvironment::new();
-    match env.check_str(&content) {
+
+    match env.load(&source) {
         Ok(()) => {
             env.pretty_print();
         }
@@ -15,5 +36,4 @@ fn main() {
             env.pretty_println_error(&e)
         }
     }
-
 }

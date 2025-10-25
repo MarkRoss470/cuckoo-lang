@@ -1,1 +1,1 @@
-ERROR at 1:16-1:23: Could not resolve name 'Invalid'.
+ERROR at tests/data/invalid/references_self_in_family.ck 1:16-1:23: Could not resolve name 'Invalid'.

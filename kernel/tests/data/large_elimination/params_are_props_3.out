@@ -1,1 +1,1 @@
-ERROR at 5:29-5:41: SomeProp.rec takes 1 level argument(s), but 0 were provided.
+ERROR at tests/data/large_elimination/params_are_props_3.ck 5:29-5:41: SomeProp.rec takes 1 level argument(s), but 0 were provided.

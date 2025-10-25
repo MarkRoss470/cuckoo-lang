@@ -3,8 +3,8 @@ use super::{TypedTerm, TypedTermKind};
 use crate::typeck::TypingEnvironment;
 use crate::typeck::data::Adt;
 use crate::typeck::level::Level;
-use std::iter;
 use parser::error::Span;
+use std::iter;
 
 impl TypingEnvironment {
     /// Checks whether two terms are definitionally equal.
@@ -38,14 +38,14 @@ impl TypingEnvironment {
         {
             let l = self.reduce_to_whnf(TypedTerm::make_application(
                 l.clone_incrementing(0, 1),
-                TypedTerm::bound_variable(0, None, binder.ty.clone(), binder.span),
+                TypedTerm::bound_variable(0, None, binder.ty.clone(), binder.span()),
                 output.clone(),
                 l.span,
             ));
 
             let r = self.reduce_to_whnf(TypedTerm::make_application(
                 r.clone_incrementing(0, 1),
-                TypedTerm::bound_variable(0, None, binder.ty.clone(), binder.span),
+                TypedTerm::bound_variable(0, None, binder.ty.clone(), binder.span()),
                 output.clone(),
                 r.span,
             ));
@@ -69,7 +69,7 @@ impl TypingEnvironment {
     pub fn reduce_to_whnf(&self, mut term: TypedTerm) -> TypedTerm {
         use TypedTermKindInner::*;
 
-        let span = term.span;
+        let span = term.span();
         let mut args = vec![];
 
         // Repeatedly split the term into a function and its arguments,
@@ -114,7 +114,7 @@ impl TypingEnvironment {
                         adt,
                         &function,
                         &args[args.len() - adt.recursor_num_parameters()..],
-                        term.span
+                        term.span(),
                     ) else {
                         break;
                     };
@@ -148,7 +148,7 @@ impl TypingEnvironment {
         adt: &Adt,
         recursor: &TypedTerm,
         args_reversed: &[TypedTerm],
-        span: Span
+        span: Span,
     ) -> Option<TypedTerm> {
         debug_assert_eq!(args_reversed.len(), adt.recursor_num_parameters());
 
@@ -197,7 +197,7 @@ impl TypingEnvironment {
                         .term()
                     },
                 )),
-            span
+            span,
         );
 
         Some(output)
@@ -246,7 +246,7 @@ impl TypingEnvironment {
             .iter()
             .enumerate()
             .map(|(i, binder)| TypedBinder {
-                span: binder.span,
+                span: binder.span(),
                 name: binder.name,
                 ty: reindex(i, binder.ty.clone()),
             })
@@ -261,7 +261,7 @@ impl TypingEnvironment {
                 .map(|(i, binder)| {
                     TypedTermKind::bound_variable(param_params.len() - i - 1, binder.name)
                 }),
-            param_val.span
+            param_val.span(),
         );
 
         let body = TypedTerm::make_application_stack(
@@ -272,10 +272,10 @@ impl TypingEnvironment {
                 .rev()
                 .map(|t| t.term())
                 .chain(iter::once(value_param.term())),
-            recursor.span
+            recursor.span(),
         );
 
-        TypedTerm::make_lambda_telescope(binders, body.clone(), body.span)
+        TypedTerm::make_lambda_telescope(binders, body.clone(), body.span())
     }
 
     /// Compares whether two terms have the same top level structure, and checks the sub-terms for
@@ -362,10 +362,10 @@ impl TypingEnvironment {
             TypedTermKind::from_inner(reduced_term, whnf_term.term.abbreviation),
             TypedTerm::value_of_type(
                 TypedTermKind::from_inner(reduced_ty, whnf_ty.term.abbreviation),
-                TypedTerm::sort_literal(term.level, term.span),
-                term.span,
+                TypedTerm::sort_literal(term.level(), term.span()),
+                term.span(),
             ),
-            term.span,
+            term.span(),
         );
 
         fully_reduced
@@ -441,8 +441,7 @@ mod tests {
         ";
 
         let mut env = TypingEnvironment::new();
-        let file = parse_file(&mut env.interner.borrow_mut(), context).unwrap();
-        env.resolve_file(&file)
+        env.load_str(context)
             .expect("Environment should have type checked");
 
         // Concrete terms
@@ -527,8 +526,7 @@ mod tests {
         ";
 
         let mut env = TypingEnvironment::new();
-        let file = parse_file(&mut env.interner.borrow_mut(), context).unwrap();
-        env.resolve_file(&file)
+        env.load_str(context)
             .expect("Environment should have type checked");
 
         assert_def_eq(

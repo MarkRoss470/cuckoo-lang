@@ -1,1 +1,1 @@
-ERROR at 4:16-4:23: Mismatched inductive type parameter. Found SomeTy, expected T?0
+ERROR at tests/data/invalid/mismatched_parameter.ck 4:16-4:23: Mismatched inductive type parameter. Found SomeTy, expected T?0

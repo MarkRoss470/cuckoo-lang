@@ -1,1 +1,1 @@
-ERROR at 16:29-16:45: SomeProp.rec takes 0 level argument(s), but 1 were provided.
+ERROR at tests/data/large_elimination/index_must_be_just_param_1.ck 16:29-16:45: SomeProp.rec takes 0 level argument(s), but 1 were provided.

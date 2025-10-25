@@ -1,4 +1,4 @@
-ERROR at 2:9-2:14: Invalid level for constructor parameter - this parameter is of type
+ERROR at tests/data/invalid/constructor_parameter_level_too_high_1.ck 2:9-2:14: Invalid level for constructor parameter - this parameter is of type
   Sort 1
 at level
   2

@@ -6,7 +6,7 @@ use parser::error::Span;
 
 impl TypedTerm {
     pub fn span(&self) -> Span {
-        self.span
+        self.span.clone()
     }
 
     pub fn level(&self) -> Level {
@@ -24,14 +24,14 @@ impl TypedTerm {
     /// Checks that the term represents a type. If it is, returns what level it is in.
     pub fn check_is_ty(&self) -> Result<Level, TypeError> {
         self.ty().check_is_sort().map_err(|_| TypeError {
-            span: self.span,
+            span: self.span(),
             kind: TypeErrorKind::NotAType(self.clone()),
         })
     }
 
     pub fn get_type(&self) -> TypedTerm {
         TypedTerm {
-            span: self.span,
+            span: self.span(),
             level: self.level.succ(),
             ty: TypedTermKind::sort_literal(self.level.clone()),
             term: self.ty.clone(),
@@ -134,12 +134,9 @@ impl TypedTerm {
     ///
     /// [`DefinedConstant`]: TypedTermKindInner::DefinedConstant
     /// [`Axiom`]: TypedTermKindInner::Axiom
-    pub(crate) fn forbid_references_to_adt(
-        &self,
-        adt: AdtIndex,
-    ) -> Result<(), TypeError> {
-        self.term.forbid_references_to_adt(adt, self.span)?;
-        self.ty.forbid_references_to_adt(adt, self.span)
+    pub(crate) fn forbid_references_to_adt(&self, adt: AdtIndex) -> Result<(), TypeError> {
+        self.term.forbid_references_to_adt(adt, self.span())?;
+        self.ty.forbid_references_to_adt(adt, self.span())
     }
 }
 
@@ -184,11 +181,7 @@ impl TypedTermKind {
     ///
     /// [`DefinedConstant`]: TypedTermKindInner::DefinedConstant
     /// [`Axiom`]: TypedTermKindInner::Axiom
-    fn forbid_references_to_adt(
-        &self,
-        adt: AdtIndex,
-        span: Span,
-    ) -> Result<(), TypeError> {
+    fn forbid_references_to_adt(&self, adt: AdtIndex, span: Span) -> Result<(), TypeError> {
         use TypedTermKindInner::*;
 
         match self.inner() {
@@ -215,5 +208,11 @@ impl TypedTermKind {
                 body.forbid_references_to_adt(adt)
             }
         }
+    }
+}
+
+impl TypedBinder {
+    pub fn span(&self) -> Span {
+        self.span.clone()
     }
 }
