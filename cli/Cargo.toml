@@ -9,3 +9,4 @@ kernel = {workspace = true}
 
 [dev-dependencies]
 kernel = {workspace =  true, features = ["test-utils"]}
+test_each_file = "0.3.6"

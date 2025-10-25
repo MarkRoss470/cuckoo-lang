@@ -100,5 +100,5 @@ mod integration_tests {
         }
     }
 
-    test_each_path! {for ["ck", "out"] in "./kernel/tests" => test_case}
+    test_each_path! {for ["ck", "out"] in "kernel/tests" => test_case}
 }

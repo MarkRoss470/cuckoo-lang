@@ -41,6 +41,8 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
+    use test_each_file::test_each_path;
 
     /// Tests that all the code snippets in `readme.md` compile
     #[test]
@@ -65,4 +67,20 @@ mod tests {
             }
         }
     }
+
+    fn test_example(path: &Path) {
+        let mut env = KernelEnvironment::new();
+        let source = SourceFile::from_file(path.to_path_buf()).expect("File should have loaded");
+
+        match env.load(&source) {
+            Ok(()) => {}
+            Err(e) => {
+                env.pretty_println_error(&e);
+
+                panic!("Example file failed to type check")
+            }
+        }
+    }
+    
+    test_each_path!{ in "examples" => test_example }
 }
