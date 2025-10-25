@@ -54,7 +54,9 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for ParseDiagnostic {
 
         write!(out, "Syntax Error at {}: ", self.location)?;
 
-        match self.kind {
+        match &self.kind {
+            CouldNotResolveImportStatement(e) => writeln!(out, "{e}"),
+
             UnclosedBracket => writeln!(out, "Unclosed bracket"),
             MalformedItem => writeln!(out, "Malformed item"),
             MissingBinderName => writeln!(out, "Missing name in binder"),

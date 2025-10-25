@@ -68,8 +68,8 @@ const RESERVED_IDENTIFIERS: &[&str] = &[
 ];
 /// Identifiers which have special meaning in some context
 const KNOWN_IDENTIFIERS: &[&str] = &[
-    "Prop", "Sort", "Type", "_", "axiom", "data", "def", "fun", "imax", "max", "rec", "succ",
-    "where",
+    "Prop", "Sort", "Type", "_", "axiom", "data", "def", "fun", "imax", "import", "max", "rec",
+    "succ", "where",
 ];
 
 fn identifier_start() -> impl Parser<Output = ()> {
@@ -86,10 +86,12 @@ fn identifier_continue() -> impl Parser<Output = ()> {
 
 /// Parses an identifier, without the restriction that it can't be a keyword
 fn identifier_like() -> impl Parser<Output = Identifier> {
-    (identifier_start(), identifier_continue().repeat_0())
-        .sequence()
-        .reparse(intern())
-        .map(Identifier)
+    rec!(
+        (identifier_start(), identifier_continue().repeat_0())
+            .sequence()
+            .reparse(intern())
+            .map(Identifier)
+    )
 }
 
 pub(crate) fn identifier() -> impl Parser<Output = Identifier> {
@@ -106,13 +108,15 @@ pub(crate) fn keyword(kw: &str) -> impl Parser<Output = ()> {
 
 pub(crate) fn path() -> impl Parser<Output = OwnedPath> {
     // A path contains either identifiers or the keyword 'rec'
-    (
-        identifier(),
-        identifier_like().verify_str(move |s| s == "rec"),
+    rec!(
+        (
+            identifier(),
+            identifier_like().verify_str(move |s| s == "rec"),
+        )
+            .alt()
+            .repeat_1_with_separator(ForbidFinal, special_operator("."))
+            .map(OwnedPath)
     )
-        .alt()
-        .repeat_1_with_separator(ForbidFinal, special_operator("."))
-        .map(OwnedPath)
 }
 
 impl<'a> PrettyPrint<&'a Interner> for OwnedPath {

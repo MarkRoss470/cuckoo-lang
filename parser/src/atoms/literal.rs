@@ -4,10 +4,12 @@ use crate::combinators::repeat::Repeat1Ext;
 use crate::{ParseResult, Parser, parser};
 
 pub(crate) fn nat_literal() -> impl Parser<Output = usize> {
-    char()
-        .verify(|c| c.is_numeric())
-        .repeat_1()
-        .reparse(parser(|input, _| {
-            Some(("", ParseResult::new(input.parse().unwrap())))
-        }))
+    rec!(
+        char()
+            .verify(|c| c.is_numeric())
+            .repeat_1()
+            .reparse(parser(|input, _| {
+                Some(("", ParseResult::new(input.parse().unwrap())))
+            }))
+    )
 }

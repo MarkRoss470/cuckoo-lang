@@ -1,6 +1,7 @@
 use crate::combinators::tuples::HeterogeneousTupleExt;
-use crate::error::Span;
-use crate::{ParseResult, Parser, parser};
+use crate::error::{ParseDiagnostic, ParseDiagnosticKind, Span};
+use crate::{ParseContext, ParseResult, Parser, parser};
+use common::{Diagnostic, DiagnosticSeverity, WithDiagnostics};
 use std::fmt::Debug;
 
 pub trait IgnoreValExt: Parser {
@@ -67,16 +68,90 @@ impl<P: Parser> VerifyExt for P {
 }
 
 pub(crate) trait MapExt: Parser {
+    fn map_with_context<U, F: Fn(ParseContext, Self::Output) -> U>(
+        self,
+        f: F,
+    ) -> impl Parser<Output = U>;
     fn map<U, F: Fn(Self::Output) -> U>(self, f: F) -> impl Parser<Output = U>;
 }
 
 impl<P: Parser> MapExt for P {
-    fn map<U, F: Fn(Self::Output) -> U>(self, f: F) -> impl Parser<Output = U> {
-        parser(move |input, context| {
-            let (rest, res) = self.parse(input, context)?;
-            let res = res.map(&f);
+    fn map_with_context<U, F: Fn(ParseContext, Self::Output) -> U>(
+        self,
+        f: F,
+    ) -> impl Parser<Output = U> {
+        parser(move |input, mut context| {
+            let (rest, res) = self.parse(input, context.borrow())?;
+            let res = res.map(|v| f(context, v));
             Some((rest, res))
         })
+    }
+
+    fn map<U, F: Fn(Self::Output) -> U>(self, f: F) -> impl Parser<Output = U> {
+        self.map_with_context(move |_, v| f(v))
+    }
+}
+
+pub(crate) trait FlatMapExt: Parser {
+    fn flat_map_with_context<
+        U,
+        I: IntoIterator<Item = Diagnostic<ParseDiagnostic>>,
+        F: Fn(ParseContext, Self::Output) -> (U, I),
+    >(
+        self,
+        f: F,
+    ) -> impl Parser<Output = U>;
+    fn flat_map<
+        U,
+        I: IntoIterator<Item = Diagnostic<ParseDiagnostic>>,
+        F: Fn(Self::Output) -> (U, I),
+    >(
+        self,
+        f: F,
+    ) -> impl Parser<Output = U>;
+}
+
+impl<P: Parser> FlatMapExt for P {
+    fn flat_map_with_context<
+        U,
+        I: IntoIterator<Item = Diagnostic<ParseDiagnostic>>,
+        F: Fn(ParseContext, Self::Output) -> (U, I),
+    >(
+        self,
+        f: F,
+    ) -> impl Parser<Output = U> {
+        parser(move |input, mut context| {
+            let (
+                rest,
+                WithDiagnostics {
+                    value,
+                    mut diagnostics,
+                },
+            ) = self.parse(input, context.borrow())?;
+
+            let (x, i) = f(context.borrow(), value);
+
+            i.into_iter().for_each(|d| diagnostics.push(d));
+
+            Some((
+                rest,
+                WithDiagnostics {
+                    value: x,
+                    diagnostics,
+                },
+            ))
+        })
+    }
+
+    fn flat_map<
+        U,
+        I: IntoIterator<Item = Diagnostic<ParseDiagnostic>>,
+        F: Fn(Self::Output) -> (U, I),
+    >(
+        self,
+        f: F,
+    ) -> impl Parser<Output = U> {
+        self.flat_map_with_context(move |_, v| f(v))
     }
 }
 

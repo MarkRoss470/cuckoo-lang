@@ -1,12 +1,17 @@
-use crate::combinators::modifiers::VerifyExt;
+use crate::combinators::modifiers::{MapExt, VerifyExt};
 use crate::{ParseResult, Parser, parser};
+use std::iter;
 
-pub(crate) trait Repeat0Ext: Parser {
-    fn repeat_0(self) -> impl Parser<Output = Vec<Self::Output>>;
+pub(crate) trait Repeat0FlatteningExt: Parser<Output: IntoIterator> {
+    fn repeat_0_flattening(
+        self,
+    ) -> impl Parser<Output = Vec<<<Self as Parser>::Output as IntoIterator>::Item>>;
 }
 
-impl<P: Parser> Repeat0Ext for P {
-    fn repeat_0(self) -> impl Parser<Output = Vec<Self::Output>> {
+impl<P: Parser<Output: IntoIterator>> Repeat0FlatteningExt for P {
+    fn repeat_0_flattening(
+        self,
+    ) -> impl Parser<Output = Vec<<<Self as Parser>::Output as IntoIterator>::Item>> {
         parser(move |mut input, mut context| {
             let mut result = ParseResult::new(());
             let mut values = Vec::new();
@@ -20,13 +25,26 @@ impl<P: Parser> Repeat0Ext for P {
                     None => break,
                     Some((rest, res)) => {
                         input = rest;
-                        values.push(result.take_diagnostics_from(res));
+                        let iter = result.take_diagnostics_from(res);
+                        for v in iter.into_iter() {
+                            values.push(v);
+                        }
                     }
                 }
             }
 
             Some((input, result.with_value(values)))
         })
+    }
+}
+
+pub(crate) trait Repeat0Ext: Parser {
+    fn repeat_0(self) -> impl Parser<Output = Vec<Self::Output>>;
+}
+
+impl<P: Parser> Repeat0Ext for P {
+    fn repeat_0(self) -> impl Parser<Output = Vec<Self::Output>> {
+        self.map(|v| iter::once(v)).repeat_0_flattening()
     }
 }
 

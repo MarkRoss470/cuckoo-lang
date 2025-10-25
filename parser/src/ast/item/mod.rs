@@ -1,6 +1,7 @@
 pub mod axiom;
 pub mod data;
 pub mod def;
+pub mod import;
 
 use crate::ast::item::axiom::{AxiomDefinition, axiom_definition};
 use crate::ast::item::data::{DataDefinition, data_definition};
@@ -9,9 +10,9 @@ use crate::atoms::ident::identifier;
 use crate::atoms::whitespace::{InBlockExt, SurroundWhitespaceExt, newlines_and_indent};
 use crate::atoms::{char, span, special_operator, str_exact};
 use crate::combinators::error::OrErrorExt;
-use crate::combinators::modifiers::{IgnoreValExt, MapExt, VerifyExt, WithSpanExt};
+use crate::combinators::modifiers::{IgnoreValExt, MapExt, MapStrExt, VerifyExt, WithSpanExt};
 use crate::combinators::repeat::FinalSeparatorBehaviour::AllowFinal;
-use crate::combinators::repeat::{Repeat0Ext, Repeat1WithSeparatorExt};
+use crate::combinators::repeat::{Repeat0Ext, Repeat1Ext, Repeat1WithSeparatorExt};
 use crate::combinators::tuples::{HeterogeneousTupleExt, HomogeneousTupleExt};
 use crate::error::{ParseDiagnosticKind, Span};
 use crate::{Parser, PrettyPrintContext};
@@ -27,25 +28,29 @@ pub enum Item {
 }
 
 pub(super) fn item() -> impl Parser<Output = Item> {
-    (
-        data_definition().map(Item::DataDefinition),
-        value_definition().map(Item::ValueDefinition),
-        axiom_definition().map(Item::Axiom),
+    rec!(
+        (
+            data_definition().map(Item::DataDefinition),
+            value_definition().map(Item::ValueDefinition),
+            axiom_definition().map(Item::Axiom),
+        )
+            .alt()
+            .or_else_error(|| ParseDiagnosticKind::MalformedItem, malformed_item())
     )
-        .alt()
-        .or_else_error(||ParseDiagnosticKind::MalformedItem, malformed_item())
 }
 
 fn malformed_item() -> impl Parser<Output = Item> {
-    (
-        char().verify(|c| *c != '\n').ignore_value(),
-        newlines_and_indent(),
+    rec!(
+        (
+            char().verify(|c| *c != '\n').ignore_value(),
+            newlines_and_indent(),
+        )
+            .alt()
+            .repeat_0()
+            .in_block()
+            .with_span()
+            .map(|(_, span)| Item::Malformed(span))
     )
-        .alt()
-        .repeat_0()
-        .in_block()
-        .with_span()
-        .map(|(_, span)| Item::Malformed(span))
 }
 
 #[cfg_attr(any(test, feature = "test-utils"), derive(PartialEq, Eq))]

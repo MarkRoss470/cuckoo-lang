@@ -1,5 +1,8 @@
+use crate::ast::item::import::import_statement;
 use crate::atoms::whitespace::SurroundWhitespaceExt;
-use crate::combinators::repeat::Repeat0Ext;
+use crate::combinators::modifiers::MapExt;
+use crate::combinators::repeat::{Repeat0Ext, Repeat0FlatteningExt};
+use crate::combinators::tuples::HomogeneousTupleExt;
 use crate::error::{ParseDiagnostic, ParseDiagnosticKind, SourceLocation, Span};
 use crate::{ParseContext, Source, SourceFile, SourceFromFileError};
 use crate::{Parser, PrettyPrintContext};
@@ -16,16 +19,21 @@ pub struct Ast {
     pub items: Vec<Item>,
 }
 
-pub fn parse_file(interner: &mut Interner, source: &SourceFile) -> WithDiagnostics<Ast, ParseDiagnostic> {
+pub fn parse_file(
+    interner: &mut Interner,
+    source: &SourceFile,
+) -> WithDiagnostics<Ast, ParseDiagnostic> {
     let context = ParseContext {
         source: &source,
         interner,
         indent_levels: 0,
     };
 
-    let (rest, res) = item()
+    // TODO: move import statement resolution to the elaborator
+    let (rest, res) = (import_statement(), item().map(|i| vec![i]))
+        .alt()
         .surround_whitespace()
-        .repeat_0()
+        .repeat_0_flattening()
         .parse(&source.content, context)
         .unwrap();
 

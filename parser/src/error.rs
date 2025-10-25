@@ -1,11 +1,12 @@
-use crate::{Source, SourceFile, SourceFromFileError};
+use crate::{Source, SourceFromFileError};
 use std::env;
-use std::fmt::{Display, Formatter, write};
+use std::fmt::{Display, Formatter};
 use std::rc::Rc;
 
-#[cfg_attr(any(test, feature = "test-utils"), derive(PartialEq))]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum ParseDiagnosticKind {
+    CouldNotResolveImportStatement(SourceFromFileError),
+
     UnclosedBracket,
 
     MalformedItem,
@@ -80,11 +81,13 @@ impl Display for Source {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Source::File(p) => {
+                // Try to print a relative path if possible
                 if let Ok(current_dir) = env::current_dir()
                     && let Ok(relative) = p.strip_prefix(&current_dir)
                 {
                     write!(f, "{}", relative.display())
                 } else {
+                    // Fall back to an absolute path
                     write!(f, "{}", p.display())
                 }
             }
@@ -105,8 +108,7 @@ impl Display for Span {
     }
 }
 
-#[cfg_attr(any(test, feature = "test-utils"), derive(PartialEq))]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ParseDiagnostic {
     pub location: Span,
     pub kind: ParseDiagnosticKind,

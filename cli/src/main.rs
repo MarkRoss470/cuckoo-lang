@@ -37,3 +37,32 @@ fn main() {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Tests that all the code snippets in `readme.md` compile
+    #[test]
+    fn test_readme_examples() {
+        let readme_text = std::fs::read("../readme.md").unwrap();
+        let readme_text = String::from_utf8(readme_text).unwrap();
+
+        let mut env = KernelEnvironment::new();
+
+        for chunk in readme_text.split("```Cuckoo").skip(1) {
+            let code = chunk.split("```").next().unwrap();
+
+            match env.check_str(&code) {
+                Ok(()) => {}
+                Err(e) => {
+                    println!("{code}");
+                    println!();
+                    env.pretty_println_error(&e);
+                    println!();
+                    panic!("Code block in readme.md did not type-check");
+                }
+            }
+        }
+    }
+}

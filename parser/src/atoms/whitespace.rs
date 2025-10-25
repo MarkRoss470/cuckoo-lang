@@ -38,9 +38,11 @@ fn single_non_newline_whitespace() -> impl Parser<Output = ()> {
 
 /// Parses comments
 fn comment() -> impl Parser<Output = ()> {
-    (str_exact("--"), char().repeat_0_while(|c| *c != '\n'))
-        .sequence()
-        .ignore_value()
+    rec!(
+        (str_exact("--"), char().repeat_0_while(|c| *c != '\n'))
+            .sequence()
+            .ignore_value()
+    )
 }
 
 /// Parses whitespace

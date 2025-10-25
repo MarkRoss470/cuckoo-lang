@@ -65,7 +65,9 @@ impl TypingEnvironment {
     pub fn load(&mut self, source: &SourceFile) -> Result<(), KernelError> {
         let res = parse_file(&mut self.interner.borrow_mut(), source);
         if !res.diagnostics.is_empty() {
-            return Err(KernelError::Parse(res.diagnostics[0].value.clone()));
+            return Err(KernelError::Parse(
+                res.diagnostics.into_iter().next().unwrap().value,
+            ));
         }
 
         self.load_ast(&res.value).map_err(KernelError::Type)
