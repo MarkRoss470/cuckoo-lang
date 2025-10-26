@@ -1,4 +1,3 @@
-import eq.ck
 import props.ck
 
 -- The natural numbers starting from zero
@@ -25,8 +24,15 @@ def Nat.four : Nat := Nat.succ Nat.three
 -- Addition of natural numbers
 def Nat.add (m : Nat) (n : Nat) : Nat := Nat.rec.{1}
     (fun (m : Nat) => Nat)
-    n
-    (fun (m_ : Nat) => fun (x : Nat) => Nat.succ x)
+    n                                                    -- If m = 0, m + n = n
+    (fun (_ : Nat) => fun (x : Nat) => Nat.succ x)       -- If m = succ m' and m' + n = x, then m + n = succ x
+    m
+
+-- Multiplication of natural numbers
+def Nat.mul (m : Nat) (n : Nat) : Nat := Nat.rec.{1}
+    (fun (m : Nat) => Nat)
+    Nat.zero                                             -- If m = 0, m * n = 0
+    (fun (_ : Nat) => fun (x : Nat) => Nat.add n x)      -- If m = succ m' and m' * n = x, then m * n = n + x
     m
 
 -- A proposition asserting that n is zero
@@ -61,6 +67,16 @@ def Nat.succ_inj (a : Nat) (b : Nat) (h : Eq.{1} Nat (Nat.succ a) (Nat.succ b)) 
         (Nat.succ b)
         h
         (fun (hab: Eq.{1} Nat a b) => hab)
+
+-- n != succ n
+def Nat.n_ne_succ_n (n : Nat) (heq : Eq.{1} Nat n (Nat.succ n)) : False := Nat.rec.{0}
+    (fun (n : Nat) => Eq.{1} Nat n (Nat.succ n) -> False)
+    (Nat.zero_ne_succ Nat.zero)
+    (fun (n : Nat)
+        (hneq : (Eq.{1} Nat n (Nat.succ n)) -> False)
+        (heq : Eq.{1} Nat (Nat.succ n) (Nat.succ (Nat.succ n)))
+        => hneq (Nat.succ_inj n (Nat.succ n) heq))
+    n heq
 
 -- m = n -> f(m) = f(n)
 def Nat.cong (m : Nat) (n : Nat) (f : Nat -> Nat) (h : Eq.{1} Nat m n) : Eq.{1} Nat (f m) (f n) :=
@@ -172,3 +188,41 @@ def Nat.le_dichotomy (m : Nat) (n : Nat) (h : Nat.Le m n) : Or (Eq.{1} Nat m n) 
             => Or.inr (Eq.{1} Nat m (Nat.succ n)) (Nat.Lt m (Nat.succ n)) (Nat.succ_le_succ_mp m n hn))
         n
         h
+
+-- Equality with zero is decidable
+def Nat.decide_eq_zero (y : Nat) : Decidable (Eq.{1} Nat Nat.zero y) := Nat.casesOn.{1}
+    (fun (y : Nat) => Decidable (Eq.{1} Nat Nat.zero y))
+    y
+    (Decidable.is_true (Eq.{1} Nat Nat.zero Nat.zero) (Eq.refl.{1} Nat Nat.zero))
+    (fun (y' : Nat) => Decidable.is_false (Eq.{1} Nat Nat.zero (Nat.succ y')) (Nat.zero_ne_succ y'))
+
+-- If x = y is decidable, then so is x + 1 = y + 1
+def Nat.decide_eq_succ_succ (x : Nat) (y : Nat) (h : Decidable (Eq.{1} Nat x y))
+        : Decidable (Eq.{1} Nat (Nat.succ x) (Nat.succ y))
+    := Decidable.rec.{1} (Eq.{1} Nat x y)
+        (fun (_ : Decidable (Eq.{1} Nat x y)) => Decidable (Eq.{1} Nat (Nat.succ x) (Nat.succ y)))
+        (fun (heq : Eq.{1} Nat x y)
+            => Decidable.is_true (Eq.{1} Nat (Nat.succ x) (Nat.succ y)) (Nat.cong x y Nat.succ heq))
+        (fun (hneq : Eq.{1} Nat x y -> False)
+            => Decidable.is_false (Eq.{1} Nat (Nat.succ x) (Nat.succ y))
+            (fun (heq : Eq.{1} Nat (Nat.succ x) (Nat.succ y))
+                => hneq (Nat.succ_inj x y heq)))
+        h
+
+-- If x = y is decidable, then so is x + 1 = y
+def Nat.decide_eq_succ (x : Nat) (hdec : (y : Nat) -> Decidable (Eq.{1} Nat x y)) (y : Nat)
+        : Decidable (Eq.{1} Nat (Nat.succ x) y)
+    := Nat.casesOn.{1}
+        (fun (y : Nat) => Decidable (Eq.{1} Nat (Nat.succ x) y)) y
+        (Decidable.is_false (Eq.{1} Nat (Nat.succ x) Nat.zero)
+            (fun (h : Eq.{1} Nat (Nat.succ x) Nat.zero) => Nat.zero_ne_succ x (Eq.symm.{1} Nat (Nat.succ x) Nat.zero h)))
+        (fun (y' : Nat) => Nat.decide_eq_succ_succ x y' (hdec y'))
+
+def Nat.decide_eq (x : Nat) (y : Nat) : Decidable (Eq.{1} Nat x y) := Nat.rec.{1}
+    (fun (x : Nat) => (y : Nat) -> Decidable (Eq.{1} Nat x y))
+    Nat.decide_eq_zero
+    (fun (x : Nat) (hdec : (y : Nat) -> Decidable (Eq.{1} Nat x y)) (y : Nat) => Nat.decide_eq_succ x hdec y)
+    x y
+
+-- Equality on natural numbers is decidable
+def Nat.decidable_eq : DecidableEq.{1} Nat := Nat.decide_eq
