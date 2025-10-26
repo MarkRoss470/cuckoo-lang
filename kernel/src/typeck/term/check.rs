@@ -4,6 +4,7 @@ use crate::typeck::{PrettyPrintContext, TypingEnvironment};
 use common::{Identifier, PrettyPrint};
 use parser::atoms::ident::Path;
 use std::io::Write;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 enum CheckContext<'a> {
     Root,
@@ -29,7 +30,7 @@ impl<'a> CheckContext<'a> {
 
     fn get_type_of_binder(&self, id: usize) -> Option<TypedTerm> {
         self.get_type_of_binder_inner(id)
-            .map(|t| t.clone_incrementing(0, id + 1))
+            .map(|t| t.increment_above(0, id + 1))
     }
 }
 
@@ -61,6 +62,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for CheckContext<'a> {
     }
 }
 
+
 impl TypingEnvironment {
     pub fn check_term(&self, term: &TypedTerm) {
         self.check_term_with_context(term, &CheckContext::Root);
@@ -69,10 +71,13 @@ impl TypingEnvironment {
     fn check_term_with_context(&self, term: &TypedTerm, context: &CheckContext) {
         use TypedTermKindInner::*;
 
-        // If the term has been checked before, don't check it agin
-        if term.checked.get() {
+        // If the term has been checked before, don't check it again
+        if term.term.cached_properties.checked.get() {
+            self.stats.check_cache_hits.update(|n| n + 1);
             return;
         }
+
+        self.stats.check_cache_misses.update(|n| n + 1);
 
         if !term.get_type().is_sort_literal().is_some() {
             self.check_term_with_context(&term.get_type(), context);
@@ -181,6 +186,6 @@ impl TypingEnvironment {
         }
 
         // Cache that the term has been checked
-        term.checked.set(true);
+        term.term.cached_properties.checked.set(true);
     }
 }

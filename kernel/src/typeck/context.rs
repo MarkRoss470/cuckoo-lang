@@ -91,8 +91,8 @@ impl<'a> TypingContext<'a> {
             .map(|(t, i)| {
                 // The term includes its own binder while the type doesn't, so the type needs to be incremented by one more than the term
                 TypedTerm::value_of_type(
-                    t.term().clone_incrementing(0, i),
-                    t.get_type().clone_incrementing(0, i + 1),
+                    t.term().increment_above(0, i),
+                    t.get_type().increment_above(0, i + 1),
                     span,
                 )
                 .with_abbreviation_from(&t)

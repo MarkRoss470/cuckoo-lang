@@ -1,6 +1,6 @@
 use crate::typeck::level::{Level, LevelArgs};
 use crate::typeck::term::{
-    Abbreviation, TypedBinder, TypedTerm, TypedTermKind, TypedTermKindInner,
+    Abbreviation, CachedTermProperties, TypedBinder, TypedTerm, TypedTermKind, TypedTermKindInner,
 };
 use crate::typeck::{AdtIndex, AxiomIndex};
 use common::Identifier;
@@ -11,7 +11,6 @@ use std::rc::Rc;
 impl TypedTerm {
     pub(crate) fn value_of_type(value: Rc<TypedTermKind>, ty: TypedTerm, span: Span) -> TypedTerm {
         TypedTerm {
-            checked: Cell::new(false),
             span,
             level: ty.check_is_ty().expect("`ty` should have been a type"),
             ty: ty.term.clone(),
@@ -21,7 +20,6 @@ impl TypedTerm {
 
     pub fn sort_literal(level: Level, span: Span) -> TypedTerm {
         TypedTerm {
-            checked: Cell::new(false),
             span,
             level: level.succ().succ(),
             ty: TypedTermKind::sort_literal(level.succ()),
@@ -93,7 +91,6 @@ impl TypedTerm {
         let level = binder_level.smart_imax(&output_level);
 
         TypedTerm {
-            checked: Cell::new(false),
             span,
             level: level.succ(),
             ty: TypedTermKind::sort_literal(level),
@@ -161,49 +158,96 @@ impl TypedTerm {
 
 impl TypedTermKind {
     pub fn sort_literal(level: Level) -> Rc<Self> {
-        Self::from_inner(TypedTermKindInner::SortLiteral(level), None)
+        let properties = CachedTermProperties::sort_literal(&level);
+
+        Self::from_inner(TypedTermKindInner::SortLiteral(level), properties, None)
     }
 
     pub fn adt_name(adt: AdtIndex, level_args: LevelArgs) -> Rc<Self> {
-        Self::from_inner(TypedTermKindInner::AdtName(adt, level_args), None)
+        let properties = CachedTermProperties::path(&level_args);
+
+        Self::from_inner(
+            TypedTermKindInner::AdtName(adt, level_args),
+            properties,
+            None,
+        )
     }
 
     pub fn adt_constructor(adt: AdtIndex, constructor: usize, level_args: LevelArgs) -> Rc<Self> {
+        let properties = CachedTermProperties::path(&level_args);
+
         Self::from_inner(
             TypedTermKindInner::AdtConstructor(adt, constructor, level_args),
+            properties,
             None,
         )
     }
 
     pub fn adt_recursor(adt: AdtIndex, level_args: LevelArgs) -> Rc<Self> {
-        Self::from_inner(TypedTermKindInner::AdtRecursor(adt, level_args), None)
+        let properties = CachedTermProperties::path(&level_args);
+
+        Self::from_inner(
+            TypedTermKindInner::AdtRecursor(adt, level_args),
+            properties,
+            None,
+        )
     }
 
     pub fn axiom(axiom_index: AxiomIndex, level_args: LevelArgs) -> Rc<Self> {
-        Self::from_inner(TypedTermKindInner::Axiom(axiom_index, level_args), None)
+        let properties = CachedTermProperties::path(&level_args);
+        
+        Self::from_inner(
+            TypedTermKindInner::Axiom(axiom_index, level_args),
+            properties,
+            None,
+        )
     }
 
     pub fn bound_variable(index: usize, name: Option<Identifier>) -> Rc<Self> {
-        Self::from_inner(TypedTermKindInner::BoundVariable { index, name }, None)
+        Self::from_inner(
+            TypedTermKindInner::BoundVariable { index, name },
+            CachedTermProperties::bound_variable(index),
+            None,
+        )
     }
 
     pub fn application(function: TypedTerm, argument: TypedTerm) -> Rc<Self> {
-        Self::from_inner(TypedTermKindInner::Application { function, argument }, None)
+        let properties = CachedTermProperties::combine_terms(&function, &argument);
+
+        Self::from_inner(
+            TypedTermKindInner::Application { function, argument },
+            properties,
+            None,
+        )
     }
 
     pub fn pi_type(binder: TypedBinder, output: TypedTerm) -> Rc<Self> {
-        Self::from_inner(TypedTermKindInner::PiType { binder, output }, None)
+        let properties = CachedTermProperties::combine_terms(&binder.ty, &output);
+
+        Self::from_inner(
+            TypedTermKindInner::PiType { binder, output },
+            properties,
+            None,
+        )
     }
 
     pub fn lambda(binder: TypedBinder, body: TypedTerm) -> Rc<Self> {
-        Self::from_inner(TypedTermKindInner::Lambda { binder, body }, None)
+        let properties = CachedTermProperties::combine_terms(&binder.ty, &body);
+
+        Self::from_inner(
+            TypedTermKindInner::Lambda { binder, body },
+            properties,
+            None,
+        )
     }
 
     pub(super) fn from_inner(
         inner: TypedTermKindInner,
+        cached_properties: CachedTermProperties,
         abbreviation: Option<Rc<Abbreviation>>,
     ) -> Rc<Self> {
         Rc::new(Self {
+            cached_properties,
             inner,
             abbreviation,
         })
@@ -213,5 +257,48 @@ impl TypedTermKind {
 impl TypedBinder {
     pub fn level(&self) -> Level {
         self.ty.check_is_ty().unwrap()
+    }
+}
+
+impl CachedTermProperties {
+    fn path(level_args: &LevelArgs) -> Self {
+        Self {
+            checked: Cell::new(false),
+            indices_less_than: 0,
+            mentions_level_parameter: level_args.mentions_parameters(),
+        }
+    }
+
+    fn sort_literal(level: &Level) -> Self {
+        Self {
+            checked: Cell::new(false),
+            indices_less_than: 0,
+            mentions_level_parameter: level.mentions_parameters(),
+        }
+    }
+
+    fn bound_variable(index: usize) -> Self {
+        Self {
+            checked: Cell::new(false),
+            indices_less_than: index + 1,
+            mentions_level_parameter: false,
+        }
+    }
+
+    fn union(&self, other: &Self) -> Self {
+        Self {
+            checked: Cell::new(false),
+            indices_less_than: self.indices_less_than.max(other.indices_less_than),
+            mentions_level_parameter: self.mentions_level_parameter
+                || other.mentions_level_parameter,
+        }
+    }
+
+    fn combine_terms(a: &TypedTerm, b: &TypedTerm) -> Self {
+        a.term
+            .cached_properties
+            .union(&a.ty.cached_properties)
+            .union(&b.term.cached_properties)
+            .union(&b.ty.cached_properties)
     }
 }

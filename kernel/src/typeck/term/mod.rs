@@ -19,11 +19,6 @@ use std::rc::Rc;
 #[derive(Debug, Clone, Derivative)]
 #[derivative(PartialEq)]
 pub(crate) struct TypedTerm {
-    /// Whether the term has been checked for correctness.
-    /// This is used to avoid checking the same term more than once.
-    #[derivative(PartialEq = "ignore")]
-    checked: Cell<bool>,
-
     /// The source location associated with this term
     #[derivative(PartialEq = "ignore")]
     span: Span,
@@ -39,6 +34,10 @@ pub(crate) struct TypedTerm {
 #[derive(Debug, Clone, Derivative)]
 #[derivative(PartialEq)]
 pub struct TypedTermKind {
+    /// Cached properties about the term
+    #[derivative(PartialEq = "ignore")]
+    cached_properties: CachedTermProperties,
+
     inner: TypedTermKindInner,
     #[derivative(PartialEq = "ignore")]
     abbreviation: Option<Rc<Abbreviation>>,
@@ -91,6 +90,17 @@ pub struct TypedBinder {
     #[derivative(PartialEq = "ignore")]
     pub name: Option<Identifier>,
     pub ty: TypedTerm,
+}
+
+#[derive(Debug, Clone)]
+struct CachedTermProperties {
+    /// Whether the term has been checked for correctness.
+    /// This is used to avoid checking the same term more than once.
+    checked: Cell<bool>,
+    /// All bound variables referenced by the term have index less than this value
+    indices_less_than: usize,
+    /// Whether the term mentions any level parameters
+    mentions_level_parameter: bool,
 }
 
 #[derive(Debug, Clone)]

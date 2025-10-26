@@ -5,6 +5,7 @@ use crate::typeck::data::Adt;
 use crate::typeck::level::Level;
 use parser::error::Span;
 use std::iter;
+use std::rc::Rc;
 
 impl TypingEnvironment {
     /// Checks whether two terms are definitionally equal.
@@ -37,14 +38,14 @@ impl TypingEnvironment {
             && (l.is_lambda().is_some() || r.is_lambda().is_some())
         {
             let l = self.reduce_to_whnf(TypedTerm::make_application(
-                l.clone_incrementing(0, 1),
+                l.increment_above(0, 1),
                 TypedTerm::bound_variable(0, None, binder.ty.clone(), binder.span()),
                 output.clone(),
                 l.span,
             ));
 
             let r = self.reduce_to_whnf(TypedTerm::make_application(
-                r.clone_incrementing(0, 1),
+                r.increment_above(0, 1),
                 TypedTerm::bound_variable(0, None, binder.ty.clone(), binder.span()),
                 output.clone(),
                 r.span,
@@ -359,9 +360,9 @@ impl TypingEnvironment {
         let reduced_term = self.fully_reduce_kind(&whnf_term.term(), reduce_proofs);
 
         let fully_reduced = TypedTerm::value_of_type(
-            TypedTermKind::from_inner(reduced_term, whnf_term.term.abbreviation.clone()),
+            reduced_term,
             TypedTerm::value_of_type(
-                TypedTermKind::from_inner(reduced_ty, whnf_ty.term.abbreviation.clone()),
+                reduced_ty,
                 TypedTerm::sort_literal(term.level(), term.span()),
                 term.span(),
             ),
@@ -371,21 +372,25 @@ impl TypingEnvironment {
         fully_reduced
     }
 
-    fn fully_reduce_kind(&self, term: &TypedTermKind, reduce_proofs: bool) -> TypedTermKindInner {
+    fn fully_reduce_kind(
+        &self,
+        term: &Rc<TypedTermKind>,
+        reduce_proofs: bool,
+    ) -> Rc<TypedTermKind> {
         use TypedTermKindInner::*;
 
-        let inner = match term.inner() {
-            inner @ (SortLiteral(_)
+        match term.inner() {
+            SortLiteral(_)
             | AdtName(_, _)
             | AdtConstructor(_, _, _)
             | AdtRecursor(_, _)
             | BoundVariable { .. }
-            | Axiom(_, _)) => inner.clone(),
+            | Axiom(_, _) => term.clone(),
 
             Application { function, argument } => {
                 let function = self.fully_reduce(function.clone(), reduce_proofs);
                 let argument = self.fully_reduce(argument.clone(), reduce_proofs);
-                Application { function, argument }
+                TypedTermKind::application(function, argument)
             }
             PiType { binder, output } => {
                 let binder = TypedBinder {
@@ -393,7 +398,7 @@ impl TypingEnvironment {
                     ..binder.clone()
                 };
                 let output = self.fully_reduce(output.clone(), reduce_proofs);
-                PiType { binder, output }
+                TypedTermKind::pi_type(binder, output)
             }
             Lambda { binder, body } => {
                 let binder = TypedBinder {
@@ -401,10 +406,9 @@ impl TypingEnvironment {
                     ..binder.clone()
                 };
                 let body = self.fully_reduce(body.clone(), reduce_proofs);
-                Lambda { binder, body }
+                TypedTermKind::lambda(binder, body)
             }
-        };
-        inner
+        }
     }
 }
 

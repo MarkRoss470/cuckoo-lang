@@ -49,7 +49,11 @@ impl AdtHeader {
     fn type_constructor(&self) -> TypedTerm {
         TypedTerm::adt_name(
             self.index,
-            TypedTerm::make_telescope(self.parameters.clone(), self.family.clone(), self.span.clone()),
+            TypedTerm::make_telescope(
+                self.parameters.clone(),
+                self.family.clone(),
+                self.span.clone(),
+            ),
             LevelArgs::from_level_parameters(&self.level_params),
             self.span.clone(),
         )
@@ -64,7 +68,11 @@ impl AdtHeader {
         TypedTerm::adt_constructor(
             self.index,
             index,
-            TypedTerm::make_telescope(self.parameters.clone(), type_without_adt_params, span.clone()),
+            TypedTerm::make_telescope(
+                self.parameters.clone(),
+                type_without_adt_params,
+                span.clone(),
+            ),
             LevelArgs::from_level_parameters(&self.level_params),
             span,
         )
@@ -231,8 +239,9 @@ impl<'a> TypingEnvironment {
         // Create the recursor
         let (recursor_level_params, recursor) = self.generate_recursor(self.adts.last().unwrap());
 
-        #[cfg(debug_assertions)]
-        self.check_term(&recursor.get_type());
+        if self.config.check_terms {
+            self.check_term(&recursor.get_type());
+        }
 
         let adt_namespace = self
             .root
@@ -461,7 +470,7 @@ impl<'a> TypingEnvironment {
                 param.name,
                 param
                     .ty
-                    .clone_incrementing(0, constructor_params.len() + header.parameters.len() - i),
+                    .increment_above(0, constructor_params.len() + header.parameters.len() - i),
                 param.span.clone(),
             );
 

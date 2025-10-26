@@ -24,7 +24,9 @@ fn main() {
             return;
         }
     };
+
     let mut env = KernelEnvironment::new();
+    env.config_mut().check_terms = true;
 
     match env.load(&source) {
         Ok(()) => {

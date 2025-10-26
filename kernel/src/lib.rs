@@ -8,6 +8,8 @@ use std::io::Write;
 mod diagnostic;
 mod typeck;
 
+pub use typeck::TypingEnvironmentConfig as KernelConfig;
+
 #[derive(Debug)]
 pub struct KernelEnvironment(TypingEnvironment);
 
@@ -25,6 +27,14 @@ impl KernelEnvironment {
         self.0.load_str(source)
     }
 
+    pub fn config(&self) -> &KernelConfig {
+        &self.0.config
+    }
+
+    pub fn config_mut(&mut self) -> &mut KernelConfig {
+        &mut self.0.config
+    }
+    
     pub fn pretty_print(&self) {
         self.0.pretty_print();
     }

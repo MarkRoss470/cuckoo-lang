@@ -4,11 +4,12 @@ use crate::typeck::term::TypedTerm;
 use crate::typeck::{PrettyPrintContext, TypeError};
 use common::{Identifier, PrettyPrint};
 use parser::ast::item::LevelParameters;
-use parser::ast::term::LevelExprKind::Parameter;
 use parser::atoms::ident::{OwnedPath, Path};
 use parser::error::Span;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Write;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Debug)]
 struct NamespaceItem {
@@ -16,13 +17,42 @@ struct NamespaceItem {
     level_params: LevelParameters,
     value: TypedTerm,
 
-    instantiation_cache: HashMap<LevelArgs, TypedTerm>,
+    instantiation_cache: RefCell<HashMap<LevelArgs, TypedTerm>>,
 }
 
 #[derive(Debug, Default)]
 pub struct Namespace {
     items: HashMap<Identifier, NamespaceItem>,
     namespaces: HashMap<Identifier, Namespace>,
+}
+
+impl NamespaceItem {
+    fn instantiate_uncached(&self, level_args: &LevelArgs) -> TypedTerm {
+        self.value.instantiate(level_args)
+    }
+
+    /// Instantiates the term with the given level arguments, using a cached version if possible.
+    fn instantiate(&self, level_args: LevelArgs) -> TypedTerm {
+        // If a read-only reference can't be acquired, just do the instantiation
+        let Ok(cache) = self.instantiation_cache.try_borrow() else {
+            return self.instantiate_uncached(&level_args);
+        };
+        // If the cache contains an entry for the given level arguments, return it
+        if let Some(val) = cache.get(&level_args) {
+            return val.clone();
+        }
+
+        // Drop the read-only reference so that it doesn't block us from acquiring a writable one
+        drop(cache);
+        let val = self.instantiate_uncached(&level_args);
+
+        // Write the instantiation to the cache
+        if let Ok(mut cache) = self.instantiation_cache.try_borrow_mut() {
+            cache.insert(level_args, val.clone());
+        }
+
+        val
+    }
 }
 
 impl Namespace {
@@ -82,7 +112,10 @@ impl Namespace {
                 },
             })
         } else {
-            Ok(item.value.instantiate(level_args))
+            // Normalize the level arguments for better cache hit rates
+            let level_args = level_args.normalize();
+
+            Ok(item.instantiate(level_args))
         }
     }
 
@@ -134,7 +167,7 @@ impl Namespace {
                             span,
                             level_params,
                             value,
-                            instantiation_cache: HashMap::new(),
+                            instantiation_cache: RefCell::new(HashMap::new()),
                         },
                     );
                     Ok(())

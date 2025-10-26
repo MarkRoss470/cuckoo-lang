@@ -142,7 +142,7 @@ impl<'a> TypingEnvironment {
             recursor_params.push(TypedBinder {
                 span: index.span.clone(),
                 name: index.name,
-                ty: index.ty.clone_incrementing(i, adt.constructors.len() + 1),
+                ty: index.ty.increment_above(i, adt.constructors.len() + 1),
             })
         }
 
@@ -255,7 +255,7 @@ fn make_motive(
         TypedTerm::bound_variable(
             motive_offset,
             Some(motive_id),
-            motive_ty.clone_incrementing(0, motive_offset + 1),
+            motive_ty.increment_above(0, motive_offset + 1),
             span.clone(),
         ),
         indices
@@ -311,7 +311,7 @@ fn calculate_output_type(
                 TypedTerm::bound_variable(
                     adt.header.indices.len() - i, // No `-1` here because the motive term cancels it out
                     index.name,
-                    index.ty.clone_incrementing(0, adt.header.indices.len() + 1),
+                    index.ty.increment_above(0, adt.header.indices.len() + 1),
                     adt.span.start_point(),
                 )
             })
@@ -346,7 +346,7 @@ fn generate_induction_rules(
                 )
             },
             constructor,
-            |binders, val| val.clone_incrementing(binders, i + 1),
+            |binders, val| val.increment_above(binders, i + 1),
             |offset, indices, val| motive(offset + i, indices, val),
         );
 
@@ -411,7 +411,7 @@ fn calculate_constructor_induction_rule(
         |term| {
             reindex(
                 induction_rule_params.len(),
-                &term.clone_incrementing(0, induction_rule_params.len() - constructor.params.len()),
+                &term.increment_above(0, induction_rule_params.len() - constructor.params.len()),
             )
         },
         |indices, val| motive(num_params, indices, val),
@@ -463,7 +463,7 @@ fn generate_inductive_parameter_principles(
             param.name,
             reindex(
                 induction_rule_params.len() + param_params.len(),
-                &constructor.params[param_index].ty.clone_incrementing(
+                &constructor.params[param_index].ty.increment_above(
                     0,
                     induction_rule_params.len() - param_index + param_params.len(),
                 ),
@@ -477,7 +477,7 @@ fn generate_inductive_parameter_principles(
             |binders, term| {
                 reindex(
                     induction_rule_params.len() + binders,
-                    &term.clone_incrementing(binders, induction_rule_params.len() - param_index),
+                    &term.increment_above(binders, induction_rule_params.len() - param_index),
                 )
             },
             |offset, indices, val| motive(induction_rule_params.len() + offset, indices, val),

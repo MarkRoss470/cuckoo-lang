@@ -1,15 +1,13 @@
 use crate::typeck::level::LevelArgs;
 use crate::typeck::term::{
-    Abbreviation, TypedBinder, TypedTerm, TypedTermKind, TypedTermKindInner,
+    Abbreviation, CachedTermProperties, TypedBinder, TypedTerm, TypedTermKind, TypedTermKindInner,
 };
-use std::cell::Cell;
 use std::rc::Rc;
 
 impl TypedTerm {
     /// Replaces the binder with de Bruijn index `id` with the given term, adding `id` to the ids of all bound variables in the new expression
     pub fn replace_binder(&self, id: usize, expr: &TypedTerm) -> Self {
         Self {
-            checked: Cell::new(false),
             span: self.span(),
             level: self.level(),
             ty: self.ty.replace_binder(id, expr),
@@ -19,7 +17,6 @@ impl TypedTerm {
 
     pub fn instantiate(&self, level_args: &LevelArgs) -> Self {
         Self {
-            checked: Cell::new(false),
             span: self.span(),
             level: self.level().instantiate_parameters(level_args),
             ty: self.ty.instantiate(level_args),
@@ -28,13 +25,12 @@ impl TypedTerm {
     }
 
     /// Clones the value, while incrementing all bound variable indices by `inc`
-    pub fn clone_incrementing(&self, limit: usize, inc: usize) -> Self {
+    pub fn increment_above(&self, limit: usize, inc: usize) -> Self {
         Self {
-            checked: Cell::new(false),
             span: self.span(),
             level: self.level(),
-            ty: self.ty.clone_incrementing(limit, inc),
-            term: self.term.clone_incrementing(limit, inc),
+            ty: self.ty.increment_above(limit, inc),
+            term: self.term.increment_above(limit, inc),
         }
     }
 
@@ -65,133 +61,103 @@ impl TypedTermKind {
     pub(super) fn instantiate(self: &Rc<Self>, level_args: &LevelArgs) -> Rc<Self> {
         use TypedTermKindInner::*;
 
-        let inner = match self.inner() {
-            SortLiteral(l) => SortLiteral(l.instantiate_parameters(level_args)),
+        // If the term doesn't reference any level parameters, instantiating it won't change it
+        if !self.cached_properties.mentions_level_parameter {
+            return self.clone();
+        }
 
-            AdtName(adt, args) => AdtName(*adt, args.instantiate_parameters(level_args)),
+        let new = match self.inner() {
+            SortLiteral(l) => Self::sort_literal(l.instantiate_parameters(level_args)),
+            AdtName(adt, args) => Self::adt_name(*adt, args.instantiate_parameters(level_args)),
             AdtConstructor(adt, constructor, args) => {
-                AdtConstructor(*adt, *constructor, args.instantiate_parameters(level_args))
+                Self::adt_constructor(*adt, *constructor, args.instantiate_parameters(level_args))
             }
-            AdtRecursor(adt, args) => AdtRecursor(*adt, args.instantiate_parameters(level_args)),
-            Axiom(axiom, args) => Axiom(*axiom, args.instantiate_parameters(level_args)),
-            BoundVariable { index: _, name: _ } => {
-                return self.clone();
+            AdtRecursor(adt, args) => {
+                Self::adt_recursor(*adt, args.instantiate_parameters(level_args))
             }
-
-            Application { function, argument } => Application {
-                function: function.instantiate(level_args),
-                argument: argument.instantiate(level_args),
-            },
-            PiType { binder, output } => PiType {
-                binder: binder.instantiate(level_args),
-                output: output.instantiate(level_args),
-            },
-            Lambda { binder, body } => Lambda {
-                binder: binder.instantiate(level_args),
-                body: body.instantiate(level_args),
-            },
+            Axiom(axiom, args) => Self::axiom(*axiom, args.instantiate_parameters(level_args)),
+            BoundVariable { .. } => self.clone(),
+            Application { function, argument } => Self::application(
+                function.instantiate(level_args),
+                argument.instantiate(level_args),
+            ),
+            PiType { binder, output } => Self::pi_type(
+                binder.instantiate(level_args),
+                output.instantiate(level_args),
+            ),
+            Lambda { binder, body } => {
+                Self::lambda(binder.instantiate(level_args), body.instantiate(level_args))
+            }
         };
 
-        Self::from_inner(
-            inner,
-            self.abbreviation
-                .as_ref()
-                .map(|abbr| abbr.instantiate(level_args)),
-        )
+        // If instantiation didn't change anything, return `self`
+        if self == &new { self.clone() } else { new }
     }
 
-    // TODO: rename as cloning is no longer special
     /// Clones the value, while incrementing all bound variable indices above `limit` by `inc`
     #[must_use]
-    pub fn clone_incrementing(self: &Rc<Self>, limit: usize, inc: usize) -> Rc<Self> {
+    pub fn increment_above(self: &Rc<Self>, limit: usize, inc: usize) -> Rc<Self> {
         use TypedTermKindInner::*;
 
-        let inner = match self.inner() {
+        let new = match self.inner() {
             inner @ (AdtName(_, _)
             | SortLiteral(_)
             | AdtConstructor(_, _, _)
             | AdtRecursor(_, _)
-            | Axiom(_, _)) => inner.clone(),
-            BoundVariable { index, name } => BoundVariable {
-                index: if *index >= limit { index + inc } else { *index },
-                name: *name,
-            },
-            Application { function, argument } => Application {
-                function: function.clone_incrementing(limit, inc),
-                argument: argument.clone_incrementing(limit, inc),
-            },
-            PiType { binder, output } => PiType {
-                binder: binder.clone_incrementing(limit, inc),
-                output: output.clone_incrementing(limit + 1, inc),
-            },
-            Lambda { binder, body } => Lambda {
-                binder: binder.clone_incrementing(limit, inc),
-                body: body.clone_incrementing(limit + 1, inc),
-            },
+            | Axiom(_, _)) => self.clone(),
+            BoundVariable { index, .. } if *index < limit => self.clone(),
+            BoundVariable { index, name } => Self::bound_variable(index + inc, *name),
+            Application { function, argument } => Self::application(
+                function.increment_above(limit, inc),
+                argument.increment_above(limit, inc),
+            ),
+            PiType { binder, output } => Self::pi_type(
+                binder.increment_above(limit, inc),
+                output.increment_above(limit + 1, inc),
+            ),
+            Lambda { binder, body } => Self::lambda(
+                binder.increment_above(limit, inc),
+                body.increment_above(limit + 1, inc),
+            ),
         };
 
-        Self::from_inner(
-            inner,
-            self.abbreviation
-                .as_ref()
-                .map(|abbr| abbr.clone_incrementing(limit, inc)),
-        )
+        // If incrementing didn't change anything, return `self`
+        if self == &new { self.clone() } else { new }
     }
 
-    /// Replaces the binder with de Bruijn index `id` with the given term, adding `inc` to the ids of all bound variables in the substituted term
+    /// Replaces the binder with de Bruijn index `id` with the given term, adding `id` to the ids of all bound variables in the substituted term
     #[must_use]
     pub(super) fn replace_binder(self: &Rc<Self>, id: usize, expr: &TypedTerm) -> Rc<Self> {
         use TypedTermKindInner::*;
 
-        let inner = match self.inner() {
+        let new = match self.inner() {
             SortLiteral(_)
             | AdtName(_, _)
             | AdtConstructor(_, _, _)
             | AdtRecursor(_, _)
-            | Axiom(_, _) => {
-                return self.clone();
-            }
-
-            BoundVariable { index: eid, name } => {
-                if *eid < id {
-                    // If the binding in the expression is less than the binding being replaced, then it is unaffected.
-                    BoundVariable {
-                        index: *eid,
-                        name: *name,
-                    }
-                } else if *eid == id {
-                    // If the binding in the expression equals the binding being replaced, then return `expr`.
-                    // Increment the indices of all bound variables in `expr` which point to variables outside `expr`.
-                    expr.term.clone_incrementing(0, id).clone_inner()
-                } else {
-                    // If the binding in the expression is greater than the binding being replaced, then one binding has been
-                    // removed between the binding and the reference, so the de Bruijn index needs to be reduced by one
-                    BoundVariable {
-                        index: eid - 1,
-                        name: *name,
-                    }
-                }
-            }
-            Application { function, argument } => Application {
-                function: function.replace_binder(id, expr),
-                argument: argument.replace_binder(id, expr),
-            },
-            PiType { binder, output } => PiType {
-                binder: binder.replace_binder(id, expr),
-                output: output.replace_binder(id + 1, expr),
-            },
-            Lambda { binder, body } => Lambda {
-                binder: binder.replace_binder(id, expr),
-                body: body.replace_binder(id + 1, expr),
-            },
+            | Axiom(_, _) => self.clone(),
+            // Bound variables with index less than `id` are unaffected
+            BoundVariable { index, .. } if *index < id => self.clone(),
+            // References to bound variable `id` are replaced with `expr`
+            BoundVariable { index, .. } if *index == id => expr.term.increment_above(0, id),
+            // Bound variables greater than `id` are decreased by one because binder `id` has been removed.
+            BoundVariable { index, name } => Self::bound_variable(index - 1, *name),
+            Application { function, argument } => Self::application(
+                function.replace_binder(id, expr),
+                argument.replace_binder(id, expr),
+            ),
+            PiType { binder, output } => Self::pi_type(
+                binder.replace_binder(id, expr),
+                output.replace_binder(id + 1, expr),
+            ),
+            Lambda { binder, body } => Self::lambda(
+                binder.replace_binder(id, expr),
+                body.replace_binder(id + 1, expr),
+            ),
         };
 
-        Self::from_inner(
-            inner,
-            self.abbreviation
-                .as_ref()
-                .map(|abbr| abbr.replace_binder(id, expr)),
-        )
+        // If replacing the binder didn't change anything, return `self`
+        if self == &new { self.clone() } else { new }
     }
 
     pub fn with_abbreviation(&self, abbreviation: Abbreviation) -> Rc<Self> {
@@ -235,7 +201,7 @@ impl Abbreviation {
             Abbreviation::Constant(_, _) => self.clone(),
             Abbreviation::Application(abbr, term) => Rc::new(Self::Application(
                 abbr.clone_incrementing(limit, inc),
-                term.clone_incrementing(limit, inc),
+                term.increment_above(limit, inc),
             )),
         }
     }
@@ -273,11 +239,15 @@ impl TypedBinder {
 
     /// Clones the value, while incrementing all bound variable indices by `inc`
     #[must_use]
-    fn clone_incrementing(&self, limit: usize, inc: usize) -> Self {
+    fn increment_above(&self, limit: usize, inc: usize) -> Self {
         Self {
             span: self.span(),
             name: self.name,
-            ty: self.ty.clone_incrementing(limit, inc),
+            ty: self.ty.increment_above(limit, inc),
         }
     }
+}
+
+impl CachedTermProperties {
+    fn type_of() {}
 }

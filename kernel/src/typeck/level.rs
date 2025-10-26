@@ -51,6 +51,10 @@ impl LevelArgs {
         )
     }
 
+    pub fn mentions_parameters(&self) -> bool {
+        self.0.iter().any(|l| l.mentions_parameters())
+    }
+
     pub fn instantiate_parameters(&self, other: &LevelArgs) -> LevelArgs {
         Self(
             self.0
@@ -58,6 +62,10 @@ impl LevelArgs {
                 .map(|arg| arg.instantiate_parameters(other))
                 .collect(),
         )
+    }
+
+    pub fn normalize(&self) -> Self {
+        Self(self.0.iter().map(|l| l.normalize()).collect())
     }
 }
 
@@ -191,6 +199,16 @@ impl Level {
                 (u, o + 1)
             }
             _ => (self.clone(), 0),
+        }
+    }
+
+    pub fn mentions_parameters(&self) -> bool {
+        match &*self.0 {
+            LevelInner::Zero => false,
+            LevelInner::Parameter { .. } => true,
+            LevelInner::Succ(l) => l.mentions_parameters(),
+            LevelInner::Max(a, b) => a.mentions_parameters() || b.mentions_parameters(),
+            LevelInner::IMax(a, b) => a.mentions_parameters() || b.mentions_parameters(),
         }
     }
 

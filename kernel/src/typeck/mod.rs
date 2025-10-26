@@ -8,7 +8,7 @@ mod term;
 pub use error::TypeError;
 pub(crate) use term::TypedTerm;
 
-use std::cell::{Ref, RefCell};
+use std::cell::{Cell, Ref, RefCell};
 
 use crate::diagnostic::KernelError;
 use crate::typeck::data::Adt;
@@ -25,6 +25,7 @@ use parser::ast::{Ast, parse_file};
 use parser::atoms::ident::{OwnedPath, Path};
 use parser::error::Span;
 use std::io::Write;
+use std::sync::atomic::AtomicUsize;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct AdtIndex(usize);
@@ -35,12 +36,35 @@ pub struct AxiomIndex(usize);
 #[derive(Debug)]
 pub struct TypingEnvironment {
     pub interner: RefCell<Interner>,
+    pub config: TypingEnvironmentConfig,
+    pub stats: TypingEnvironmentStats,
+
     adts: Vec<Adt>,
     root: Namespace,
     /// The paths to all defined axioms
     axioms: Vec<Axiom>,
     /// The level parameters of the item currently being type checked
     level_parameters: Option<LevelParameters>,
+}
+
+#[derive(Debug)]
+pub struct TypingEnvironmentConfig {
+    /// Whether to double-check the correctness of terms after they are produced
+    pub check_terms: bool,
+}
+
+impl Default for TypingEnvironmentConfig {
+    fn default() -> Self {
+        Self {
+            check_terms: cfg!(any(debug_assertions, test)),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct TypingEnvironmentStats {
+    check_cache_hits: Cell<usize>,
+    check_cache_misses: Cell<usize>,
 }
 
 #[derive(Debug)]
@@ -55,6 +79,8 @@ impl TypingEnvironment {
     pub fn new() -> Self {
         Self {
             interner: RefCell::new(Interner::new()),
+            config: Default::default(),
+            stats: Default::default(),
             adts: vec![],
             root: Namespace::new(),
             axioms: vec![],
@@ -155,8 +181,9 @@ impl TypingEnvironment {
             ),
         );
 
-        #[cfg(debug_assertions)]
-        self.check_term(&term);
+        if self.config.check_terms {
+            self.check_term(&term);
+        }
 
         self.root.insert(
             ast.path.borrow(),
