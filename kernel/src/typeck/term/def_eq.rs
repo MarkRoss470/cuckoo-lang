@@ -57,7 +57,7 @@ impl TypingEnvironment {
         let l = self.reduce_to_whnf(l);
         let r = self.reduce_to_whnf(r);
 
-        self.structural_def_eq(l.term(), r.term())
+        self.structural_def_eq(&l.term(), &r.term())
     }
 
     /// Converts a term to weak head normal form. This converts it to a form where its root can no
@@ -280,7 +280,7 @@ impl TypingEnvironment {
 
     /// Compares whether two terms have the same top level structure, and checks the sub-terms for
     /// definitional equality if this is the case.
-    fn structural_def_eq(&self, l: TypedTermKind, r: TypedTermKind) -> bool {
+    fn structural_def_eq(&self, l: &TypedTermKind, r: &TypedTermKind) -> bool {
         use TypedTermKindInner::*;
 
         if l == r {
@@ -359,9 +359,9 @@ impl TypingEnvironment {
         let reduced_term = self.fully_reduce_kind(&whnf_term.term(), reduce_proofs);
 
         let fully_reduced = TypedTerm::value_of_type(
-            TypedTermKind::from_inner(reduced_term, whnf_term.term.abbreviation),
+            TypedTermKind::from_inner(reduced_term, whnf_term.term.abbreviation.clone()),
             TypedTerm::value_of_type(
-                TypedTermKind::from_inner(reduced_ty, whnf_ty.term.abbreviation),
+                TypedTermKind::from_inner(reduced_ty, whnf_ty.term.abbreviation.clone()),
                 TypedTerm::sort_literal(term.level(), term.span()),
                 term.span(),
             ),

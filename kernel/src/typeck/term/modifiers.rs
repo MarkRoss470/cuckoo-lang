@@ -2,12 +2,14 @@ use crate::typeck::level::LevelArgs;
 use crate::typeck::term::{
     Abbreviation, TypedBinder, TypedTerm, TypedTermKind, TypedTermKindInner,
 };
+use std::cell::Cell;
 use std::rc::Rc;
 
 impl TypedTerm {
     /// Replaces the binder with de Bruijn index `id` with the given term, adding `id` to the ids of all bound variables in the new expression
     pub fn replace_binder(&self, id: usize, expr: &TypedTerm) -> Self {
         Self {
+            checked: Cell::new(false),
             span: self.span(),
             level: self.level(),
             ty: self.ty.replace_binder(id, expr),
@@ -17,6 +19,7 @@ impl TypedTerm {
 
     pub fn instantiate(&self, level_args: &LevelArgs) -> Self {
         Self {
+            checked: Cell::new(false),
             span: self.span(),
             level: self.level().instantiate_parameters(level_args),
             ty: self.ty.instantiate(level_args),
@@ -27,6 +30,7 @@ impl TypedTerm {
     /// Clones the value, while incrementing all bound variable indices by `inc`
     pub fn clone_incrementing(&self, limit: usize, inc: usize) -> Self {
         Self {
+            checked: Cell::new(false),
             span: self.span(),
             level: self.level(),
             ty: self.ty.clone_incrementing(limit, inc),
@@ -58,7 +62,7 @@ impl TypedTerm {
 
 impl TypedTermKind {
     #[must_use]
-    pub(super) fn instantiate(&self, level_args: &LevelArgs) -> Self {
+    pub(super) fn instantiate(self: &Rc<Self>, level_args: &LevelArgs) -> Rc<Self> {
         use TypedTermKindInner::*;
 
         let inner = match self.inner() {
@@ -99,7 +103,7 @@ impl TypedTermKind {
     // TODO: rename as cloning is no longer special
     /// Clones the value, while incrementing all bound variable indices above `limit` by `inc`
     #[must_use]
-    pub fn clone_incrementing(&self, limit: usize, inc: usize) -> Self {
+    pub fn clone_incrementing(self: &Rc<Self>, limit: usize, inc: usize) -> Rc<Self> {
         use TypedTermKindInner::*;
 
         let inner = match self.inner() {
@@ -136,11 +140,15 @@ impl TypedTermKind {
 
     /// Replaces the binder with de Bruijn index `id` with the given term, adding `inc` to the ids of all bound variables in the substituted term
     #[must_use]
-    pub(super) fn replace_binder(&self, id: usize, expr: &TypedTerm) -> Self {
+    pub(super) fn replace_binder(self: &Rc<Self>, id: usize, expr: &TypedTerm) -> Rc<Self> {
         use TypedTermKindInner::*;
 
         let inner = match self.inner() {
-            SortLiteral(_) | AdtName(_, _) | AdtConstructor(_, _, _) | AdtRecursor(_, _) | Axiom(_, _) => {
+            SortLiteral(_)
+            | AdtName(_, _)
+            | AdtConstructor(_, _, _)
+            | AdtRecursor(_, _)
+            | Axiom(_, _) => {
                 return self.clone();
             }
 
@@ -186,25 +194,25 @@ impl TypedTermKind {
         )
     }
 
-    pub fn with_abbreviation(self, abbreviation: Abbreviation) -> Self {
-        Self {
+    pub fn with_abbreviation(&self, abbreviation: Abbreviation) -> Rc<Self> {
+        Rc::new(Self {
             abbreviation: Some(Rc::new(abbreviation)),
-            ..self
-        }
+            ..self.clone()
+        })
     }
 
-    pub fn with_abbreviation_from(self, other: &Self) -> Self {
-        Self {
+    pub fn with_abbreviation_from(&self, other: &Self) -> Rc<Self> {
+        Rc::new(Self {
             abbreviation: other.abbreviation.clone(),
-            ..self
-        }
+            ..self.clone()
+        })
     }
 
-    pub fn clear_abbreviation(&self) -> Self {
-        Self {
+    pub fn clear_abbreviation(&self) -> Rc<Self> {
+        Rc::new(Self {
             abbreviation: None,
             ..self.clone()
-        }
+        })
     }
 }
 

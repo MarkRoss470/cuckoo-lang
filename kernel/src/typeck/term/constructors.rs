@@ -5,11 +5,13 @@ use crate::typeck::term::{
 use crate::typeck::{AdtIndex, AxiomIndex};
 use common::Identifier;
 use parser::error::Span;
+use std::cell::Cell;
 use std::rc::Rc;
 
 impl TypedTerm {
-    pub(crate) fn value_of_type(value: TypedTermKind, ty: TypedTerm, span: Span) -> TypedTerm {
+    pub(crate) fn value_of_type(value: Rc<TypedTermKind>, ty: TypedTerm, span: Span) -> TypedTerm {
         TypedTerm {
+            checked: Cell::new(false),
             span,
             level: ty.check_is_ty().expect("`ty` should have been a type"),
             ty: ty.term.clone(),
@@ -19,6 +21,7 @@ impl TypedTerm {
 
     pub fn sort_literal(level: Level, span: Span) -> TypedTerm {
         TypedTerm {
+            checked: Cell::new(false),
             span,
             level: level.succ().succ(),
             ty: TypedTermKind::sort_literal(level.succ()),
@@ -90,6 +93,7 @@ impl TypedTerm {
         let level = binder_level.smart_imax(&output_level);
 
         TypedTerm {
+            checked: Cell::new(false),
             span,
             level: level.succ(),
             ty: TypedTermKind::sort_literal(level),
@@ -126,7 +130,7 @@ impl TypedTerm {
 
     pub fn make_application_stack(
         function: TypedTerm,
-        params: impl IntoIterator<Item = TypedTermKind>,
+        params: impl IntoIterator<Item = Rc<TypedTermKind>>,
         span: Span,
     ) -> TypedTerm {
         let mut res = function;
@@ -156,53 +160,53 @@ impl TypedTerm {
 }
 
 impl TypedTermKind {
-    pub fn sort_literal(level: Level) -> Self {
+    pub fn sort_literal(level: Level) -> Rc<Self> {
         Self::from_inner(TypedTermKindInner::SortLiteral(level), None)
     }
 
-    pub fn adt_name(adt: AdtIndex, level_args: LevelArgs) -> Self {
+    pub fn adt_name(adt: AdtIndex, level_args: LevelArgs) -> Rc<Self> {
         Self::from_inner(TypedTermKindInner::AdtName(adt, level_args), None)
     }
 
-    pub fn adt_constructor(adt: AdtIndex, constructor: usize, level_args: LevelArgs) -> Self {
+    pub fn adt_constructor(adt: AdtIndex, constructor: usize, level_args: LevelArgs) -> Rc<Self> {
         Self::from_inner(
             TypedTermKindInner::AdtConstructor(adt, constructor, level_args),
             None,
         )
     }
 
-    pub fn adt_recursor(adt: AdtIndex, level_args: LevelArgs) -> Self {
+    pub fn adt_recursor(adt: AdtIndex, level_args: LevelArgs) -> Rc<Self> {
         Self::from_inner(TypedTermKindInner::AdtRecursor(adt, level_args), None)
     }
 
-    pub fn axiom(axiom_index: AxiomIndex, level_args: LevelArgs) -> Self {
+    pub fn axiom(axiom_index: AxiomIndex, level_args: LevelArgs) -> Rc<Self> {
         Self::from_inner(TypedTermKindInner::Axiom(axiom_index, level_args), None)
     }
 
-    pub fn bound_variable(index: usize, name: Option<Identifier>) -> Self {
+    pub fn bound_variable(index: usize, name: Option<Identifier>) -> Rc<Self> {
         Self::from_inner(TypedTermKindInner::BoundVariable { index, name }, None)
     }
 
-    pub fn application(function: TypedTerm, argument: TypedTerm) -> Self {
+    pub fn application(function: TypedTerm, argument: TypedTerm) -> Rc<Self> {
         Self::from_inner(TypedTermKindInner::Application { function, argument }, None)
     }
 
-    pub fn pi_type(binder: TypedBinder, output: TypedTerm) -> Self {
+    pub fn pi_type(binder: TypedBinder, output: TypedTerm) -> Rc<Self> {
         Self::from_inner(TypedTermKindInner::PiType { binder, output }, None)
     }
 
-    pub fn lambda(binder: TypedBinder, body: TypedTerm) -> Self {
+    pub fn lambda(binder: TypedBinder, body: TypedTerm) -> Rc<Self> {
         Self::from_inner(TypedTermKindInner::Lambda { binder, body }, None)
     }
 
     pub(super) fn from_inner(
         inner: TypedTermKindInner,
         abbreviation: Option<Rc<Abbreviation>>,
-    ) -> Self {
-        Self {
-            inner: Rc::new(inner),
+    ) -> Rc<Self> {
+        Rc::new(Self {
+            inner,
             abbreviation,
-        }
+        })
     }
 }
 

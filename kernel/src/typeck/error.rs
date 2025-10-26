@@ -5,6 +5,7 @@ use common::{Identifier, PrettyPrint};
 use parser::atoms::ident::OwnedPath;
 use parser::error::Span;
 use std::io::Write;
+use std::rc::Rc;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug, Clone)]
@@ -53,7 +54,7 @@ pub enum TypeErrorKind {
     InvalidLocationForAdtNameInConstructor(AdtIndex),
     MismatchedAdtParameter {
         found: TypedTerm,
-        expected: TypedTermKind,
+        expected: Rc<TypedTermKind>,
     },
     InvalidConstructorParameterLevel {
         ty: TypedTerm,

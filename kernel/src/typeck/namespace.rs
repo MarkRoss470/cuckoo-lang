@@ -15,6 +15,8 @@ struct NamespaceItem {
     span: Span,
     level_params: LevelParameters,
     value: TypedTerm,
+
+    instantiation_cache: HashMap<LevelArgs, TypedTerm>,
 }
 
 #[derive(Debug, Default)]
@@ -132,6 +134,7 @@ impl Namespace {
                             span,
                             level_params,
                             value,
+                            instantiation_cache: HashMap::new(),
                         },
                     );
                     Ok(())

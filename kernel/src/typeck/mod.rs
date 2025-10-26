@@ -156,7 +156,7 @@ impl TypingEnvironment {
         );
 
         #[cfg(debug_assertions)]
-        self.check_term(term.clone());
+        self.check_term(&term);
 
         self.root.insert(
             ast.path.borrow(),

@@ -1,17 +1,21 @@
 use crate::typeck::error::TypeErrorKind;
 use crate::typeck::{PrettyPrintContext, TypeError, TypingContext, TypingEnvironment};
 use common::{Identifier, PrettyPrint};
+use derivative::Derivative;
 use parser::ast::item::LevelParameters;
 use parser::ast::term::{LevelExpr, LevelExprKind};
-use parser::error::Span;
 use std::cmp::Ordering;
+use std::hash::Hash;
 use std::io::Write;
 use std::ops::Index;
 use std::rc::Rc;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Level(Rc<LevelInner>);
 
+#[derive(Derivative)]
+#[derivative(PartialEq)]
+#[derivative(Hash)]
 #[derive(Debug, Clone, Eq)]
 enum LevelInner {
     Zero,
@@ -19,6 +23,8 @@ enum LevelInner {
     Parameter {
         index: usize,
         /// The name of the level parameter. For pretty printing only.
+        #[derivative(PartialEq = "ignore")]
+        #[derivative(Hash = "ignore")]
         name: Identifier,
     },
     Succ(Level),
@@ -26,27 +32,7 @@ enum LevelInner {
     IMax(Level, Level),
 }
 
-// Manually implement PartialEq to ignore parameter names when checking equality
-impl PartialEq for LevelInner {
-    fn eq(&self, other: &Self) -> bool {
-        use LevelInner::*;
-
-        match (self, other) {
-            (Zero, Zero) => true,
-            (Zero, _) => false,
-            (Parameter { index: pu, name: _ }, Parameter { index: pv, name: _ }) => pu == pv,
-            (Parameter { .. }, _) => false,
-            (Succ(u), Succ(v)) => u == v,
-            (Succ(_), _) => false,
-            (Max(au, bu), Max(av, bv)) => au == av && bu == bv,
-            (Max(_, _), _) => false,
-            (IMax(au, bu), IMax(av, bv)) => au == av && bu == bv,
-            (IMax(_, _), _) => false,
-        }
-    }
-}
-
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct LevelArgs(pub Vec<Level>);
 
 impl LevelArgs {
@@ -456,8 +442,12 @@ impl TypingEnvironment {
                 Ok(u.imax(&v))
             }
 
-            LevelExprKind::Underscore => Err(TypeError::unsupported(arg.span.clone(), "Level inference")),
-            LevelExprKind::Malformed => Err(TypeError::unsupported(arg.span.clone(), "Malformed levels")),
+            LevelExprKind::Underscore => {
+                Err(TypeError::unsupported(arg.span.clone(), "Level inference"))
+            }
+            LevelExprKind::Malformed => {
+                Err(TypeError::unsupported(arg.span.clone(), "Malformed levels"))
+            }
         }
     }
 }
@@ -554,8 +544,8 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Level {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::Interner;
     use parser::ast::item::LevelParameters;
+    use parser::error::Span;
 
     #[test]
     fn test_instantiate_parameters() {

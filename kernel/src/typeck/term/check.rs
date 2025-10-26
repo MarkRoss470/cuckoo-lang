@@ -62,15 +62,20 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for CheckContext<'a> {
 }
 
 impl TypingEnvironment {
-    pub fn check_term(&self, term: TypedTerm) {
-        self.check_term_with_context(term, &CheckContext::Root)
+    pub fn check_term(&self, term: &TypedTerm) {
+        self.check_term_with_context(term, &CheckContext::Root);
     }
 
-    fn check_term_with_context(&self, term: TypedTerm, context: &CheckContext) {
+    fn check_term_with_context(&self, term: &TypedTerm, context: &CheckContext) {
         use TypedTermKindInner::*;
 
+        // If the term has been checked before, don't check it agin
+        if term.checked.get() {
+            return;
+        }
+
         if !term.get_type().is_sort_literal().is_some() {
-            self.check_term_with_context(term.get_type(), context);
+            self.check_term_with_context(&term.get_type(), context);
         }
 
         let true_ty = match term.term().inner() {
@@ -118,8 +123,8 @@ impl TypingEnvironment {
                 Some(t) => t,
             },
             Application { function, argument } => {
-                self.check_term_with_context(function.clone(), context);
-                self.check_term_with_context(argument.clone(), context);
+                self.check_term_with_context(function, context);
+                self.check_term_with_context(argument, context);
 
                 let function_ty = self.reduce_to_whnf(function.get_type());
                 let (binder, output) = function_ty.is_pi_type().unwrap();
@@ -129,9 +134,9 @@ impl TypingEnvironment {
                 output.replace_binder(0, argument)
             }
             PiType { binder, output } => {
-                self.check_term_with_context(binder.ty.clone(), context);
+                self.check_term_with_context(&binder.ty, context);
                 self.check_term_with_context(
-                    output.clone(),
+                    output,
                     &CheckContext::Binder {
                         ty: &binder.ty,
                         parent: context,
@@ -147,9 +152,9 @@ impl TypingEnvironment {
                 )
             }
             Lambda { binder, body } => {
-                self.check_term_with_context(binder.ty.clone(), context);
+                self.check_term_with_context(&binder.ty, context);
                 self.check_term_with_context(
-                    body.clone(),
+                    body,
                     &CheckContext::Binder {
                         ty: &binder.ty,
                         parent: context,
@@ -164,7 +169,7 @@ impl TypingEnvironment {
             || !self.def_eq(term.get_type(), true_ty.clone())
         {
             println!("Term:");
-            self.pretty_println_val_with_proofs(&term);
+            self.pretty_println_val_with_proofs(term);
             println!("Actual type:");
             self.pretty_println_val(&term.get_type());
             println!("Expected type:");
@@ -174,5 +179,8 @@ impl TypingEnvironment {
 
             panic!("Invalid term found")
         }
+
+        // Cache that the term has been checked
+        term.checked.set(true);
     }
 }

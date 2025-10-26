@@ -7,6 +7,9 @@ edition = "2024"
 common = {workspace = true}
 parser = {workspace = true}
 
+# For deriving traits while ignoring certain fields
+derivative = "2.2"
+
 [dev-dependencies]
 parser = {workspace =  true, features = ["test-utils"]}
 test_each_file = "0.3.6"

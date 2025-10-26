@@ -3,6 +3,8 @@ use crate::typeck::level::{Level, LevelArgs};
 use crate::typeck::term::{TypedBinder, TypedTerm, TypedTermKind, TypedTermKindInner};
 use crate::typeck::{AdtIndex, TypeError};
 use parser::error::Span;
+use std::cell::Cell;
+use std::rc::Rc;
 
 impl TypedTerm {
     pub fn span(&self) -> Span {
@@ -13,11 +15,11 @@ impl TypedTerm {
         self.level.clone()
     }
 
-    pub fn ty(&self) -> TypedTermKind {
+    pub fn ty(&self) -> Rc<TypedTermKind> {
         self.ty.clone()
     }
 
-    pub fn term(&self) -> TypedTermKind {
+    pub fn term(&self) -> Rc<TypedTermKind> {
         self.term.clone()
     }
 
@@ -31,6 +33,7 @@ impl TypedTerm {
 
     pub fn get_type(&self) -> TypedTerm {
         TypedTerm {
+            checked: Cell::new(false),
             span: self.span(),
             level: self.level.succ(),
             ty: TypedTermKind::sort_literal(self.level.clone()),

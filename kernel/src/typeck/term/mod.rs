@@ -9,26 +9,43 @@ mod tests;
 use crate::typeck::level::{Level, LevelArgs};
 use crate::typeck::{AdtIndex, AxiomIndex, PrettyPrintContext};
 use common::{Identifier, PrettyPrint};
+use derivative::Derivative;
 use parser::atoms::ident::OwnedPath;
 use parser::error::Span;
+use std::cell::Cell;
 use std::io::Write;
 use std::rc::Rc;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Derivative)]
+#[derivative(PartialEq)]
 pub(crate) struct TypedTerm {
+    /// Whether the term has been checked for correctness.
+    /// This is used to avoid checking the same term more than once.
+    #[derivative(PartialEq = "ignore")]
+    checked: Cell<bool>,
+
+    /// The source location associated with this term
+    #[derivative(PartialEq = "ignore")]
     span: Span,
+    /// The universe level of this term's type. For example, `Nat.zero` has level `1`,
+    /// and `Sort 2` has level `4`
     level: Level,
-    ty: TypedTermKind,
-    term: TypedTermKind,
+    /// The type of this term
+    ty: Rc<TypedTermKind>,
+    /// The term itself
+    term: Rc<TypedTermKind>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Derivative)]
+#[derivative(PartialEq)]
 pub struct TypedTermKind {
-    inner: Rc<TypedTermKindInner>,
+    inner: TypedTermKindInner,
+    #[derivative(PartialEq = "ignore")]
     abbreviation: Option<Rc<Abbreviation>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Derivative)]
+#[derivative(PartialEq)]
 enum TypedTermKindInner {
     /// The keywords `Sort n`, `Prop` or `Type n`
     SortLiteral(Level),
@@ -44,8 +61,9 @@ enum TypedTermKindInner {
     BoundVariable {
         /// The de Bruijn index
         index: usize,
-        /// The name of the bound variable. This is for pretty printing only, and should not be used
+        /// The name of the bound variable. This is for pretty printing only, and is not used
         /// for type checking to avoid captures.
+        #[derivative(PartialEq = "ignore")]
         name: Option<Identifier>,
     },
     /// A function application
@@ -65,9 +83,12 @@ enum TypedTermKindInner {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Derivative)]
+#[derivative(PartialEq)]
 pub struct TypedBinder {
+    #[derivative(PartialEq = "ignore")]
     pub span: Span,
+    #[derivative(PartialEq = "ignore")]
     pub name: Option<Identifier>,
     pub ty: TypedTerm,
 }
@@ -78,89 +99,13 @@ pub enum Abbreviation {
     Application(Rc<Abbreviation>, TypedTerm),
 }
 
-impl PartialEq for TypedTerm {
-    fn eq(&self, other: &Self) -> bool {
-        self.level == other.level && self.ty == other.ty && self.term == other.term
-    }
-}
-
-impl PartialEq for Abbreviation {
-    fn eq(&self, _: &Self) -> bool {
-        true
-    }
-}
-
-impl PartialEq for TypedTermKindInner {
-    fn eq(&self, other: &Self) -> bool {
-        use TypedTermKindInner::*;
-
-        match (self, other) {
-            (SortLiteral(l1), SortLiteral(l2)) => l1 == l2,
-            (SortLiteral(_), _) => false,
-            (AdtName(a1, l1), AdtName(a2, l2)) => a1 == a2 && l1 == l2,
-            (AdtName(_, _), _) => false,
-            (AdtConstructor(a1, c1, l1), AdtConstructor(a2, c2, l2)) => {
-                a1 == a2 && c1 == c2 && l1 == l2
-            }
-            (AdtConstructor(_, _, _), _) => false,
-            (AdtRecursor(a1, l1), AdtRecursor(a2, l2)) => a1 == a2 && l1 == l2,
-            (AdtRecursor(_, _), _) => false,
-            (Axiom(a1, l1), Axiom(a2, l2)) => a1 == a2 && l1 == l2,
-            (Axiom(_, _), _) => false,
-            (BoundVariable { index: i1, name: _ }, BoundVariable { index: i2, name: _ }) => {
-                i1 == i2
-            }
-            (BoundVariable { .. }, _) => false,
-            (
-                Application {
-                    function: f1,
-                    argument: a1,
-                },
-                Application {
-                    function: f2,
-                    argument: a2,
-                },
-            ) => f1 == f2 && a1 == a2,
-            (Application { .. }, _) => false,
-            (
-                PiType {
-                    binder: b1,
-                    output: o1,
-                },
-                PiType {
-                    binder: b2,
-                    output: o2,
-                },
-            ) => b1 == b2 && o1 == o2,
-            (PiType { .. }, _) => false,
-            (
-                Lambda {
-                    binder: b1,
-                    body: bo1,
-                },
-                Lambda {
-                    binder: b2,
-                    body: bo2,
-                },
-            ) => b1 == b2 && bo1 == bo2,
-            (Lambda { .. }, _) => false,
-        }
-    }
-}
-
-impl PartialEq for TypedBinder {
-    fn eq(&self, other: &Self) -> bool {
-        self.ty == other.ty
-    }
-}
-
 impl TypedTermKind {
     fn inner(&self) -> &TypedTermKindInner {
-        self.inner.as_ref()
+        &self.inner
     }
 
     fn clone_inner(&self) -> TypedTermKindInner {
-        self.inner.as_ref().clone()
+        self.inner.clone()
     }
 }
 

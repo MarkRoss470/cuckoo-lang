@@ -6,6 +6,7 @@ use common::{Identifier, Interner};
 use parser::ast::item::LevelParameters;
 use parser::error::Span;
 use std::iter;
+use std::rc::Rc;
 
 impl<'a> TypingEnvironment {
     /// Generates the recursor constant of an ADT. This constant is of the following type:
@@ -376,7 +377,7 @@ fn generate_induction_rules(
 ///     `val` is the ADT instance that this motive is for.
 fn calculate_constructor_induction_rule(
     adt_num_params: usize,
-    get_adt_param: impl Fn(usize, usize) -> TypedTermKind,
+    get_adt_param: impl Fn(usize, usize) -> Rc<TypedTermKind>,
     constructor: &AdtConstructor,
     reindex: impl Fn(usize, &TypedTerm) -> TypedTerm,
     motive: impl Fn(usize, Vec<TypedTerm>, TypedTerm) -> TypedTerm,
@@ -563,8 +564,8 @@ fn calculate_inductive_parameter_principle(
 fn calculate_constructor_induction_rule_output(
     constructor: &AdtConstructor,
     adt_num_params: usize,
-    get_adt_param: impl Fn(usize) -> TypedTermKind,
-    get_constructor_param: impl Fn(usize) -> TypedTermKind,
+    get_adt_param: impl Fn(usize) -> Rc<TypedTermKind>,
+    get_constructor_param: impl Fn(usize) -> Rc<TypedTermKind>,
     reindex: impl Fn(&TypedTerm) -> TypedTerm,
     motive: impl Fn(Vec<TypedTerm>, TypedTerm) -> TypedTerm,
 ) -> TypedTerm {

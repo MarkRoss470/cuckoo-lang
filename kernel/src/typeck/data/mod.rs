@@ -232,7 +232,7 @@ impl<'a> TypingEnvironment {
         let (recursor_level_params, recursor) = self.generate_recursor(self.adts.last().unwrap());
 
         #[cfg(debug_assertions)]
-        self.check_term(recursor.get_type());
+        self.check_term(&recursor.get_type());
 
         let adt_namespace = self
             .root
