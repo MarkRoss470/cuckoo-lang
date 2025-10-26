@@ -2,6 +2,7 @@ use crate::typeck::level::LevelArgs;
 use crate::typeck::term::{
     Abbreviation, CachedTermProperties, TypedBinder, TypedTerm, TypedTermKind, TypedTermKindInner,
 };
+use std::os::unix::raw::uid_t;
 use std::rc::Rc;
 
 impl TypedTerm {
@@ -91,7 +92,15 @@ impl TypedTermKind {
         };
 
         // If instantiation didn't change anything, return `self`
-        if self == &new { self.clone() } else { new }
+        if self == &new {
+            self.clone()
+        } else {
+            new.with_potential_abbreviation(
+                self.abbreviation
+                    .as_ref()
+                    .map(|a| a.instantiate(level_args)),
+            )
+        }
     }
 
     /// Clones the value, while incrementing all bound variable indices above `limit` by `inc`
@@ -122,7 +131,15 @@ impl TypedTermKind {
         };
 
         // If incrementing didn't change anything, return `self`
-        if self == &new { self.clone() } else { new }
+        if self == &new {
+            self.clone()
+        } else {
+            new.with_potential_abbreviation(
+                self.abbreviation
+                    .as_ref()
+                    .map(|a| a.increment_above(limit, inc)),
+            )
+        }
     }
 
     /// Replaces the binder with de Bruijn index `id` with the given term, adding `id` to the ids of all bound variables in the substituted term
@@ -157,28 +174,34 @@ impl TypedTermKind {
         };
 
         // If replacing the binder didn't change anything, return `self`
-        if self == &new { self.clone() } else { new }
+        if self == &new {
+            self.clone()
+        } else {
+            new.with_potential_abbreviation(
+                self.abbreviation
+                    .as_ref()
+                    .map(|a| a.replace_binder(id, expr)),
+            )
+        }
+    }
+
+    pub fn with_potential_abbreviation(&self, abbreviation: Option<Rc<Abbreviation>>) -> Rc<Self> {
+        Rc::new(Self {
+            abbreviation,
+            ..self.clone()
+        })
     }
 
     pub fn with_abbreviation(&self, abbreviation: Abbreviation) -> Rc<Self> {
-        Rc::new(Self {
-            abbreviation: Some(Rc::new(abbreviation)),
-            ..self.clone()
-        })
+        self.with_potential_abbreviation(Some(Rc::new(abbreviation)))
     }
 
     pub fn with_abbreviation_from(&self, other: &Self) -> Rc<Self> {
-        Rc::new(Self {
-            abbreviation: other.abbreviation.clone(),
-            ..self.clone()
-        })
+        self.with_potential_abbreviation(other.abbreviation.clone())
     }
 
     pub fn clear_abbreviation(&self) -> Rc<Self> {
-        Rc::new(Self {
-            abbreviation: None,
-            ..self.clone()
-        })
+        self.with_potential_abbreviation(None)
     }
 }
 
@@ -196,11 +219,11 @@ impl Abbreviation {
         }
     }
 
-    fn clone_incrementing(self: &Rc<Self>, limit: usize, inc: usize) -> Rc<Self> {
+    fn increment_above(self: &Rc<Self>, limit: usize, inc: usize) -> Rc<Self> {
         match self.as_ref() {
             Abbreviation::Constant(_, _) => self.clone(),
             Abbreviation::Application(abbr, term) => Rc::new(Self::Application(
-                abbr.clone_incrementing(limit, inc),
+                abbr.increment_above(limit, inc),
                 term.increment_above(limit, inc),
             )),
         }
@@ -246,8 +269,4 @@ impl TypedBinder {
             ty: self.ty.increment_above(limit, inc),
         }
     }
-}
-
-impl CachedTermProperties {
-    fn type_of() {}
 }

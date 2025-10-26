@@ -1,6 +1,5 @@
 use kernel::KernelEnvironment;
-use parser::{SourceFile, SourceFromFileError};
-use std::convert::Infallible;
+use parser::SourceFile;
 use std::path::PathBuf;
 
 fn main() {

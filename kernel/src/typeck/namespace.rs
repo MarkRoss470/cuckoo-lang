@@ -9,7 +9,6 @@ use parser::error::Span;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Write;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Debug)]
 struct NamespaceItem {
