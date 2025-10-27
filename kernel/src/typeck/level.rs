@@ -355,8 +355,9 @@ impl Level {
                 let a = a_old.normalize();
                 let b = b_old.normalize();
 
+                // imax u (imax v w) = imax (max u v) w
                 if let IMax(b1, b2) = b.0.as_ref() {
-                    a.smart_max(b1).smart_imax(b2).normalize()
+                    a.smart_max(b1).smart_imax(b2).offset(o).normalize()
                 } else if b.is_not_zero() {
                     a.max(&b).normalize_max(o)
                 } else {
@@ -452,12 +453,12 @@ impl TypingEnvironment {
             LevelExprKind::Max(u, v) => {
                 let u = self.resolve_level(u)?;
                 let v = self.resolve_level(v)?;
-                Ok(u.max(&v))
+                Ok(u.smart_max(&v))
             }
             LevelExprKind::IMax(u, v) => {
                 let u = self.resolve_level(u)?;
                 let v = self.resolve_level(v)?;
-                Ok(u.imax(&v))
+                Ok(u.smart_imax(&v))
             }
 
             LevelExprKind::Underscore => {
@@ -722,6 +723,7 @@ mod tests {
     fn test_normalize_imax() {
         let param_0 = Level::parameter(0, Identifier::dummy(0));
         let param_1 = Level::parameter(1, Identifier::dummy(1));
+        let param_2 = Level::parameter(2, Identifier::dummy(2));
 
         // Imax becomes max if the RHS is not zero
         assert_eq!(
@@ -764,6 +766,18 @@ mod tests {
                 .normalize(),
             param_0.max(&param_1)
         );
+
+        // imax u (imax v w) becomes imax (max u v) w
+        let imax_uvw = param_0.imax(&param_1.imax(&param_2));
+        let imax_vuw = param_1.imax(&param_0.imax(&param_2));
+        let imax_max = param_0.max(&param_1).imax(&param_2);
+        assert_eq!(imax_uvw.normalize(), imax_max);
+        assert_eq!(imax_vuw.normalize(), imax_max);
+        assert_eq!(param_1.imax(&imax_max).normalize(), imax_max);
+        assert_eq!(
+            imax_uvw.succ().max(&imax_vuw.succ()).succ().normalize(),
+            imax_max.succ().succ().normalize()
+        )
     }
 
     #[test]
@@ -977,7 +991,7 @@ mod tests {
                 ))))))
             )))
             .unwrap(),
-            param_1.succ().imax(&Level::constant(2))
+            param_1.succ().max(&Level::constant(2))
         );
     }
 }
