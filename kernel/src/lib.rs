@@ -34,7 +34,7 @@ impl KernelEnvironment {
     pub fn config_mut(&mut self) -> &mut KernelConfig {
         &mut self.0.config
     }
-    
+
     pub fn pretty_print(&self) {
         self.0.pretty_print();
     }
@@ -84,6 +84,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for ParseDiagnostic {
 mod integration_tests {
     use super::*;
     use std::fs;
+    use std::ops::Add;
     use std::path::Path;
     use test_each_file::test_each_path;
 
@@ -105,9 +106,27 @@ mod integration_tests {
                     .unwrap();
                 let s = String::from_utf8(s).unwrap();
 
-                assert_eq!(out_content, s, "Error did not match file content");
+                if out_content == "REPLACE" {
+                    fs::write(out, &s).expect("Should have been able to overwrite expected output");
+                    // Panic because this doesn't really mean the test succeeded
+                    panic!("Overwrote output file")
+                } else {
+                    assert_eq!(out_content, s, "Error did not match file content");
+                }
             }
         }
+    }
+
+    #[test]
+    #[expect(dead_code)]
+    /// A wrapper around `test_case` which makes it easier to debug one test
+    fn test_one() {
+        let stem = "tests/typing/levels/imax_telescope";
+
+        test_case([
+            Path::new(&stem.to_string().add(".ck")),
+            Path::new(&stem.to_string().add(".out")),
+        ]);
     }
 
     test_each_path! {for ["ck", "out"] in "kernel/tests" => test_case}

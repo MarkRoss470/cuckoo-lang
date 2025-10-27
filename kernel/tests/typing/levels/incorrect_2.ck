@@ -1,0 +1,1 @@
+def invalid.{u} (T : Sort u) : Type := T

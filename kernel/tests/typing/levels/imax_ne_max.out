@@ -1,0 +1,7 @@
+ERROR at tests/typing/levels/imax_ne_max.ck 2:1-2:58: Expected
+  (fun (T: Sort (imax u v)) => T?0)
+to have type
+  ((T: Sort (imax u v)) -> Sort (max u v))
+but it has type
+  ((T: Sort (imax u v)) -> Sort (imax u v))
+.

@@ -1,0 +1,1 @@
+def invalid (T : Prop) : Type := T

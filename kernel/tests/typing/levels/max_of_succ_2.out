@@ -1,0 +1,7 @@
+ERROR at tests/typing/levels/max_of_succ_2.ck 3:1-3:69: Expected
+  (fun (T: Sort (max 2 (u + 1))) => T?0)
+to have type
+  ((T: Sort (max 2 (u + 1))) -> Sort (u + 1))
+but it has type
+  ((T: Sort (max 2 (u + 1))) -> Sort (max 2 (u + 1)))
+.

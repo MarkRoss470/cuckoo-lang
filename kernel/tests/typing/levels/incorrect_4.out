@@ -1,0 +1,7 @@
+ERROR at tests/typing/levels/incorrect_4.ck 1:1-1:64: Expected
+  (fun (T: Sort (imax u v)) => T?0)
+to have type
+  ((T: Sort (imax u v)) -> Sort (imax v u))
+but it has type
+  ((T: Sort (imax u v)) -> Sort (imax u v))
+.

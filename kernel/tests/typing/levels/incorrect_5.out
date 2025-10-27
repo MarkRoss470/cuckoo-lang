@@ -1,0 +1,7 @@
+ERROR at tests/typing/levels/incorrect_5.ck 1:1-1:51: Expected
+  (fun (T: Sort (max 1 u)) => T?0)
+to have type
+  ((T: Sort (max 1 u)) -> Sort u)
+but it has type
+  ((T: Sort (max 1 u)) -> Sort (max 1 u))
+.

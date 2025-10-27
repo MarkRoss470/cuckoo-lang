@@ -1,0 +1,7 @@
+ERROR at tests/typing/levels/incorrect_1.ck 1:1-1:35: Expected
+  (fun (T: Sort 0) => T?0)
+to have type
+  ((T: Sort 0) -> Sort 1)
+but it has type
+  ((T: Sort 0) -> Sort 0)
+.
