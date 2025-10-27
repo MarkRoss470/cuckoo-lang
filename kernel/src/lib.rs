@@ -121,7 +121,7 @@ mod integration_tests {
     #[expect(dead_code)]
     /// A wrapper around `test_case` which makes it easier to debug one test
     fn test_one() {
-        let stem = "tests/typing/levels/imax_telescope";
+        let stem = "tests/data/invalid/parameter_not_a_type";
 
         test_case([
             Path::new(&stem.to_string().add(".ck")),

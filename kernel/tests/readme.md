@@ -10,7 +10,6 @@ run. If the output file contains 'REPLACE', the test will overwrite it with the 
 
 # TODOs
 * Check that giving the wrong number of level args gives an error
-* Check for panics when different parts of a data declaration are not types which should be
 * Check deduced types for applications and lambdas
 * Check defeq on terms
 * Check namespacing (collisions etc.)

@@ -277,6 +277,8 @@ impl<'a> TypingEnvironment {
 
             let context = root.with_binders(&parameters);
             let ty = context.resolve_term(&param.ty)?;
+            ty.check_is_ty()?;
+            
             parameters.push(TypedBinder {
                 span: param.span.clone(),
                 name: *binder_name,

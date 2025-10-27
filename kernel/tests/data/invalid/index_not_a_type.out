@@ -1,0 +1,1 @@
+ERROR at tests/data/invalid/index_not_a_type.ck 4:16-4:23: Unit.mk is not a type. It has type Unit, which is not a sort.

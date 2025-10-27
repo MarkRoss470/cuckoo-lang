@@ -1,0 +1,1 @@
+ERROR at tests/data/invalid/family_not_a_type.ck 4:16-4:23: Unit.mk is not a sort or family of sorts.
