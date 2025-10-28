@@ -1,0 +1,1 @@
+ERROR at tests/name_resolution/levels/wrong_number_of_level_args_4.ck 4:14-4:21: T.c takes 0 level argument(s), but 1 were provided.

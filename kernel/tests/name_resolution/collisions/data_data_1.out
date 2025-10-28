@@ -1,0 +1,1 @@
+ERROR at tests/name_resolution/collisions/data_data_1.ck 4:1-4:1: The name A has already been defined.

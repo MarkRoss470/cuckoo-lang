@@ -1,0 +1,1 @@
+def a (T : Type) : T.p := x

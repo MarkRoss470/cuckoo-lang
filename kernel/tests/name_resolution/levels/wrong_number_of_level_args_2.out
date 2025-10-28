@@ -1,0 +1,1 @@
+ERROR at tests/name_resolution/levels/wrong_number_of_level_args_2.ck 3:9-3:10: T takes 1 level argument(s), but 0 were provided.

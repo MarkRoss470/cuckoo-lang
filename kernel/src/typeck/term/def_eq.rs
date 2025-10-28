@@ -157,7 +157,7 @@ impl TypingEnvironment {
         let get_recursor_arg = |i: usize| &args_reversed[args_reversed.len() - i - 1];
 
         // The recursor can only be reduced if the value parameter is an application of a constructor
-        // TODO: subsingleton elimination
+        // TODO: subsingleton elimination?
         let (value_fun, constructor_args) = self
             .reduce_to_whnf(get_recursor_arg(adt.recursor_value_param_index()).clone())
             .decompose_application_stack();

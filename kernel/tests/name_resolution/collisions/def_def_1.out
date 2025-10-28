@@ -1,0 +1,1 @@
+ERROR at tests/name_resolution/collisions/def_def_1.ck 4:1-4:32: The name A has already been defined.

@@ -1,0 +1,1 @@
+ERROR at tests/name_resolution/collisions/constructor_constructor.ck 3:3-3:3: The name c has already been defined.

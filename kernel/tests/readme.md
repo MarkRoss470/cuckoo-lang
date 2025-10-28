@@ -9,7 +9,7 @@ Due to the way the tests are collated, the `kernel` crate must be recompiled aft
 run. If the output file contains 'REPLACE', the test will overwrite it with the actual error message
 
 # TODOs
-* Check that giving the wrong number of level args gives an error
 * Check deduced types for applications and lambdas
 * Check defeq on terms
 * Check namespacing (collisions etc.)
+* Check axioms

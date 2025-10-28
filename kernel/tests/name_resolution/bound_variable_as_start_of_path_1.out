@@ -1,0 +1,1 @@
+ERROR at tests/name_resolution/bound_variable_as_start_of_path_1.ck 1:20-1:23: Local variable T is not a namespace and cannot be used as the start of a path expression.

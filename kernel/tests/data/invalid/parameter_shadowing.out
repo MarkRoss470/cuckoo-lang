@@ -1,0 +1,1 @@
+ERROR at tests/data/invalid/parameter_shadowing.ck 2:16-2:18: Mismatched inductive type parameter. Found P?0, expected P?1

@@ -1,0 +1,1 @@
+ERROR at tests/name_resolution/unknown_name_3.ck 1:17-1:18: Could not resolve name 'a'.

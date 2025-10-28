@@ -1,0 +1,1 @@
+ERROR at tests/name_resolution/levels/level_args_on_bound_variable_2.ck 3:20-3:25: Local variable T can't take level arguments

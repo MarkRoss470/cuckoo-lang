@@ -1,0 +1,1 @@
+def a.{u, u} : Prop := T
