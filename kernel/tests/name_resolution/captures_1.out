@@ -1,0 +1,7 @@
+ERROR at tests/name_resolution/captures_1.ck 8:1-8:78: Expected
+  (fun (x: Nat) => (fun (y: Nat) => (fun (y: Nat) => ((someFun y?1) y?0))))
+to have type
+  ((x: Nat) -> ((y: Nat) -> Nat))
+but it has type
+  ((x: Nat) -> ((y: Nat) -> ((y: Nat) -> Nat)))
+.

@@ -1,0 +1,1 @@
+def a : Prop := T.c.d

@@ -1,0 +1,7 @@
+ERROR at tests/name_resolution/shadowing_2.ck 7:1-7:43: Expected
+  (fun (T: Sort 1) => (fun (x: T?0) => c))
+to have type
+  ((T: Sort 1) -> ((x: T?0) -> T?1))
+but it has type
+  ((T: Sort 1) -> ((x: T?0) -> T))
+.

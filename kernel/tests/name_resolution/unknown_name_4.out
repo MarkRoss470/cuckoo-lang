@@ -1,0 +1,1 @@
+ERROR at tests/name_resolution/unknown_name_4.ck 1:17-1:22: Could not resolve name 'T.c.d'.
