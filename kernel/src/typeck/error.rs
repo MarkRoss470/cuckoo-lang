@@ -7,14 +7,12 @@ use parser::error::Span;
 use std::io::Write;
 use std::rc::Rc;
 
-#[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug, Clone)]
 pub struct TypeError {
     pub span: Span,
     pub kind: TypeErrorKind,
 }
 
-#[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug, Clone)]
 pub enum TypeErrorKind {
     /// A feature was encountered which is not supported in the kernel

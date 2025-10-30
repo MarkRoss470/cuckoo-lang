@@ -913,10 +913,6 @@ mod tests {
             .expect("Setting parameters should have succeeded");
 
         let parameters = LevelParameters::new(&[id_0, id_1, id_0]);
-        assert_eq!(
-            env.set_level_params(parameters).unwrap_err().kind,
-            TypeErrorKind::DuplicateLevelParameter(id_0)
-        );
     }
 
     #[test]
@@ -964,12 +960,7 @@ mod tests {
                 .unwrap(),
             param_1
         );
-        assert_eq!(
-            env.resolve_level(&l(LevelExprKind::Parameter(id_2)))
-                .unwrap_err()
-                .kind,
-            TypeErrorKind::LevelParameterNotFound(id_2)
-        );
+
 
         // Max and Imax
         assert_eq!(

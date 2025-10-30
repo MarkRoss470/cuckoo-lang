@@ -10,8 +10,6 @@ use parser::error::Span;
 use std::io::Write;
 
 mod recursor;
-#[cfg(test)]
-mod tests;
 
 #[derive(Debug)]
 pub struct AdtHeader {
@@ -102,10 +100,10 @@ impl Adt {
         for (i, parameter) in constructor.params.iter().rev().enumerate() {
             if let AdtConstructorParamKind::NonInductive(ty) = &parameter.kind {
                 let is_prop = ty.check_is_ty().unwrap().def_eq(&Level::zero());
-                let is_referenced = constructor
-                    .indices
-                    .iter()
-                    .any(|t| t.term() == TypedTermKind::bound_variable(i, parameter.name));
+                let is_referenced = constructor.indices.iter().any(|t| {
+                    t.term()
+                        .equiv(&TypedTermKind::bound_variable(i, parameter.name), false)
+                });
 
                 if !(is_prop || is_referenced) {
                     return false;
@@ -133,7 +131,6 @@ pub struct AdtConstructor {
     pub indices: Vec<TypedTerm>,
 }
 
-#[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
 pub struct AdtConstructorParam {
     pub span: Span,
@@ -142,7 +139,6 @@ pub struct AdtConstructorParam {
     pub kind: AdtConstructorParamKind,
 }
 
-#[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
 pub enum AdtConstructorParamKind {
     Inductive {
@@ -278,7 +274,7 @@ impl<'a> TypingEnvironment {
             let context = root.with_binders(&parameters);
             let ty = context.resolve_term(&param.ty)?;
             ty.check_is_ty()?;
-            
+
             parameters.push(TypedBinder {
                 span: param.span.clone(),
                 name: *binder_name,

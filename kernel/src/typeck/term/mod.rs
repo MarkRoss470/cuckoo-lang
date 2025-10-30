@@ -4,23 +4,21 @@ pub mod constructors;
 pub mod def_eq;
 pub mod modifiers;
 #[cfg(test)]
-mod tests;
+pub mod tests;
+mod equiv;
 
 use crate::typeck::level::{Level, LevelArgs};
 use crate::typeck::{AdtIndex, AxiomIndex, PrettyPrintContext};
 use common::{Identifier, PrettyPrint};
-use derivative::Derivative;
 use parser::atoms::ident::OwnedPath;
 use parser::error::Span;
 use std::cell::Cell;
 use std::io::Write;
 use std::rc::Rc;
 
-#[derive(Debug, Clone, Derivative)]
-#[derivative(PartialEq)]
+#[derive(Debug, Clone)]
 pub(crate) struct TypedTerm {
     /// The source location associated with this term
-    #[derivative(PartialEq = "ignore")]
     span: Span,
     /// The universe level of this term's type. For example, `Nat.zero` has level `1`,
     /// and `Sort 2` has level `4`
@@ -31,20 +29,17 @@ pub(crate) struct TypedTerm {
     term: Rc<TypedTermKind>,
 }
 
-#[derive(Debug, Clone, Derivative)]
-#[derivative(PartialEq)]
+#[derive(Debug, Clone)]
 pub struct TypedTermKind {
     /// Cached properties about the term
-    #[derivative(PartialEq = "ignore")]
     cached_properties: CachedTermProperties,
 
     inner: TypedTermKindInner,
-    #[derivative(PartialEq = "ignore")]
+    /// An abbreviation with which to print the term
     abbreviation: Option<Rc<Abbreviation>>,
 }
 
-#[derive(Debug, Clone, Derivative)]
-#[derivative(PartialEq)]
+#[derive(Debug, Clone)]
 enum TypedTermKindInner {
     /// The keywords `Sort n`, `Prop` or `Type n`
     SortLiteral(Level),
@@ -62,7 +57,6 @@ enum TypedTermKindInner {
         index: usize,
         /// The name of the bound variable. This is for pretty printing only, and is not used
         /// for type checking to avoid captures.
-        #[derivative(PartialEq = "ignore")]
         name: Option<Identifier>,
     },
     /// A function application
@@ -82,12 +76,9 @@ enum TypedTermKindInner {
     },
 }
 
-#[derive(Debug, Clone, Derivative)]
-#[derivative(PartialEq)]
+#[derive(Debug, Clone)]
 pub struct TypedBinder {
-    #[derivative(PartialEq = "ignore")]
     pub span: Span,
-    #[derivative(PartialEq = "ignore")]
     pub name: Option<Identifier>,
     pub ty: TypedTerm,
 }

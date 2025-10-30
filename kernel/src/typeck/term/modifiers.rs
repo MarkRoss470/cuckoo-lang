@@ -1,8 +1,7 @@
 use crate::typeck::level::LevelArgs;
 use crate::typeck::term::{
-    Abbreviation, CachedTermProperties, TypedBinder, TypedTerm, TypedTermKind, TypedTermKindInner,
+    Abbreviation, TypedBinder, TypedTerm, TypedTermKind, TypedTermKindInner,
 };
-use std::os::unix::raw::uid_t;
 use std::rc::Rc;
 
 impl TypedTerm {
@@ -45,6 +44,13 @@ impl TypedTerm {
     pub fn with_abbreviation_from(self, other: &Self) -> Self {
         Self {
             term: self.term.with_abbreviation_from(&other.term),
+            ..self
+        }
+    }
+
+    pub fn clear_abbreviation(self) -> Self {
+        Self {
+            term: self.term.with_potential_abbreviation(None),
             ..self
         }
     }
@@ -92,7 +98,7 @@ impl TypedTermKind {
         };
 
         // If instantiation didn't change anything, return `self`
-        if self == &new {
+        if self.equiv(&new, true) {
             self.clone()
         } else {
             new.with_potential_abbreviation(
@@ -131,7 +137,7 @@ impl TypedTermKind {
         };
 
         // If incrementing didn't change anything, return `self`
-        if self == &new {
+        if self.equiv(&new, true) {
             self.clone()
         } else {
             new.with_potential_abbreviation(
@@ -146,6 +152,8 @@ impl TypedTermKind {
     #[must_use]
     pub(super) fn replace_binder(self: &Rc<Self>, id: usize, expr: &TypedTerm) -> Rc<Self> {
         use TypedTermKindInner::*;
+
+        let a = self.inner();
 
         let new = match self.inner() {
             SortLiteral(_)
@@ -174,7 +182,7 @@ impl TypedTermKind {
         };
 
         // If replacing the binder didn't change anything, return `self`
-        if self == &new {
+        if self.equiv(&new, true) {
             self.clone()
         } else {
             new.with_potential_abbreviation(
