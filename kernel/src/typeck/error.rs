@@ -84,6 +84,23 @@ impl TypingEnvironment {
     }
 }
 
+/// Pretty prints a term. If the term is a proof term, it will print it with `print_proofs = true`,
+/// Otherwise it will use whatever the context has for `print_proofs`.
+fn pretty_print_term_in_error(
+    term: &TypedTerm,
+    out: &mut dyn Write,
+    context: PrettyPrintContext,
+) -> std::io::Result<()> {
+    // If the term in question is a proof, then set print_proofs to true when printing it
+    if term.level().def_eq(&Level::zero()) {
+        let mut context = context.clone();
+        context.print_proofs = true;
+        term.pretty_print(out, context)
+    } else {
+        term.pretty_print(out, context)
+    }
+}
+
 impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
     fn pretty_print(
         &self,
@@ -97,13 +114,13 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
 
             // ----- Term resolution errors
             TypeErrorKind::NotAFunction(t) => {
-                t.term().pretty_print(out, context)?;
+                pretty_print_term_in_error(t, out, context)?;
                 write!(out, " is not a function. It has type ")?;
                 t.ty().pretty_print(out, context)?;
                 write!(out, ".")
             }
             TypeErrorKind::NotAType(t) => {
-                t.term().pretty_print(out, context)?;
+                pretty_print_term_in_error(t, out, context)?;
                 write!(out, " is not a type. It has type ")?;
                 t.ty().pretty_print(out, context)?;
                 write!(out, ", which is not a sort.")
@@ -115,16 +132,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
             }
             TypeErrorKind::MismatchedTypes { term, expected } => {
                 write!(out, "Expected\n  ")?;
-
-                // If the term in question is a proof, then set print_proofs to true when printing it
-                if term.level().def_eq(&Level::zero()) {
-                    let mut context = context.clone();
-                    context.print_proofs = true;
-                    term.pretty_print(out, context)?;
-                } else {
-                    term.pretty_print(out, context)?;
-                }
-
+                pretty_print_term_in_error(term, out, context)?;
                 write!(out, "\nto have type\n  ")?;
                 expected.term().pretty_print(out, context)?;
                 write!(out, "\nbut it has type\n  ")?;
@@ -175,7 +183,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
 
             // ----- ADT declaration errors
             TypeErrorKind::NotASortFamily(t) => {
-                t.term().pretty_print(out, context)?;
+                pretty_print_term_in_error(t, out, context)?;
                 write!(out, " is not a sort or family of sorts.")
             }
             TypeErrorKind::MayOrMayNotBeProp(level) => {
@@ -220,7 +228,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
             }
             TypeErrorKind::MismatchedAdtParameter { found, expected } => {
                 write!(out, "Mismatched inductive type parameter. Found ")?;
-                found.term().pretty_print(out, context)?;
+                pretty_print_term_in_error(found, out, context)?;
                 write!(out, ", expected ")?;
                 expected.pretty_print(out, context)
             }
