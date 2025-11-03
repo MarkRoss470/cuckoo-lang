@@ -112,6 +112,176 @@ def Nat.add_comm (m : Nat) (n : Nat) : Eq.{1} Nat (Nat.add m n) (Nat.add n m)
             (Eq.symm.{1} Nat (Nat.add n (Nat.succ m)) (Nat.succ (Nat.add n m)) (Nat.add_succ n m)))
     m
 
+-- (a + b) + c = a + (b + c)
+def Nat.add_assoc (a : Nat) (b : Nat) (c : Nat)
+        : Eq.{1} Nat (Nat.add (Nat.add a b) c) (Nat.add a (Nat.add b c))
+    := Nat.rec.{0}
+        (fun (a : Nat) => Eq.{1} Nat (Nat.add (Nat.add a b) c) (Nat.add a (Nat.add b c)))
+        (Eq.refl.{1} Nat (Nat.add b c))
+        (fun (a : Nat) (h : Eq.{1} Nat (Nat.add (Nat.add a b) c) (Nat.add a (Nat.add b c)))
+            => Nat.cong ((Nat.add (Nat.add a b) c)) (Nat.add a (Nat.add b c)) Nat.succ h)
+        a
+
+-- a + (b + c) = b + (a + c)
+def Nat.add_abc_bac (a : Nat) (b : Nat) (c : Nat) : Eq.{1} Nat (Nat.add a (Nat.add b c)) (Nat.add b (Nat.add a c))
+    := Eq.trans.{1} Nat
+        (Nat.add a (Nat.add b c)) -- a + (b + c)
+        (Nat.add (Nat.add a b) c) -- (a + b) + c
+        (Nat.add b (Nat.add a c)) -- b + (a + c)
+        (Eq.symm.{1} Nat (Nat.add (Nat.add a b) c) (Nat.add a (Nat.add b c)) (Nat.add_assoc a b c))
+        (Eq.trans.{1} Nat
+            (Nat.add (Nat.add a b) c) -- (a + b) + c
+            (Nat.add (Nat.add b a) c) -- (b + a) + c
+            (Nat.add b (Nat.add a c)) -- b + (a + c)
+            (Nat.cong (Nat.add a b) (Nat.add b a) (fun (s : Nat) => Nat.add s c) (Nat.add_comm a b))
+            (Nat.add_assoc b a c)
+        )
+
+-- (a + b) + (c + d) = (a + c) + (b + d)
+def Nat.add_abcd_acbd (a : Nat) (b : Nat) (c : Nat) (d : Nat)
+        : Eq.{1} Nat (Nat.add (Nat.add a b) (Nat.add c d)) (Nat.add (Nat.add a c) (Nat.add b d))
+    := Eq.trans.{1} Nat
+        (Nat.add (Nat.add a b) (Nat.add c d)) -- (a + b) + (c + d)
+        (Nat.add a (Nat.add b (Nat.add c d))) -- a + (b + (c + d))
+        (Nat.add (Nat.add a c) (Nat.add b d)) -- (a + c) + (b + d)
+        (Nat.add_assoc a b (Nat.add c d))
+        (Eq.trans.{1} Nat
+            (Nat.add a (Nat.add b (Nat.add c d))) -- a + (b + (c + d))
+            (Nat.add a (Nat.add (Nat.add c d) b)) -- a + ((c + d) + b)
+            (Nat.add (Nat.add a c) (Nat.add b d)) -- (a + c) + (b + d)
+            (Nat.cong (Nat.add b (Nat.add c d)) (Nat.add (Nat.add c d) b) (Nat.add a)
+                (Nat.add_comm b (Nat.add c d)))
+            (Eq.trans.{1} Nat
+                (Nat.add a (Nat.add (Nat.add c d) b)) -- a + ((c + d) + b)
+                (Nat.add a (Nat.add c (Nat.add d b))) -- a + (c + (d + b))
+                (Nat.add (Nat.add a c) (Nat.add b d)) -- (a + c) + (b + d)
+                (Nat.cong (Nat.add (Nat.add c d) b) (Nat.add c (Nat.add d b)) (Nat.add a)
+                    (Nat.add_assoc c d b))
+                (Eq.trans.{1} Nat
+                    (Nat.add a (Nat.add c (Nat.add d b))) -- a + (c + (d + b))
+                    (Nat.add (Nat.add a c) (Nat.add d b)) -- (a + c) + (d + b)
+                    (Nat.add (Nat.add a c) (Nat.add b d)) -- (a + c) + (b + d)
+                    (Eq.symm.{1} Nat
+                        (Nat.add (Nat.add a c) (Nat.add d b))
+                        (Nat.add a (Nat.add c (Nat.add d b)))
+                        (Nat.add_assoc a c (Nat.add d b)))
+                    (Nat.cong (Nat.add d b) (Nat.add b d) (Nat.add (Nat.add a c)) (Nat.add_comm d b))
+                )
+            )
+        )
+
+-- n * 0 = 0
+def Nat.mul_zero (n : Nat) : Eq.{1} Nat (Nat.mul n Nat.zero) Nat.zero
+    := Nat.rec.{0}
+        (fun (n : Nat) => Eq.{1} Nat (Nat.mul n Nat.zero) Nat.zero)
+        (Eq.refl.{1} Nat Nat.zero)
+        (fun (n : Nat) (h : Eq.{1} Nat (Nat.mul n Nat.zero) Nat.zero) => h)
+        n
+
+-- 1 * n = n
+def Nat.one_mul (n : Nat) : Eq.{1} Nat (Nat.mul Nat.one n) n := Nat.add_zero n
+
+-- n * 1 = n
+def Nat.mul_one (n : Nat) : Eq.{1} Nat (Nat.mul n Nat.one) n
+    := Nat.rec.{0}
+        (fun (n : Nat) => Eq.{1} Nat (Nat.mul n Nat.one) n)
+        (Eq.refl.{1} Nat Nat.zero)
+        (fun (n : Nat) (h : Eq.{1} Nat (Nat.mul n Nat.one) n)
+            => Nat.cong (Nat.mul n Nat.one) n Nat.succ h)
+        n
+
+
+
+-- m * succ n = m + m * n
+def Nat.mul_succ (m : Nat) (n : Nat) : Eq.{1} Nat (Nat.mul m (Nat.succ n)) (Nat.add m (Nat.mul m n))
+    := Nat.rec.{0}
+        (fun (m : Nat) => Eq.{1} Nat (Nat.mul m (Nat.succ n)) (Nat.add m (Nat.mul m n)))
+        (Eq.refl.{1} Nat Nat.zero)
+        (fun (m : Nat) (h : Eq.{1} Nat (Nat.mul m (Nat.succ n)) (Nat.add m (Nat.mul m n)))
+            => Nat.cong
+                (Nat.add n (Nat.mul m (Nat.succ n))) -- (succ m) * (succ n) = succ (n + m * succ n)
+                (Nat.add m (Nat.add n (Nat.mul m n)))
+                Nat.succ
+                (Eq.trans.{1} Nat
+                    (Nat.add n (Nat.mul m (Nat.succ n)))
+                    (Nat.add n (Nat.add m (Nat.mul m n)))
+                    (Nat.add m (Nat.add n (Nat.mul m n)))
+                    (Nat.cong (Nat.mul m (Nat.succ n)) (Nat.add m (Nat.mul m n)) (Nat.add n) h)
+                    (Nat.add_abc_bac n m (Nat.mul m n))
+                )
+        )
+        m
+
+-- m * n = n * m
+def Nat.mul_comm (m : Nat) (n : Nat) : Eq.{1} Nat (Nat.mul m n) (Nat.mul n m)
+    := Nat.rec.{0}
+        (fun (m : Nat) => Eq.{1} Nat (Nat.mul m n) (Nat.mul n m))
+        (Eq.symm.{1} Nat (Nat.mul n Nat.zero) Nat.zero (Nat.mul_zero n))
+        (fun (m : Nat) (h : Eq.{1} Nat (Nat.mul m n) (Nat.mul n m))
+            => Eq.trans.{1} Nat
+                (Nat.add n (Nat.mul m n)) -- succ m * n = n + m * n
+                (Nat.add n (Nat.mul n m)) -- n + n * m
+                (Nat.mul n (Nat.succ m))  -- n * succ m
+                (Nat.cong (Nat.mul m n) (Nat.mul n m) (Nat.add n) h)
+                (Eq.symm.{1} Nat (Nat.mul n (Nat.succ m)) (Nat.add n (Nat.mul n m))
+                    (Nat.mul_succ n m))
+            )
+        m
+
+-- a * (b + c) = (a * b) + (a * c)
+def Nat.mul_add_r (a : Nat) (b : Nat) (c : Nat)
+        : Eq.{1} Nat (Nat.mul a (Nat.add b c)) (Nat.add (Nat.mul a b) (Nat.mul a c))
+    := Nat.rec.{0}
+        (fun (a : Nat) => Eq.{1} Nat (Nat.mul a (Nat.add b c)) (Nat.add (Nat.mul a b) (Nat.mul a c)))
+        (Eq.refl.{1} Nat Nat.zero)
+        (fun (a : Nat) (h : Eq.{1} Nat (Nat.mul a (Nat.add b c)) (Nat.add (Nat.mul a b) (Nat.mul a c)))
+            => Eq.trans.{1} Nat
+                (Nat.add (Nat.add b c) (Nat.mul a (Nat.add b c)))              -- (succ a) * (b + c) = (b + c) + a * (b + c)
+                (Nat.add (Nat.add b c) (Nat.add (Nat.mul a b) (Nat.mul a c)))  -- (b + c) + (a * b + a * c)
+                (Nat.add (Nat.add b (Nat.mul a b)) (Nat.add c (Nat.mul a c)))  -- (b + a * b) + (c + a * c) = (succ a) * b + (succ a) * c
+                (Nat.cong (Nat.mul a (Nat.add b c)) (Nat.add (Nat.mul a b) (Nat.mul a c)) (Nat.add (Nat.add b c)) h)
+                (Nat.add_abcd_acbd b c (Nat.mul a b) (Nat.mul a c))
+            )
+        a
+
+-- (a + b) * c = a * c + b * c
+def Nat.mul_add_l (a : Nat) (b : Nat) (c : Nat)
+        : Eq.{1} Nat (Nat.mul (Nat.add a b) c) (Nat.add (Nat.mul a c) (Nat.mul b c))
+    := Eq.trans.{1} Nat
+        (Nat.mul (Nat.add a b) c) -- (a + b) * c
+        (Nat.mul c (Nat.add a b)) -- c * (a + b)
+        (Nat.add (Nat.mul a c) (Nat.mul b c)) -- a * c + b * c
+        (Nat.mul_comm (Nat.add a b) c)
+        (Eq.trans.{1} Nat
+            (Nat.mul c (Nat.add a b)) -- c * (a + b)
+            (Nat.add (Nat.mul c a) (Nat.mul c b)) -- c * a + c * b
+            (Nat.add (Nat.mul a c) (Nat.mul b c)) -- a * c + b * c
+            (Nat.mul_add_r c a b)
+            (Eq.trans.{1} Nat
+                (Nat.add (Nat.mul c a) (Nat.mul c b)) -- c * a + c * b
+                (Nat.add (Nat.mul c a) (Nat.mul b c)) -- c * a + b * c
+                (Nat.add (Nat.mul a c) (Nat.mul b c)) -- a * c + b * c
+                (Nat.cong (Nat.mul c b) (Nat.mul b c) (Nat.add (Nat.mul c a)) (Nat.mul_comm c b))
+                (Nat.cong (Nat.mul c a) (Nat.mul a c) (fun (s : Nat) => (Nat.add s (Nat.mul b c))) (Nat.mul_comm c a))
+            )
+        )
+
+-- (a * b) * c = a * (b * c)
+def Nat.mul_assoc (a : Nat) (b : Nat) (c : Nat)
+        : Eq.{1} Nat (Nat.mul (Nat.mul a b) c) (Nat.mul a (Nat.mul b c))
+    := Nat.rec.{0}
+       (fun (a : Nat) => Eq.{1} Nat (Nat.mul (Nat.mul a b) c) (Nat.mul a (Nat.mul b c)))
+       (Eq.refl.{1} Nat Nat.zero)
+       (fun (a : Nat) (h : Eq.{1} Nat (Nat.mul (Nat.mul a b) c) (Nat.mul a (Nat.mul b c)))
+            => Eq.trans.{1} Nat
+                (Nat.mul (Nat.add b (Nat.mul a b)) c)             -- ((succ a) * b) * c = (b + a * b) * c
+                (Nat.add (Nat.mul b c) (Nat.mul (Nat.mul a b) c)) -- (b * c) + ((a * b) * c)
+                (Nat.add (Nat.mul b c) (Nat.mul a (Nat.mul b c))) -- (b * c) + (a * (b * c)) = (succ a) * (b * c)
+                (Nat.mul_add_l b (Nat.mul a b) c)
+                (Nat.cong (Nat.mul (Nat.mul a b) c) (Nat.mul a (Nat.mul b c)) (Nat.add (Nat.mul b c)) h)
+       )
+       a
+
 -- The less-than-or-equal relation on natural numbers
 data Nat.Le (m : Nat) : Nat -> Prop where
   | refl : Le m m
@@ -188,6 +358,14 @@ def Nat.le_dichotomy (m : Nat) (n : Nat) (h : Nat.Le m n) : Or (Eq.{1} Nat m n) 
             => Or.inr (Eq.{1} Nat m (Nat.succ n)) (Nat.Lt m (Nat.succ n)) (Nat.succ_le_succ_mp m n hn))
         n
         h
+
+-- Nat.Le is transitive - a <= b -> b <= c -> a <= c
+def Nat.le_trans (a : Nat) (b : Nat) (c : Nat) (hab : Nat.Le a b) (hbc : Nat.Le b c) : Nat.Le a c
+    := Nat.Le.rec b
+        (fun (c : Nat) (hbc : Nat.Le b c) => Nat.Le a c)
+        hab
+        (fun (c : Nat) (hbc : Nat.Le b c) (hac : Nat.Le a c) => Nat.Le.step a c hac)
+        c hbc
 
 -- Equality with zero is decidable
 def Nat.decide_eq_zero (y : Nat) : Decidable (Eq.{1} Nat Nat.zero y) := Nat.casesOn.{1}
