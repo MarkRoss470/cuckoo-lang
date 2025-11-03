@@ -1,6 +1,6 @@
 [workspace]
 
-members = ["cli", "common", "inference","kernel", "parser"]
+members = ["cli", "common", "kernel", "parser"]
 resolver = "3"
 
 [workspace.dependencies]

@@ -121,10 +121,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "inference"
-version = "0.1.0"
-
-[[package]]
 name = "kernel"
 version = "0.1.0"
 dependencies = [
