@@ -1,1 +1,1 @@
-ERROR at tests/name_resolution/collisions/constructor_def.ck 4:1-4:34: The name c has already been defined.
+ERROR at tests/name_resolution/collisions/constructor_def.ck 4:1-4:34: The name A.c has already been defined.

@@ -11,4 +11,3 @@ run. If the output file contains 'REPLACE', the test will overwrite it with the 
 # TODOs
 * Check deduced types for applications and lambdas
 * Check defeq on terms
-* Check axioms

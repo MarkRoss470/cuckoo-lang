@@ -1,0 +1,1 @@
+data T : Sort 10 where

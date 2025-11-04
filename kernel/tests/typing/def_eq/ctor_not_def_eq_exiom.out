@@ -1,0 +1,7 @@
+ERROR at tests/typing/def_eq/ctor_not_def_eq_exiom.ck 9:1-9:50: Expected
+  (fun (d: (Dep T.c1)) => d?0)
+to have type
+  ((d: (Dep T.c1)) -> (Dep A))
+but it has type
+  ((d: (Dep T.c1)) -> (Dep T.c1))
+.

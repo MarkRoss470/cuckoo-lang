@@ -1,0 +1,7 @@
+ERROR at tests/typing/invalid/wrong_argument_type_3.ck 16:108-16:110: Expected
+  v?0
+to have type
+  ((Vec.{0, } Nat) ((((Nat.rec.{1, } (fun (m: Nat) => Nat)) n?2) (fun (_: Nat) => (fun (x: Nat) => (Nat.succ x?0)))) m?3))
+but it has type
+  ((Vec.{0, } Nat) ((((Nat.rec.{1, } (fun (m: Nat) => Nat)) m?3) (fun (_: Nat) => (fun (x: Nat) => (Nat.succ x?0)))) n?2))
+.

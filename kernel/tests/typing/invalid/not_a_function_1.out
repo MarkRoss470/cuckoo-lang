@@ -1,0 +1,1 @@
+ERROR at tests/typing/invalid/not_a_function_1.ck 3:14-3:15: T is not a function. It has type Sort 1.

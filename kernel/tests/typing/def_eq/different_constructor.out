@@ -1,0 +1,7 @@
+ERROR at tests/typing/def_eq/different_constructor.ck 7:1-7:37: Expected
+  (fun (D: (Dep T.c1)) => D?0)
+to have type
+  ((D: (Dep T.c1)) -> (Dep T.c2))
+but it has type
+  ((D: (Dep T.c1)) -> (Dep T.c1))
+.

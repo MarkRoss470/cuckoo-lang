@@ -1,0 +1,1 @@
+ERROR at tests/name_resolution/collisions/axiom_def.ck 2:1-2:35: The name NS.A has already been defined.

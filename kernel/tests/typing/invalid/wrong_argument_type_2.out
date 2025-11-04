@@ -1,0 +1,7 @@
+ERROR at tests/typing/invalid/wrong_argument_type_2.ck 9:84-9:86: Expected
+  v?0
+to have type
+  ((Vec.{0, } Nat) m?3)
+but it has type
+  ((Vec.{0, } Nat) n?2)
+.

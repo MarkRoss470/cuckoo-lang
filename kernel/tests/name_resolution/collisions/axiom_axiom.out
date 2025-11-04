@@ -1,0 +1,1 @@
+ERROR at tests/name_resolution/collisions/axiom_axiom.ck 2:1-2:15: The name A has already been defined.

@@ -1,0 +1,7 @@
+ERROR at tests/typing/invalid/wrong_argument_type_1.ck 4:36-4:38: Expected
+  x?0
+to have type
+  T
+but it has type
+  U
+.

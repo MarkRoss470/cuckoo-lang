@@ -1,0 +1,1 @@
+ERROR at tests/typing/levels/literal_too_large.ck 1:15-1:18: Level literal 10 is too large: level literals must be at most 8.

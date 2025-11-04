@@ -1,0 +1,1 @@
+ERROR at tests/unsupported/multiple_binders_1.ck 4:7-4:17: Unsupported in kernel: Multiple names in a binder

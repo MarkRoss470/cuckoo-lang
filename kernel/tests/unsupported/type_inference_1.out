@@ -1,0 +1,1 @@
+ERROR at tests/unsupported/type_inference_1.ck 7:24-7:27: Unsupported in kernel: Type inference

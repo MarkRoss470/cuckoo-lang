@@ -1,0 +1,1 @@
+ERROR at tests/typing/invalid/not_a_function_2.ck 3:22-3:23: x?0 is not a function. It has type T.
