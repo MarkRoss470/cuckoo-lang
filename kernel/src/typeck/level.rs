@@ -8,6 +8,7 @@ use std::cmp::Ordering;
 use std::hash::Hash;
 use std::io::Write;
 use std::ops::Index;
+use std::ptr;
 use std::rc::Rc;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -370,7 +371,7 @@ impl Level {
     /// Checks whether two levels are definitionally equal i.e. if they are guaranteed to be equal
     /// for any valuation of their parameters
     pub fn def_eq(&self, other: &Self) -> bool {
-        self.normalize() == other.normalize()
+        ptr::eq(self, other) || self.normalize() == other.normalize()
     }
 
     /// Checks whether one level is guaranteed to be greater than or equal to another
@@ -960,7 +961,6 @@ mod tests {
                 .unwrap(),
             param_1
         );
-
 
         // Max and Imax
         assert_eq!(

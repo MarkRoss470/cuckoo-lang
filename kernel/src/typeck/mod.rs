@@ -25,7 +25,6 @@ use parser::ast::{Ast, parse_file};
 use parser::atoms::ident::{OwnedPath, Path};
 use parser::error::Span;
 use std::io::Write;
-use std::sync::atomic::AtomicUsize;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct AdtIndex(usize);
@@ -63,8 +62,38 @@ impl Default for TypingEnvironmentConfig {
 
 #[derive(Debug, Default)]
 pub struct TypingEnvironmentStats {
+    /// The number of times [`check_term`] has been called on a term
+    /// where the term has been checked before
+    ///
+    /// [`check_term`]: TypingEnvironment::check_term
     check_cache_hits: Cell<usize>,
+    /// The number of times [`check_term`] has been called on a term
+    /// where the term has not been checked before
+    ///
+    /// [`check_term`]: TypingEnvironment::check_term
     check_cache_misses: Cell<usize>,
+
+    /// The number of [`def_eq`] calls
+    ///
+    /// [`def_eq`]: TypingEnvironment::def_eq
+    def_eq_calls: Cell<usize>,
+    /// The number of [`def_eq`] calls where the arguments were equivalent
+    ///
+    /// [`def_eq`]: TypingEnvironment::def_eq
+    def_eq_equiv_hits: Cell<usize>,
+    /// The number of [`def_eq`] calls where the arguments were equivalent
+    ///
+    /// [`def_eq`]: TypingEnvironment::def_eq
+    def_eq_sort_literals: Cell<usize>,
+    /// The number of [`def_eq`] calls where the arguments were proof terms
+    ///
+    /// [`def_eq`]: TypingEnvironment::def_eq
+    def_eq_proof_terms: Cell<usize>,
+    /// The number of [`def_eq`] calls where no special rules were applied and
+    /// the arguments were genuinely checked
+    ///
+    /// [`def_eq`]: TypingEnvironment::def_eq
+    def_eq_non_special_cases: Cell<usize>,
 }
 
 #[derive(Debug)]

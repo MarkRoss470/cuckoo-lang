@@ -2,10 +2,10 @@ pub mod accessors;
 mod check;
 pub mod constructors;
 pub mod def_eq;
+mod equiv;
 pub mod modifiers;
 #[cfg(test)]
 pub mod tests;
-mod equiv;
 
 use crate::typeck::level::{Level, LevelArgs};
 use crate::typeck::{AdtIndex, AxiomIndex, PrettyPrintContext};

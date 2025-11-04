@@ -114,13 +114,18 @@ impl TypedTermKind {
     pub fn increment_above(self: &Rc<Self>, limit: usize, inc: usize) -> Rc<Self> {
         use TypedTermKindInner::*;
 
+        // If the term definitely doesn't reference any variables above `limit`, just return it.
+        if self.cached_properties.indices_less_than <= limit {
+            return self.clone()
+        }
+        
         let new = match self.inner() {
-            inner @ (AdtName(_, _)
+            AdtName(_, _)
             | SortLiteral(_)
             | AdtConstructor(_, _, _)
             | AdtRecursor(_, _)
-            | Axiom(_, _)) => self.clone(),
-            BoundVariable { index, .. } if *index < limit => self.clone(),
+            | Axiom(_, _) => return self.clone(),
+            BoundVariable { index, .. } if *index < limit => return self.clone(),
             BoundVariable { index, name } => Self::bound_variable(index + inc, *name),
             Application { function, argument } => Self::application(
                 function.increment_above(limit, inc),
@@ -153,16 +158,19 @@ impl TypedTermKind {
     pub(super) fn replace_binder(self: &Rc<Self>, id: usize, expr: &TypedTerm) -> Rc<Self> {
         use TypedTermKindInner::*;
 
-        let a = self.inner();
+        // If the term definitely doesn't reference the variable, just return it.
+        if self.cached_properties.indices_less_than <= id {
+            return self.clone()
+        }
 
         let new = match self.inner() {
             SortLiteral(_)
             | AdtName(_, _)
             | AdtConstructor(_, _, _)
             | AdtRecursor(_, _)
-            | Axiom(_, _) => self.clone(),
+            | Axiom(_, _) => return self.clone(),
             // Bound variables with index less than `id` are unaffected
-            BoundVariable { index, .. } if *index < id => self.clone(),
+            BoundVariable { index, .. } if *index < id => return self.clone(),
             // References to bound variable `id` are replaced with `expr`
             BoundVariable { index, .. } if *index == id => expr.term.increment_above(0, id),
             // Bound variables greater than `id` are decreased by one because binder `id` has been removed.

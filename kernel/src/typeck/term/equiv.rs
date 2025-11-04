@@ -1,11 +1,17 @@
 use crate::typeck::TypedTerm;
 use crate::typeck::term::{TypedBinder, TypedTermKind, TypedTermKindInner};
+use std::ptr;
 
 impl TypedTerm {
     /// Checks two terms for structural equality.
     /// If `check_names` is true, the names of binders will be compared, otherwise they will be ignored.
     pub fn equiv(&self, other: &Self, check_names: bool) -> bool {
-        self.level.def_eq(&other.level)
+        // Any term is equivalent to itself
+        if ptr::eq(self, other) {
+            return true;
+        }
+
+        self.level == other.level
             && self.ty.equiv(&other.ty, check_names)
             && self.term.equiv(&other.term, check_names)
     }

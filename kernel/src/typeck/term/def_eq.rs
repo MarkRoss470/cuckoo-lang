@@ -10,14 +10,18 @@ use std::rc::Rc;
 impl TypingEnvironment {
     /// Checks whether two terms are definitionally equal.
     pub fn def_eq(&self, l: TypedTerm, r: TypedTerm) -> bool {
+        self.stats.def_eq_calls.update(|i| i + 1);
+
         // If the terms are identical, then they are definitionally equal by reflexivity
         if l.equiv(&r, false) {
+            self.stats.def_eq_equiv_hits.update(|i| i + 1);
             return true;
         }
         // If both terms are sort literals, just check whether the levels are definitionally equal
         if let Some(ll) = l.is_sort_literal()
             && let Some(lr) = r.is_sort_literal()
         {
+            self.stats.def_eq_sort_literals.update(|i| i + 1);
             return ll.def_eq(&lr);
         }
         // If the terms have different levels or different types, then they are not definitionally equal.
@@ -27,8 +31,11 @@ impl TypingEnvironment {
 
         // Any two values of the same type in `Prop` are definitionally equal
         if l.level == Level::zero() {
+            self.stats.def_eq_proof_terms.update(|i| i + 1);
             return true;
         }
+
+        self.stats.def_eq_non_special_cases.update(|i| i + 1);
 
         let ty = self.reduce_to_whnf(l.get_type());
 
@@ -69,7 +76,7 @@ impl TypingEnvironment {
     #[must_use]
     pub fn reduce_to_whnf(&self, mut term: TypedTerm) -> TypedTerm {
         use TypedTermKindInner::*;
-
+        
         let span = term.span();
         let mut args = vec![];
 
@@ -94,7 +101,7 @@ impl TypingEnvironment {
                 Lambda { binder, body } => {
                     let arg = args.pop().unwrap();
                     debug_assert!(self.def_eq(binder.ty.clone(), arg.get_type()));
-                    
+
                     term = self.reduce_to_whnf(body.replace_binder(0, &arg));
 
                     if let Some(abbr) = &body.term.abbreviation {
