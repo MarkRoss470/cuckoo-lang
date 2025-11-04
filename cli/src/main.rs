@@ -82,6 +82,6 @@ mod tests {
             }
         }
     }
-    
-    test_each_path!{ in "examples" => test_example }
+
+    test_each_path! { in "examples" => test_example }
 }

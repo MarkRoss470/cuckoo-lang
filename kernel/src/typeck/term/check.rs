@@ -62,7 +62,6 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for CheckContext<'a> {
     }
 }
 
-
 impl TypingEnvironment {
     pub fn check_term(&self, term: &TypedTerm) {
         self.check_term_with_context(term, &CheckContext::Root);

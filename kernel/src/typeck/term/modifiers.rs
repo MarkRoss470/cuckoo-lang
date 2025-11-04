@@ -116,9 +116,9 @@ impl TypedTermKind {
 
         // If the term definitely doesn't reference any variables above `limit`, just return it.
         if self.cached_properties.indices_less_than <= limit {
-            return self.clone()
+            return self.clone();
         }
-        
+
         let new = match self.inner() {
             AdtName(_, _)
             | SortLiteral(_)
@@ -160,7 +160,7 @@ impl TypedTermKind {
 
         // If the term definitely doesn't reference the variable, just return it.
         if self.cached_properties.indices_less_than <= id {
-            return self.clone()
+            return self.clone();
         }
 
         let new = match self.inner() {

@@ -218,7 +218,7 @@ pub(crate) fn bracketed_binder() -> impl Parser<Output = Binder> {
                 .alt()
                 .surround_whitespace()
                 .repeat_1()
-                .or_else_error(||ParseDiagnosticKind::MissingBinderName, just(vec![None])),
+                .or_else_error(|| ParseDiagnosticKind::MissingBinderName, just(vec![None])),
             special_operator(":"),
             term(),
             str_exact(")"),
@@ -301,7 +301,9 @@ fn atomic_term() -> impl Parser<Output = Term> {
                     kind: LevelExprKind::PROP
                 }))),
             path_term(),
-            keyword("_").map_term(|_| TermKind::Underscore),
+            keyword("_")
+                .surround_whitespace()
+                .map_term(|_| TermKind::Underscore),
             (str_exact("("), term(), str_exact(")"),).combine_with_whitespace(|(_, t, _)| t),
         )
             .alt()

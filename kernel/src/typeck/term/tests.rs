@@ -61,8 +61,8 @@ fn test_make_application_stack() {
             TypedTerm::make_application(f, nat.clone(), nat_to_prop, Span::dummy()),
             zero.clone(),
             prop.clone(),
-            Span::dummy()
-        )
+            Span::dummy(),
+        ),
     );
 }
 
@@ -81,7 +81,7 @@ fn test_replace_binder() {
     assert_equiv(
         &TypedTerm::bound_variable(0, Some(id_x), sort_0.clone(), Span::dummy())
             .replace_binder(0, &adt_0),
-        &adt_0
+        &adt_0,
     );
 
     assert_equiv(
@@ -89,24 +89,24 @@ fn test_replace_binder() {
             TypedBinder {
                 span: Span::dummy(),
                 name: None,
-                ty: adt_0.clone()
+                ty: adt_0.clone(),
             },
             TypedTerm::bound_variable(1, Some(id_x), sort_0.clone(), Span::dummy()),
-            Span::dummy()
+            Span::dummy(),
         )
         .replace_binder(
             0,
-            &TypedTerm::bound_variable(1, Some(id_x), sort_0.clone(), Span::dummy())
+            &TypedTerm::bound_variable(1, Some(id_x), sort_0.clone(), Span::dummy()),
         ),
         &TypedTerm::make_pi_type(
             TypedBinder {
                 span: Span::dummy(),
                 name: None,
-                ty: adt_0.clone()
+                ty: adt_0.clone(),
             },
             TypedTerm::bound_variable(2, Some(id_x), sort_0.clone(), Span::dummy()),
-            Span::dummy()
-        )
+            Span::dummy(),
+        ),
     );
 
     assert_equiv(
@@ -114,24 +114,24 @@ fn test_replace_binder() {
             TypedBinder {
                 span: Span::dummy(),
                 name: None,
-                ty: adt_0.clone()
+                ty: adt_0.clone(),
             },
             TypedTerm::bound_variable(2, Some(id_x), sort_0.clone(), Span::dummy()),
-            Span::dummy()
+            Span::dummy(),
         )
         .replace_binder(
             0,
-            &TypedTerm::bound_variable(1, Some(id_x), sort_0.clone(), Span::dummy())
+            &TypedTerm::bound_variable(1, Some(id_x), sort_0.clone(), Span::dummy()),
         ),
         &TypedTerm::make_pi_type(
             TypedBinder {
                 span: Span::dummy(),
                 name: None,
-                ty: adt_0.clone()
+                ty: adt_0.clone(),
             },
             TypedTerm::bound_variable(1, Some(id_x), sort_0, Span::dummy()),
-            Span::dummy()
-        )
+            Span::dummy(),
+        ),
     );
 
     // TODO: test when the variable being replaced is in the binder of a Pi / lambda

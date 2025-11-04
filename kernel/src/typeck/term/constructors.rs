@@ -195,7 +195,7 @@ impl TypedTermKind {
 
     pub fn axiom(axiom_index: AxiomIndex, level_args: LevelArgs) -> Rc<Self> {
         let properties = CachedTermProperties::path(&level_args);
-        
+
         Self::from_inner(
             TypedTermKindInner::Axiom(axiom_index, level_args),
             properties,

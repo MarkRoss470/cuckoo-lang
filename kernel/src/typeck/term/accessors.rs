@@ -149,7 +149,7 @@ impl TypedTermKind {
             _ => Err(()),
         }
     }
-    
+
     /// Checks that a term does not reference a given ADT. This is only used while type-checking the
     /// definition of the ADT in question, so it can be assumed that [`DefinedConstant`]s and [`Axiom`]s do not
     /// reference the ADT.

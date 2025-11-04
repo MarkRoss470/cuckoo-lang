@@ -1,9 +1,9 @@
-use crate::combinators::modifiers::MapExt;
 use crate::ast::item::{LevelParameters, level_params};
 use crate::ast::term::{Binder, Term, bracketed_binder, term};
 use crate::atoms::ident::{OwnedPath, keyword, path};
 use crate::atoms::special_operator;
 use crate::atoms::whitespace::InBlockExt;
+use crate::combinators::modifiers::MapExt;
 use crate::combinators::modifiers::WithSpanExt;
 use crate::combinators::repeat::Repeat0Ext;
 use crate::combinators::tuples::HeterogeneousTupleExt;
