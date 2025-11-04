@@ -149,33 +149,7 @@ impl TypedTermKind {
             _ => Err(()),
         }
     }
-
-    pub(crate) fn references_bound_variable(&self, id: usize) -> bool {
-        use TypedTermKindInner::*;
-
-        match self.inner() {
-            SortLiteral(_)
-            | AdtName(_, _)
-            | AdtConstructor(_, _, _)
-            | AdtRecursor(_, _)
-            | Axiom(_, _) => false,
-
-            BoundVariable { index, name: _ } => *index == id,
-            Application { function, argument } => {
-                function.term.references_bound_variable(id)
-                    || argument.term.references_bound_variable(id)
-            }
-            PiType { binder, output } => {
-                binder.ty.term.references_bound_variable(id)
-                    || output.term.references_bound_variable(id + 1)
-            }
-            Lambda { binder, body } => {
-                binder.ty.term.references_bound_variable(id)
-                    || body.term.references_bound_variable(id + 1)
-            }
-        }
-    }
-
+    
     /// Checks that a term does not reference a given ADT. This is only used while type-checking the
     /// definition of the ADT in question, so it can be assumed that [`DefinedConstant`]s and [`Axiom`]s do not
     /// reference the ADT.

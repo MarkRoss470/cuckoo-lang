@@ -76,7 +76,7 @@ impl TypingEnvironment {
     #[must_use]
     pub fn reduce_to_whnf(&self, mut term: TypedTerm) -> TypedTerm {
         use TypedTermKindInner::*;
-        
+
         let span = term.span();
         let mut args = vec![];
 
@@ -236,6 +236,7 @@ impl TypingEnvironment {
         );
 
         let reindex = |i, mut term: TypedTerm| {
+            // Replace references to previous constructor parameters with the values given
             for constructor_arg in &constructor_args[..param_index] {
                 term = term.replace_binder(i, constructor_arg)
             }
@@ -341,17 +342,8 @@ impl TypingEnvironment {
                 },
             ) => self.def_eq(sb.ty.clone(), ob.ty.clone()) && self.def_eq(so.clone(), oo.clone()),
             (PiType { .. }, _) => false,
-            (
-                Lambda {
-                    binder: _,
-                    body: sbo,
-                },
-                Lambda {
-                    binder: _,
-                    body: obo,
-                },
-            ) => self.def_eq(sbo.clone(), obo.clone()),
-            (Lambda { .. }, _) => false,
+            // Lambdas are impossible here because they would trigger the special case in `def_eq`
+            (Lambda { .. }, _) => unreachable!(),
         }
     }
 
