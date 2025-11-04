@@ -60,7 +60,7 @@ pub enum TypeErrorKind {
     },
 
     // ----- Naming errors
-    NameAlreadyDefined(Identifier),
+    NameAlreadyDefined(OwnedPath),
 }
 
 impl TypeError {
@@ -152,7 +152,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
             TypeErrorKind::LevelLiteralTooBig(l) => {
                 write!(
                     out,
-                    "Level literal {l} is too large: level literals must be smaller than 8."
+                    "Level literal {l} is too large: level literals must be at most 8."
                 )
             }
             TypeErrorKind::DuplicateLevelParameter(id) => {

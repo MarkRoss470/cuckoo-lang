@@ -118,29 +118,6 @@ impl Namespace {
         }
     }
 
-    pub fn resolve_ty(
-        &self,
-        path: Path,
-        level_args: &LevelArgs,
-        span: Span,
-    ) -> Result<TypedTerm, TypeError> {
-        let item = self.resolve_inner(path, span.clone())?;
-
-        // Check that there are the right number of level arguments
-        if item.level_params.count() != level_args.count() {
-            Err(TypeError {
-                span,
-                kind: TypeErrorKind::WrongNumberOfLevelArgs {
-                    path: path.to_owned(),
-                    expected: item.level_params.count(),
-                    found: level_args.count(),
-                },
-            })
-        } else {
-            Ok(item.value.get_type().instantiate(level_args))
-        }
-    }
-
     pub fn insert(
         &mut self,
         path: Path,
@@ -157,7 +134,7 @@ impl Namespace {
                 if self.items.contains_key(&id) {
                     Err(TypeError {
                         span,
-                        kind: TypeErrorKind::NameAlreadyDefined(id),
+                        kind: TypeErrorKind::NameAlreadyDefined(OwnedPath::from_id(id)),
                     })
                 } else {
                     self.items.insert(
@@ -180,7 +157,14 @@ impl Namespace {
                 self.namespaces
                     .get_mut(&id)
                     .unwrap()
-                    .insert(rest, level_params, value, span)
+                    .insert(rest, level_params, value, span.clone())
+                    .map_err(|e| match e.kind {
+                        TypeErrorKind::NameAlreadyDefined(p) => TypeError {
+                            span,
+                            kind: TypeErrorKind::NameAlreadyDefined(p.prepend(id)),
+                        },
+                        _ => e,
+                    })
             }
         }
     }
