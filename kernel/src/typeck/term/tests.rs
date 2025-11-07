@@ -1,5 +1,6 @@
 use super::*;
 
+/// Asserts that two terms are equivalent, including checking names.
 pub fn assert_equiv(l: &TypedTerm, r: &TypedTerm) {
     assert!(l.equiv(r, true))
 }

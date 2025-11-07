@@ -1,3 +1,5 @@
+//! The [`TypeError`] and [`TypeErrorKind`] types
+
 use crate::typeck::level::Level;
 use crate::typeck::term::TypedTermKind;
 use crate::typeck::{AdtIndex, PrettyPrintContext, TypedTerm, TypingEnvironment};
@@ -7,9 +9,12 @@ use parser::error::Span;
 use std::io::Write;
 use std::rc::Rc;
 
+/// An error which occurred during type checking
 #[derive(Debug, Clone)]
 pub struct TypeError {
+    /// The source span where the error occurred
     pub span: Span,
+    /// The type of error which occurred
     pub kind: TypeErrorKind,
 }
 
@@ -19,51 +24,85 @@ pub enum TypeErrorKind {
     UnsupportedInKernel(&'static str),
 
     // ----- Term resolution errors
+    /// The function of an [`Application`] term did not have a pi type
+    ///
+    /// [`Application`]: parser::ast::term::TermKind::Application
     NotAFunction(TypedTerm),
+    /// A term was not a type which should have been
     NotAType(TypedTerm),
+    /// A name could not be resolved
     NameNotResolved(OwnedPath),
+    /// A term has a different type to what was expected
     MismatchedTypes {
+        /// The term which had the wrong type
         term: TypedTerm,
+        /// The type it was expected to have
         expected: TypedTerm,
     },
+    /// The first segment of a [`Path`] term referenced a bound variable
+    ///
+    /// [`Path`]: parser::ast::term::TermKind::Path
     LocalVariableIsNotANamespace(OwnedPath),
 
     // ------ Level errors
+    /// A level literal was encountered which was larger than the configured limit
     LevelLiteralTooBig(usize),
+    /// An item defined the same level parameter more than once
     DuplicateLevelParameter(Identifier),
+    /// A level parameter was referenced which was not defined
     LevelParameterNotFound(Identifier),
+    /// The wrong number of level arguments were given to a constant
     WrongNumberOfLevelArgs {
+        /// The path of the constant
         path: OwnedPath,
+        /// How many arguments were expected
         expected: usize,
+        /// How many arguments were given
         found: usize,
     },
+    /// Level argument(s) were given for a bound variable
     LevelArgumentGivenForLocalVariable(Identifier),
 
     // ----- ADT declaration errors
+    /// The family of an ADT was not a pi type ending in `Sort _`
     NotASortFamily(TypedTerm),
+    /// The level of an ADT was not either guaranteed to be `Prop` or guaranteed to not be `Prop`
     MayOrMayNotBeProp(Level),
     /// The resultant type for a constructor was not the ADT it was associated with
     IncorrectConstructorResultantType {
+        /// The name of the constructor
         name: Identifier,
+        /// What the output was actually an application of
         found: TypedTerm,
+        /// The ADT in question
         expected: AdtIndex,
     },
     /// The ADT being defined was referenced from a disallowed location in a constructor
     InvalidLocationForAdtNameInConstructor(AdtIndex),
+    /// An ADT was used with a parameter different from how it was defined
     MismatchedAdtParameter {
+        /// The term which was used as a parameter
         found: TypedTerm,
+        /// The term which was expected for the value of the parameter
         expected: Rc<TypedTermKind>,
     },
+    /// A constructor parameter had too high a level
     InvalidConstructorParameterLevel {
+        /// The type of the parameter
         ty: TypedTerm,
+        /// The level of the ADT
         adt_level: Level,
     },
 
     // ----- Naming errors
+    /// A name was declared multiple times
     NameAlreadyDefined(OwnedPath),
 }
 
 impl TypeError {
+    /// Constructs an [`UnsupportedInKernel`] error with the given span and message
+    ///
+    /// [`UnsupportedInKernel`]: TypeErrorKind::UnsupportedInKernel
     pub(crate) fn unsupported(span: Span, msg: &'static str) -> Self {
         Self {
             span,
@@ -73,6 +112,10 @@ impl TypeError {
 }
 
 impl TypingEnvironment {
+    /// Constructs a [`MismatchedTypes`] error, [fully reducing] the given terms
+    ///
+    /// [`MismatchedTypes`]: TypeErrorKind::MismatchedTypes
+    /// [fully reducing]: TypingEnvironment::fully_reduce
     pub fn mismatched_types_error(&self, term: TypedTerm, expected: TypedTerm) -> TypeError {
         TypeError {
             span: term.span(),
@@ -93,7 +136,7 @@ fn pretty_print_term_in_error(
 ) -> std::io::Result<()> {
     // If the term in question is a proof, then set print_proofs to true when printing it
     if term.level().def_eq(&Level::zero()) {
-        let mut context = context.clone();
+        let mut context = context;
         context.print_proofs = true;
         term.pretty_print(out, context)
     } else {
@@ -152,7 +195,8 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
             TypeErrorKind::LevelLiteralTooBig(l) => {
                 write!(
                     out,
-                    "Level literal {l} is too large: level literals must be at most 8."
+                    "Level literal {l} is too large: the largest allowed level literal is currently configured to be {}.",
+                    context.environment.config.max_level_literal
                 )
             }
             TypeErrorKind::DuplicateLevelParameter(id) => {
@@ -203,14 +247,14 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
             } => {
                 write!(out, "Invalid resultant type for constructor. Constructor ")?;
                 name.pretty_print(out, &context.interner())?;
-                write!(out, " should result in an application of ")?;
+                write!(out, " should result in an application of\n  ")?;
                 context
                     .environment
                     .get_adt(*expected)
                     .header
                     .name
                     .pretty_print(out, &context.interner())?;
-                write!(out, ", but it results in ")?;
+                write!(out, "\nbut it results in an application of\n  ")?;
                 found.term().pretty_print(out, context)
             }
             TypeErrorKind::InvalidLocationForAdtNameInConstructor(id) => {

@@ -1,3 +1,5 @@
+//! Methods to check definitional equality of terms, and reduce them to normal forms
+
 use super::{Abbreviation, TypedBinder, TypedTermKindInner};
 use super::{TypedTerm, TypedTermKind};
 use crate::typeck::TypingEnvironment;
@@ -9,11 +11,30 @@ use std::rc::Rc;
 
 impl TypingEnvironment {
     /// Checks whether two terms are definitionally equal.
+    ///
+    /// The rules for definitional equality are as follows:
+    /// * Two sort literals are definitionally equal iff the levels are [definitionally equal]
+    /// * If two terms' levels or types are not definitionally equal,
+    ///   then the types themselves are not.
+    /// * Any two terms of definitionally equal types in `Prop` are themselves definitionally equal
+    /// * Two terms `f` and `g` of a pi type `(x : T) -> U` are definitionally equal iff
+    ///   `f y` is definitionally equal to `g y` for a fresh variable `y : T`
+    /// * Otherwise, terms are equal if they reduce to definitionally equal terms, where:
+    ///   * An application of a lambda abstraction to an argument reduces to the body of the lambda
+    ///     with the bound variable replaced with the argument
+    ///   * An application of a recursor where the major premise is a constructor reduces to an
+    ///     application of the corresponding minor premise, as computed by
+    ///     [`try_to_reduce_recursor_application`]
+    ///
+    /// [definitionally equal]: Level::def_eq
+    /// [`try_to_reduce_recursor_application`]: TypingEnvironment::try_to_reduce_recursor_application
     pub fn def_eq(&self, l: TypedTerm, r: TypedTerm) -> bool {
+        #[cfg(feature = "track-stats")]
         self.stats.def_eq_calls.update(|i| i + 1);
 
         // If the terms are identical, then they are definitionally equal by reflexivity
         if l.equiv(&r, false) {
+            #[cfg(feature = "track-stats")]
             self.stats.def_eq_equiv_hits.update(|i| i + 1);
             return true;
         }
@@ -21,6 +42,7 @@ impl TypingEnvironment {
         if let Some(ll) = l.is_sort_literal()
             && let Some(lr) = r.is_sort_literal()
         {
+            #[cfg(feature = "track-stats")]
             self.stats.def_eq_sort_literals.update(|i| i + 1);
             return ll.def_eq(&lr);
         }
@@ -31,10 +53,12 @@ impl TypingEnvironment {
 
         // Any two values of the same type in `Prop` are definitionally equal
         if l.level == Level::zero() {
+            #[cfg(feature = "track-stats")]
             self.stats.def_eq_proof_terms.update(|i| i + 1);
             return true;
         }
 
+        #[cfg(feature = "track-stats")]
         self.stats.def_eq_non_special_cases.update(|i| i + 1);
 
         let ty = self.reduce_to_whnf(l.get_type());
@@ -44,19 +68,20 @@ impl TypingEnvironment {
         if let Some((binder, output)) = ty.is_pi_type()
             && (l.is_lambda().is_some() || r.is_lambda().is_some())
         {
-            let l = self.reduce_to_whnf(TypedTerm::make_application(
-                l.increment_above(0, 1),
-                TypedTerm::bound_variable(0, None, binder.ty.clone(), binder.span()),
-                output.clone(),
-                l.span,
-            ));
+            let apply_to_fresh_variable = |t: TypedTerm| {
+                // Reduce to WHNF here so that if the application reduces to another lambda,
+                // it is guaranteed to hit this special case again, meaning that structural_def_eq
+                // is never passed a lambda.
+                self.reduce_to_whnf(TypedTerm::make_application(
+                    t.increment_above(0, 1),
+                    TypedTerm::bound_variable(0, None, binder.ty.clone(), binder.span()),
+                    output.clone(),
+                    t.span,
+                ))
+            };
 
-            let r = self.reduce_to_whnf(TypedTerm::make_application(
-                r.increment_above(0, 1),
-                TypedTerm::bound_variable(0, None, binder.ty.clone(), binder.span()),
-                output.clone(),
-                r.span,
-            ));
+            let l = apply_to_fresh_variable(l);
+            let r = apply_to_fresh_variable(r);
 
             return self.def_eq(l, r);
         }
@@ -102,7 +127,7 @@ impl TypingEnvironment {
                     let arg = args.pop().unwrap();
                     debug_assert!(self.def_eq(binder.ty.clone(), arg.get_type()));
 
-                    term = self.reduce_to_whnf(body.replace_binder(0, &arg));
+                    term = body.replace_binder(0, &arg);
 
                     if let Some(abbr) = &body.term.abbreviation {
                         term = term
@@ -112,7 +137,7 @@ impl TypingEnvironment {
                 // If the function is an ADT recursor, try to reduce it
                 AdtRecursor(adt_index, _) => {
                     let adt = self.get_adt(*adt_index);
-                    // Reducing a recursor requires all the arguments to be known
+                    // Reducing a recursor requires all the arguments to be given
                     if args.len() < adt.recursor_num_parameters() {
                         break;
                     }
@@ -136,7 +161,7 @@ impl TypingEnvironment {
             }
         }
 
-        // Once the term can't be reduced further, re-apply the arguments
+        // Once the term can't be reduced further, re-apply any arguments which weren't used in reductions
         TypedTerm::make_application_stack(term, args.into_iter().rev().map(|t| t.term()), span)
     }
 
@@ -144,12 +169,20 @@ impl TypingEnvironment {
     /// If the reduction is successful, the reduced term is returned, otherwise the return value is
     /// `None`.
     ///
-    /// Reduction succeeds if the value parameter reduces to an application of a constructor.
-    /// The output is of the form `<induction rule> <args> <inductive arguments>`,
-    /// where `<induction rule>` is the argument to the recursor corresponding to the induction
-    /// rule for the constructor in question.
+    /// Reduction succeeds if the major premise reduces to an application of a constructor.
+    /// The output is of the form `<minor premise> <args> <inductive arguments>`,
+    /// where `<minor premise>` is the argument to the recursor corresponding to the
+    /// constructor in question.
     ///
     /// See [`Self::make_recursor_application_inductive_argument`] for the format of inductive arguments.
+    ///
+    /// # Parameters
+    /// * `adt`: The ADT whose recursor is being reduced
+    /// * `recursor`: The ADT's recursor constant
+    /// * `args_reversed`: The arguments to the recursor in reverse source order.
+    ///   The length of this slice must exactly match the number of arguments that the recursor
+    ///   takes.
+    /// * `span`: The source span which will be used for the function applications in the output
     #[must_use]
     fn try_to_reduce_recursor_application(
         &self,
@@ -163,14 +196,15 @@ impl TypingEnvironment {
         // Accounts for the fact that `args_reversed` is in reverse order
         let get_recursor_arg = |i: usize| &args_reversed[args_reversed.len() - i - 1];
 
-        // The recursor can only be reduced if the value parameter is an application of a constructor
+        // Get the major premise
+        let major_premise = get_recursor_arg(adt.recursor_major_premise_index()).clone();
+
+        // The recursor can only be reduced if the major premise is an application of a constructor
         // TODO: subsingleton elimination?
         let (value_fun, constructor_args) = self
-            .reduce_to_whnf(get_recursor_arg(adt.recursor_value_param_index()).clone())
+            .reduce_to_whnf(major_premise)
             .decompose_application_stack();
-        let Some((adt_index, constructor_index, _)) = value_fun.is_adt_constructor() else {
-            return None;
-        };
+        let (adt_index, constructor_index, _) = value_fun.is_adt_constructor()?;
 
         let constructor = &adt.constructors[constructor_index];
 
@@ -180,31 +214,33 @@ impl TypingEnvironment {
             adt.header.parameters.len() + constructor.params.len()
         );
 
-        // Get the induction rule for the constructor being reduced
-        let induction_rule =
-            get_recursor_arg(adt.recursor_constructor_param_index(constructor_index)).clone();
+        // Get the minor premise for the constructor being reduced
+        let minor_premise =
+            get_recursor_arg(adt.recursor_minor_premise_index(constructor_index)).clone();
+
+        let make_inductive_argument = |(param_index, param_params, param_indices)| {
+            self.make_recursor_application_inductive_argument(
+                adt,
+                recursor,
+                args_reversed,
+                &constructor_args,
+                param_index,
+                param_params,
+                param_indices,
+            )
+            .term()
+        };
+
+        // The inductive arguments to the minor premise
+        let inductive_arguments = constructor.inductive_params().map(make_inductive_argument);
 
         let output = TypedTerm::make_application_stack(
-            induction_rule,
+            minor_premise,
             constructor_args
                 .iter()
                 .skip(adt.header.parameters.len())
                 .map(|arg| arg.term().clone())
-                .chain(constructor.inductive_params().map(
-                    |(param_index, param_params, param_indices)| {
-                        self.make_recursor_application_inductive_argument(
-                            adt,
-                            recursor,
-                            args_reversed,
-                            &constructor_args,
-                            param_index,
-                            constructor_args[adt.header.parameters.len() + param_index].clone(),
-                            param_params,
-                            param_indices,
-                        )
-                        .term()
-                    },
-                )),
+                .chain(inductive_arguments),
             span,
         );
 
@@ -217,7 +253,20 @@ impl TypingEnvironment {
     /// The format of the returned value is:
     /// `fun <param_params> => <recursor> <motive> <constructor rules> <indices> (<parameter> <param_params>)`
     /// Where the motive and constructor rules are the same as in the recursor application being
-    /// reduced,
+    /// reduced.
+    ///
+    /// # Parameters
+    /// * `adt`: The ADT whose recursor is being reduced
+    /// * `recursor`: The ADT's recursor constant
+    /// * `recursor_args_reversed`: The arguments to the recursor in reverse source order.
+    ///   The length of this slice must exactly match the number of arguments that the recursor
+    ///   takes.
+    /// * `constructor_args`: The arguments given to the ADT constructor in the major premise
+    /// * `param_index`: The index into the constructor's parameters of the inductive parameter
+    ///   in question
+    /// * `param_params`: The parameters to the inductive parameter in question
+    /// * `param_indices`: The indices of the ADT in the output type of the inductive parameter in
+    ///   question
     #[must_use]
     fn make_recursor_application_inductive_argument(
         &self,
@@ -226,7 +275,6 @@ impl TypingEnvironment {
         recursor_args_reversed: &[TypedTerm],
         constructor_args: &[TypedTerm],
         param_index: usize,
-        param_val: TypedTerm,
         param_params: &[TypedBinder],
         param_indices: &[TypedTerm],
     ) -> TypedTerm {
@@ -235,36 +283,32 @@ impl TypingEnvironment {
             adt.header.parameters.len() + adt.header.indices.len()
         );
 
-        let reindex = |i, mut term: TypedTerm| {
+        // The value of the parameter in the major premise
+        let param_val = constructor_args[adt.header.parameters.len() + param_index].clone();
+
+        // Replaces ADT parameters and previous constructor parameters in a term which is under
+        // `num_binders` binders relative to the root of the inductive
+        let replace_params = |num_binders, mut term: TypedTerm| {
             // Replace references to previous constructor parameters with the values given
             for constructor_arg in &constructor_args[..param_index] {
-                term = term.replace_binder(i, constructor_arg)
+                term = term.replace_binder(num_binders, constructor_arg)
             }
             for adt_param in recursor_args_reversed
                 [recursor_args_reversed.len() - adt.header.parameters.len() - 1..]
                 .iter()
                 .rev()
             {
-                term = term.replace_binder(i, adt_param);
+                term = term.replace_binder(num_binders, adt_param);
             }
 
             term
         };
 
-        let binders: Vec<_> = param_params
-            .iter()
-            .enumerate()
-            .map(|(i, binder)| TypedBinder {
-                span: binder.span(),
-                name: binder.name,
-                ty: reindex(i, binder.ty.clone()),
-            })
-            .collect();
-
-        let value_param = TypedTerm::make_application_stack(
+        // The major premise of the new recursor application
+        let major_premise = TypedTerm::make_application_stack(
             param_val.clone(),
             param_params
-                .into_iter()
+                .iter()
                 .cloned()
                 .enumerate()
                 .map(|(i, binder)| {
@@ -273,18 +317,35 @@ impl TypingEnvironment {
             param_val.span(),
         );
 
-        let body = TypedTerm::make_application_stack(
+        // The new recursor application
+        let recursor_application = TypedTerm::make_application_stack(
             recursor.clone(),
             recursor_args_reversed
                 .iter()
                 .skip(adt.header.indices.len() + 1)
                 .rev()
                 .map(|t| t.term())
-                .chain(iter::once(value_param.term())),
+                .chain(iter::once(major_premise.term())),
             recursor.span(),
         );
 
-        TypedTerm::make_lambda_telescope(binders, body.clone(), body.span())
+        // The parameters to this inductive parameter with the previous constructor arguments
+        // substituted in
+        let binders: Vec<_> = param_params
+            .iter()
+            .enumerate()
+            .map(|(i, binder)| TypedBinder {
+                span: binder.span(),
+                name: binder.name,
+                ty: replace_params(i, binder.ty.clone()),
+            })
+            .collect();
+
+        TypedTerm::make_lambda_telescope(
+            binders,
+            recursor_application.clone(),
+            recursor_application.span(),
+        )
     }
 
     /// Compares whether two terms have the same top level structure, and checks the sub-terms for
@@ -292,12 +353,13 @@ impl TypingEnvironment {
     fn structural_def_eq(&self, l: &TypedTermKind, r: &TypedTermKind) -> bool {
         use TypedTermKindInner::*;
 
+        // If the terms are equivalent up to renaming variables, they are definitionally equal
         if l.equiv(r, false) {
             return true;
         }
 
         match (l.inner(), r.inner()) {
-            (SortLiteral(u1), SortLiteral(u2)) => u1.def_eq(&u2),
+            (SortLiteral(u1), SortLiteral(u2)) => u1.def_eq(u2),
             (SortLiteral(_), _) => false,
             (AdtName(i1, l1), AdtName(i2, l2)) => i1 == i2 && l1 == l2,
             (AdtName(_, _), _) => false,
@@ -347,6 +409,14 @@ impl TypingEnvironment {
         }
     }
 
+    /// Reduces a term until no more reduction rules can be applied. Unlike [`reduce_to_whnf`],
+    /// this method will reduce all sub-terms, not just ones which may have an effect on the root
+    /// of the term.
+    ///
+    /// # Parameters
+    /// * `reduce_proofs`: Whether to reduce proof terms
+    ///
+    /// [`reduce_to_whnf`]: TypingEnvironment::reduce_to_whnf
     pub fn fully_reduce(&self, term: TypedTerm, reduce_proofs: bool) -> TypedTerm {
         // If the term is a proof and should not be expanded, return it as-is
         if !reduce_proofs && term.level.def_eq(&Level::zero()) {
@@ -358,7 +428,7 @@ impl TypingEnvironment {
         let reduced_ty = self.fully_reduce_kind(&whnf_ty.term(), reduce_proofs);
         let reduced_term = self.fully_reduce_kind(&whnf_term.term(), reduce_proofs);
 
-        let fully_reduced = TypedTerm::value_of_type(
+        TypedTerm::value_of_type(
             reduced_term,
             TypedTerm::value_of_type(
                 reduced_ty,
@@ -366,11 +436,12 @@ impl TypingEnvironment {
                 term.span(),
             ),
             term.span(),
-        );
-
-        fully_reduced
+        )
     }
 
+    /// See [`fully_reduce`]
+    ///
+    /// [`fully_reduce`]: TypingEnvironment::fully_reduce
     fn fully_reduce_kind(
         &self,
         term: &Rc<TypedTermKind>,

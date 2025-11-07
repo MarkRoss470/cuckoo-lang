@@ -1,12 +1,68 @@
+//! The [`TypingContext`] type
+
 use crate::typeck::error::TypeErrorKind;
 use crate::typeck::level::LevelArgs;
 use crate::typeck::term::{TypedBinder, TypedTerm};
-use crate::typeck::{TypeError, TypingContext};
+use crate::typeck::{TypeError, TypingEnvironment};
 use parser::ast::term::{Binder, Term, TermKind};
 use parser::atoms::ident::{OwnedPath, Path};
 use parser::error::Span;
 
+/// A context to map names to terms, which forms a linked list of scopes.
+/// When looking up a name, either the name is a bound local variable, in which case it will match
+/// a binder in the [`Binders`] variant, or the name is a defined constant, in which case it will
+/// be looked up in the [`TypingEnvironment`] contained in the [`Root`] variant.
+///
+/// [`Binders`]: TypingContext::Binders
+/// [`Root`]: TypingContext::Root
+#[derive(Debug, Copy, Clone)]
+pub enum TypingContext<'a> {
+    /// The root scope, where names will be looked up in the root namespace of the contained
+    /// [`TypingEnvironment`]
+    Root(&'a TypingEnvironment),
+    /// A scope containing binders for zero or more local variables
+    Binders {
+        /// The binders applied by this context. These are in source order, so later ones may
+        /// depend on earlier ones.
+        binders: &'a [TypedBinder],
+        /// The parent context. Names which do not match any of the binders will be looked up in
+        /// this context.
+        parent: &'a TypingContext<'a>,
+    },
+}
+
 impl<'a> TypingContext<'a> {
+    /// Wraps the context in a [`Binders`] variant containing the single binder given
+    ///
+    /// [`Binders`]: TypingContext::Binders
+    pub fn with_binder(&'a self, binder: &'a TypedBinder) -> Self {
+        Self::Binders {
+            binders: std::slice::from_ref(binder),
+            parent: self,
+        }
+    }
+
+    /// Wraps the context in a [`Binders`] variant containing the given list of binders
+    ///
+    /// [`Binders`]: TypingContext::Binders
+    pub fn with_binders(&'a self, binders: &'a [TypedBinder]) -> Self {
+        Self::Binders {
+            binders,
+            parent: self,
+        }
+    }
+
+    /// Gets the [`TypingEnvironment`] referenced by the [`Root`] of this context
+    ///
+    /// [`Root`]: TypingContext::Root
+    pub fn environment(&self) -> &TypingEnvironment {
+        match self {
+            TypingContext::Root(env) => env,
+            TypingContext::Binders { binders: _, parent } => parent.environment(),
+        }
+    }
+
+    /// Resolves a syntactic [`Term`] into a [`TypedTerm`]
     pub(super) fn resolve_term(&self, term: &Term) -> Result<TypedTerm, TypeError> {
         let span = term.span.clone();
 
@@ -30,7 +86,9 @@ impl<'a> TypingContext<'a> {
 
     /// Resolves an identifier in the context. On success, returns the associated term as well as the number of
     /// binders between that binder's introduction and the current context - the binders in the term need to be
-    /// increased by this number, which is done in [`resolve_identifier`][Self::resolve_identifier]
+    /// increased by this number, which is done in [`resolve_path`]
+    ///
+    /// [`resolve_path`]: TypingContext::resolve_path
     fn resolve_path_inner(
         &self,
         path: Path,
@@ -44,31 +102,29 @@ impl<'a> TypingContext<'a> {
 
                 for (i, binder) in binders.iter().rev().enumerate() {
                     // Check whether the identifier matches the binder
-                    if let Some(name) = binder.name {
-                        if first == name {
-                            // If the identifier resolved to the local variable but there are more segments in the path, give an error
-                            if rest.is_some() {
-                                return Err(TypeError {
-                                    span,
-                                    kind: TypeErrorKind::LocalVariableIsNotANamespace(
-                                        OwnedPath::from_id(first),
-                                    ),
-                                });
-                            }
-
-                            // Local variables can't have level arguments
-                            if level_args.count() != 0 {
-                                return Err(TypeError {
-                                    span,
-                                    kind: TypeErrorKind::LevelArgumentGivenForLocalVariable(name),
-                                });
-                            }
-
-                            return Ok((
-                                TypedTerm::bound_variable(0, Some(first), binder.ty.clone(), span),
-                                i,
-                            ));
+                    if binder.name == Some(first) {
+                        // If the identifier resolved to the local variable but there are more segments in the path, give an error
+                        if rest.is_some() {
+                            return Err(TypeError {
+                                span,
+                                kind: TypeErrorKind::LocalVariableIsNotANamespace(
+                                    OwnedPath::from_id(first),
+                                ),
+                            });
                         }
+
+                        // Local variables can't have level arguments
+                        if level_args.count() != 0 {
+                            return Err(TypeError {
+                                span,
+                                kind: TypeErrorKind::LevelArgumentGivenForLocalVariable(first),
+                            });
+                        }
+
+                        return Ok((
+                            TypedTerm::bound_variable(0, Some(first), binder.ty.clone(), span),
+                            i,
+                        ));
                     }
                 }
 
@@ -80,7 +136,7 @@ impl<'a> TypingContext<'a> {
         }
     }
 
-    /// Resolves a path in the current context
+    /// Resolves a [`Path`] into the [`TypedTerm`] it references
     fn resolve_path(
         &self,
         path: Path,
@@ -99,6 +155,8 @@ impl<'a> TypingContext<'a> {
             })
     }
 
+    /// Resolves a syntactic function application [`Term`], checking that the term is
+    /// type-correct
     fn resolve_application(
         &self,
         function: &Term,
@@ -135,6 +193,7 @@ impl<'a> TypingContext<'a> {
         ))
     }
 
+    /// Resolves a syntactic pi type [`Term`], checking that the term is type-correct
     fn resolve_pi_type(
         &self,
         binder: &Binder,
@@ -161,12 +220,13 @@ impl<'a> TypingContext<'a> {
         let c = self.with_binder(&binder);
 
         // Resolve the output type in this new context
-        let output = c.resolve_term(&output)?;
+        let output = c.resolve_term(output)?;
         output.check_is_ty()?;
 
         Ok(TypedTerm::make_pi_type(binder, output, span))
     }
 
+    /// Resolves a syntactic lambda abstraction [`Term`], checking that the term is type-correct
     fn resolve_lambda(
         &self,
         binder: &Binder,
@@ -194,7 +254,7 @@ impl<'a> TypingContext<'a> {
         let c = self.with_binder(&binder);
 
         // Resolve the output type in this new context
-        let body = c.resolve_term(&body)?;
+        let body = c.resolve_term(body)?;
 
         Ok(TypedTerm::make_lambda(binder, body, span))
     }

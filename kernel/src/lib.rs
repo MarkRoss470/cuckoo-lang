@@ -1,3 +1,12 @@
+//! # Kernel
+//!
+//! The `kernel` crate implements the core logic of the Cuckoo language. It is designed to be
+//! small and simple, to avoid bugs that lead to unsoundness. More complex features such as type
+//! inference and recursive definitions will instead be implemented in the `elaborator` crate.
+
+#![warn(clippy::missing_docs_in_private_items)]
+#![warn(missing_docs)]
+
 use crate::diagnostic::KernelError;
 use crate::typeck::{PrettyPrintContext, TypedTerm, TypingEnvironment};
 use common::PrettyPrint;
@@ -9,40 +18,61 @@ mod diagnostic;
 mod typeck;
 
 pub use typeck::TypingEnvironmentConfig as KernelConfig;
+#[cfg(feature = "track-stats")]
+pub use typeck::TypingEnvironmentStats as KernelStats;
 
-#[derive(Debug)]
+/// A typing environment which stores the ADTs, axioms, and value definitions which have been
+/// defined so far. 
+#[derive(Debug, Default)]
 pub struct KernelEnvironment(TypingEnvironment);
 
 impl KernelEnvironment {
+    /// Constructs a new [`KernelEnvironment`] with no defined items.
     pub fn new() -> Self {
-        Self(TypingEnvironment::new())
+        Self::default()
     }
 
+    /// Typechecks a file. Any names defined by the file's contents will be stored in `self` and
+    /// can be used by future files.
     pub fn load(&mut self, source: &SourceFile) -> Result<(), KernelError> {
         self.0.load(source)
     }
-
+    
+    /// Runs [`load`] on content from a string
+    ///
+    /// [`load`]: KernelEnvironment::load
     #[cfg(any(test, feature = "test-utils"))]
-    pub fn check_str(&mut self, source: &str) -> Result<(), KernelError> {
+    pub fn load_str(&mut self, source: &str) -> Result<(), KernelError> {
         self.0.load_str(source)
     }
 
+    /// Gets a reference to the kernel's configuration
     pub fn config(&self) -> &KernelConfig {
         &self.0.config
     }
 
+    /// Gets a mutable reference to the kernel's configuration
     pub fn config_mut(&mut self) -> &mut KernelConfig {
         &mut self.0.config
     }
 
+    /// Gets a copy of the kernel's stats
+    #[cfg(feature = "track-stats")]
+    pub fn stats(&self) -> KernelStats {
+        self.0.stats.clone()
+    }
+
+    /// Pretty prints the environment to `stdout`
     pub fn pretty_print(&self) {
         self.0.pretty_print();
     }
 
+    /// Pretty prints a term to `stdout` followed by a newline
     pub fn pretty_println_term(&self, term: &KernelTerm) {
         self.0.pretty_println_val(&term.0);
     }
 
+    /// Pretty prints an error to `stdout` followed by a newline
     pub fn pretty_println_error(&self, error: &KernelError) {
         match error {
             KernelError::Parse(pe) => self.0.pretty_println_val(pe),
@@ -51,6 +81,7 @@ impl KernelEnvironment {
     }
 }
 
+/// A term which has been type-checked by the kernel
 #[derive(Debug)]
 pub struct KernelTerm(TypedTerm);
 
@@ -58,7 +89,7 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for ParseDiagnostic {
     fn pretty_print(
         &self,
         out: &mut dyn Write,
-        context: PrettyPrintContext<'a>,
+        _context: PrettyPrintContext<'a>,
     ) -> std::io::Result<()> {
         use ParseDiagnosticKind::*;
 
@@ -89,7 +120,7 @@ mod integration_tests {
     use test_each_file::test_each_path;
 
     fn test_case([file, out]: [&Path; 2]) {
-        let mut env = TypingEnvironment::new();
+        let mut env = TypingEnvironment::default();
         let out_content = fs::read(out).unwrap();
         let out_content = String::from_utf8(out_content).unwrap();
 
@@ -121,7 +152,7 @@ mod integration_tests {
     #[expect(dead_code)]
     /// A wrapper around `test_case` which makes it easier to debug one test
     fn test_one() {
-        let stem = "tests/name_resolution/captures_1";
+        let stem = "tests/typing/def_eq/lambdas_2";
 
         test_case([
             Path::new(&stem.to_string().add(".ck")),

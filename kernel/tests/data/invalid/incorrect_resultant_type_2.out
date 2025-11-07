@@ -1,0 +1,4 @@
+ERROR at tests/data/invalid/incorrect_resultant_type_2.ck 4:9-4:10: Invalid resultant type for constructor. Constructor c should result in an application of
+  Invalid
+but it results in an application of
+  T

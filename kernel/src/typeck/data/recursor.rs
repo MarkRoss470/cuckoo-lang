@@ -1,3 +1,5 @@
+//! Methods to generate the recursor constant of an ADT
+
 use crate::typeck::TypingEnvironment;
 use crate::typeck::data::{Adt, AdtConstructor, AdtConstructorParamKind};
 use crate::typeck::level::{Level, LevelArgs};
@@ -8,23 +10,25 @@ use parser::error::Span;
 use std::iter;
 use std::rc::Rc;
 
-impl<'a> TypingEnvironment {
+impl TypingEnvironment {
     /// Generates the recursor constant of an ADT. This constant is of the following type:
     ///
-    /// `<ADT params> -> <motive type> -> <constructor induction rules> -> <indices> -> <ADT value> -> <motive output>` where:
+    /// `<ADT params> -> <motive type> -> <minor premises> -> <indices> -> <major premise> -> <motive output>` where:
     /// * `<ADT params>` are the ADT's parameters as specified in the ADT's header
     /// * The motive type is a type parameterized by the ADT's indices and a particular value of the
-    ///     ADT with those indices. For [large eliminating] types, the output of this motive may live
-    ///     in any universe and a new universe parameter is created on top of the ADT's ones for this,
-    ///     while for types which are not large eliminating, the output of the motive must be in `Prop`.
-    ///  * There is one constructor induction rule per constructor of the ADT. This is a function type
-    ///     with the constructor's parameters as input as well as an input of the motive type for any
-    ///     inductive parameters, and outputs an instance of the motive type for the constructor.
+    ///   ADT with those indices. For [large eliminating] types, the output of this motive may live
+    ///   in any universe and a new universe parameter is created on top of the ADT's ones for this,
+    ///   while for types which are not large eliminating, the output of the motive must be in `Prop`.
+    ///  * There is one minor premise per constructor of the ADT. This is a function type
+    ///    with the constructor's parameters as input as well as an input of the motive type for any
+    ///    inductive parameters, and outputs an instance of the motive type for the constructor.
+    ///  * The major premise is an instance of the ADT with the parameters and indices given by
+    ///    the previous arguments
     ///
     /// [large eliminating]: Adt::is_large_eliminating
     ///
     /// The recursor allows for defining functions on an ADT by structural induction, with the
-    /// motive giving the return type for any instance of the ADT, and the induction rules determining
+    /// motive giving the return type for any instance of the ADT, and the minor premises determining
     /// how to build up the motive for larger ADT instances given smaller ones. It also encapsulates
     /// the substitution principle of the `Eq` type, as it allows to construct a value of type
     /// `A y` given `A x` and `Eq T x y`.
@@ -36,12 +40,12 @@ impl<'a> TypingEnvironment {
     ///     -- Nat has no parameters, so there is nothing before the motive
     ///     -- Motive
     /// (motive : Nat -> Sort m)
-    ///     -- Induction rule for zero
+    ///     -- Minor premise for zero
     /// -> (zero : motive zero)
-    ///     -- Induction rule for succ
+    ///     -- Minor premise for succ
     /// -> (succ : (x : Nat) -> motive x -> motive (succ x))
-    ///     -- Nat has no indices, so there is nothing between the constructors and the ADT value
-    ///     -- ADT value
+    ///     -- Nat has no indices, so there is nothing between the minor and major premises
+    ///     -- Major premise
     /// -> (x : Nat)
     ///     -- Motive output
     /// -> motive x
@@ -53,12 +57,12 @@ impl<'a> TypingEnvironment {
     /// (T : Type u)
     ///     -- Motive
     /// -> (motive : List T -> Sort m)
-    ///     -- Induction rule for nil
+    ///     -- Minor premise for nil
     /// -> (nil : motive nil)
-    ///     -- Induction rule for cons
+    ///     -- Minor premise for cons
     /// -> (cons : (x : T) -> (xs : List T) -> motive xs -> motive (cons T x xs))
-    ///     -- List has no indices, so there is nothing between the constructors and the ADT value
-    ///     -- ADT value
+    ///     -- List has no indices, so there is nothing between the minor and major premises
+    ///     -- Major premise
     /// -> (l : List T)
     ///     -- Motive output
     /// -> motive l
@@ -71,17 +75,17 @@ impl<'a> TypingEnvironment {
     /// -> (x : T)
     ///     -- Motive
     /// -> (motive : (y : T) -> Eq T x y -> Sort m)
-    ///     -- Induction rule for refl
+    ///     -- Minor premise for refl
     /// -> (refl : motive x)
     ///     -- Indices
     /// -> (y : T)
-    ///     -- ADT value
+    ///     -- Major premise
     /// -> (e : Eq T x y)
     ///     -- Motive output
     /// -> motive y e
     /// ```
     ///
-    /// For an example with more complex induction principles, the accessibility relation `Acc` defined as:
+    /// For an example with more complex minor premises, the accessibility relation `Acc` defined as:
     /// ```plaintext
     /// data Acc.{u} (T : Sort u) (R : T -> T -> Prop) : T -> Prop where
     ///   | acc : (x : T) -> ((y : T) -> R y x -> Acc T R y) -> Acc T R x
@@ -89,9 +93,12 @@ impl<'a> TypingEnvironment {
     ///
     /// has a recursor of type:
     /// ```plaintext
+    ///   - Parameters
     /// (T : Sort u)
     /// -> (R : T -> T -> Prop)
+    ///   -- Motive
     /// -> (motive : (x : T) -> Acc T R x -> Sort m)
+    ///   -- Minor premise for acc
     /// -> (acc :
     ///     -- Constructor parameters
     ///     (x : T)
@@ -101,8 +108,10 @@ impl<'a> TypingEnvironment {
     ///     -- Output of induction principle for acc
     ///     -> motive x (acc T R x h)
     /// )
+    ///   -- Indices
     /// -> (x : T)
     /// -> (a : Acc T R x)
+    ///   -- Major premise
     /// -> motive x a
     /// ```
     pub(super) fn generate_recursor(&self, adt: &Adt) -> (LevelParameters, TypedTerm) {
@@ -134,8 +143,8 @@ impl<'a> TypingEnvironment {
             )
         };
 
-        // Generate constructor induction rules
-        generate_induction_rules(adt, &mut recursor_params, motive);
+        // Generate the parameters for the minor premises
+        generate_recursor_minor_premise_types(adt, &mut recursor_params, motive);
 
         // Add parameters for each of the ADT's indices
         for (i, index) in adt.header.indices.iter().enumerate() {
@@ -147,14 +156,14 @@ impl<'a> TypingEnvironment {
         }
 
         // Add parameter for the value being recursed on
-        let value_param_type = calculate_value_parameter_type(adt, recursor_params.len());
+        let major_premise_type = calculate_major_premise_type(adt, recursor_params.len());
         recursor_params.push(TypedBinder {
             span: adt.span.start_point(),
             name: None,
-            ty: value_param_type.clone(),
+            ty: major_premise_type.clone(),
         });
 
-        let output_type = calculate_output_type(adt, motive, value_param_type);
+        let output_type = calculate_recursor_output_type(adt, motive, major_premise_type);
 
         // Generate final constant
         let recursor = TypedTerm::adt_recursor(
@@ -266,13 +275,13 @@ fn make_motive(
     )
 }
 
-/// Calculates the type of the value parameter to the recursor
+/// Calculates the type of the major premise to the recursor
 ///
 /// # Params
 /// * `adt`: The ADT whose recursor is being computed
-/// * `num_params`: The number of parameters to the recursor before the value parameter.
-///     This is used to offset the indices of the ADT parameters.
-fn calculate_value_parameter_type(adt: &Adt, num_params: usize) -> TypedTerm {
+/// * `num_params`: The number of parameters to the recursor before the major premise.
+///   This is used to offset the indices of the ADT parameters.
+fn calculate_major_premise_type(adt: &Adt, num_params: usize) -> TypedTerm {
     TypedTerm::make_application_stack(
         adt.header.type_constructor(), // TODO: don't recompute this
         adt.header
@@ -292,52 +301,55 @@ fn calculate_value_parameter_type(adt: &Adt, num_params: usize) -> TypedTerm {
 /// # Parameters
 /// * `adt`: The ADT in question
 /// * `motive(offset, indices, val)`: Gets a term referring to an application of the
-///     `motive` parameter of the recursor's type.
-///     `indices` are the indices to the ADT instance that this motive is for.
-///     `val` is the ADT instance that this motive is for.
-/// * `value_parameter_type`: The type of the recursor's value parameter
-fn calculate_output_type(
+///   `motive` parameter of the recursor's type.
+///   * `offset` is the number of binders between the motive parameter and the use of the motive.
+///   * `indices` are the indices to the ADT instance that this motive is for.
+///   * `val` is the ADT instance that this motive is for.
+/// * `major_premise_type`: The type of the recursor's major premise
+fn calculate_recursor_output_type(
     adt: &Adt,
     motive: impl Fn(usize, Vec<TypedTerm>, TypedTerm) -> TypedTerm,
-    value_parameter_type: TypedTerm,
+    major_premise_type: TypedTerm,
 ) -> TypedTerm {
+    let motive_indices = adt
+        .header
+        .indices
+        .iter()
+        .enumerate()
+        .map(|(i, index)| {
+            TypedTerm::bound_variable(
+                adt.header.indices.len() - i, // No `-1` here because the motive term cancels it out
+                index.name,
+                index.ty.increment_above(0, adt.header.indices.len() + 1),
+                adt.span.start_point(),
+            )
+        })
+        .collect();
+
     motive(
         adt.constructors.len() + adt.header.indices.len() + 1,
-        adt.header
-            .indices
-            .iter()
-            .enumerate()
-            .map(|(i, index)| {
-                TypedTerm::bound_variable(
-                    adt.header.indices.len() - i, // No `-1` here because the motive term cancels it out
-                    index.name,
-                    index.ty.increment_above(0, adt.header.indices.len() + 1),
-                    adt.span.start_point(),
-                )
-            })
-            .collect(),
-        TypedTerm::bound_variable(0, None, value_parameter_type, adt.span.start_point()),
+        motive_indices,
+        TypedTerm::bound_variable(0, None, major_premise_type, adt.span.start_point()),
     )
 }
 
-/// Generates the constructor induction rules, adding them to `params`.
+/// Generates the minor premise parameters of the recursor, adding them to `params`.
 ///
 /// # Parameters
 /// * `adt`: The ADT whose recursor is being computed
 /// * `params`: Where to add the new parameters
 /// * `motive(offset, indices, val)` : Gets a term referring to an application of the
-///     `motive` parameter of the recursor's type.
-///     `offset` is the number of binders between the motive parameter and the use of the motive.
-///     `indices` are the indices to the ADT instance that this motive is for.
-///     `val` is the ADT instance that this motive is for.
-fn generate_induction_rules(
+///   `motive` parameter of the recursor's type.
+///   * `offset` is the number of binders between the motive parameter and the use of the motive.
+///   * `indices` are the indices to the ADT instance that this motive is for.
+///   * `val` is the ADT instance that this motive is for.
+fn generate_recursor_minor_premise_types(
     adt: &Adt,
     recursor_params: &mut Vec<TypedBinder>,
     motive: impl Fn(usize, Vec<TypedTerm>, TypedTerm) -> TypedTerm,
 ) {
-    // Generate constructor induction rules
     for (i, constructor) in adt.constructors.iter().enumerate() {
-        let induction_rule = calculate_constructor_induction_rule(
+        let minor_premise_type = calculate_minor_premise_type(
             adt.header.parameters.len(),
             |index, offset| {
                 TypedTermKind::bound_variable(
@@ -353,36 +365,37 @@ fn generate_induction_rules(
         recursor_params.push(TypedBinder {
             span: constructor.span.start_point(),
             name: Some(constructor.name),
-            ty: induction_rule,
+            ty: minor_premise_type,
         });
     }
 }
 
-/// Calculates the part of a recursor's type corresponding to induction on a specific constructor.
+/// Calculates the type of the minor premise for a specific constructor.
 ///
 /// The format of this type is `<constructor params> -> <motives of inductive params> -> motive <indices>`
 ///
 /// # Parameters
 /// * `adt_num_params` : The number of parameters which that ADT has
 /// * `get_adt_param(index, offset)` : Gets a term referencing one of the ADT's parameters.
-///     `offset` is the number of binders between the root of the expression returned by
-///     this function and the use of the ADT parameter.
-/// * `constructor` : The constructor whose induction rule is being generated
+///   `offset` is the number of binders between the root of the expression returned by
+///   this function and the use of the ADT parameter.
+/// * `constructor` : The constructor whose minor premise is being generated
 /// * `reindex(binders, term)` : Clones a term while re-indexing binders referring to ADT parameters.
-///     `binders` is the number of binders between the source term and the root of the constructor's type.
+///   `binders` is the number of binders between the source term and the root of the constructor's type.
 /// * `motive(offset, indices, val)` : Gets a term referring to an application of the
-///     `motive` parameter of the recursor's type.
-///     `offset` is the number of binders between the root of the induction rule and the use of the motive.
-///     `indices` are the indices to the ADT instance that this motive is for.
-///     `val` is the ADT instance that this motive is for.
-fn calculate_constructor_induction_rule(
+///   `motive` parameter of the recursor's type.
+///   * `offset` is the number of binders between the root of the minor premise and the use of the motive.
+///   * `indices` are the indices to the ADT instance that this motive is for.
+///   * `val` is the ADT instance that this motive is for.
+fn calculate_minor_premise_type(
     adt_num_params: usize,
     get_adt_param: impl Fn(usize, usize) -> Rc<TypedTermKind>,
     constructor: &AdtConstructor,
     reindex: impl Fn(usize, &TypedTerm) -> TypedTerm,
     motive: impl Fn(usize, Vec<TypedTerm>, TypedTerm) -> TypedTerm,
 ) -> TypedTerm {
-    let mut induction_rule_params: Vec<_> = constructor
+    // Generate the non-inductive parameters
+    let mut params: Vec<_> = constructor
         .params
         .iter()
         .enumerate()
@@ -392,54 +405,50 @@ fn calculate_constructor_induction_rule(
             ty: reindex(i, &param.ty),
         })
         .collect();
-
-    generate_inductive_parameter_principles(
-        &constructor,
-        &mut induction_rule_params,
+    // Generate the inductive parameters
+    generate_minor_premise_inductive_parameters(
+        constructor,
+        &mut params,
         adt_num_params,
         &reindex,
         &motive,
     );
 
-    let num_params = induction_rule_params.len();
+    let num_params = params.len();
 
-    let output = calculate_constructor_induction_rule_output(
-        &constructor,
+    let output = calculate_minor_premise_output(
+        constructor,
         adt_num_params,
         |i| get_adt_param(i, num_params),
         |i| TypedTermKind::bound_variable(num_params - i - 1, constructor.params[i].name),
         |term| {
             reindex(
-                induction_rule_params.len(),
-                &term.increment_above(0, induction_rule_params.len() - constructor.params.len()),
+                params.len(),
+                &term.increment_above(0, params.len() - constructor.params.len()),
             )
         },
         |indices, val| motive(num_params, indices, val),
     );
 
-    TypedTerm::make_telescope(
-        induction_rule_params.clone(),
-        output,
-        constructor.span.start_point(),
-    )
+    TypedTerm::make_telescope(params.clone(), output, constructor.span.start_point())
 }
 
-/// Generates the inductive principles for a specific constructor
+/// Generates the inductive parameters for the type of a minor premise
 ///
 /// # Parameters
-/// * `constructor`: The constructor whose induction rule is being calculated
-/// * `recursor_params`: Where to add the new parameters
+/// * `constructor`: The constructor whose minor premise is being calculated
+/// * `minor_premise_params`: Where to add the new parameters
 /// * `adt_num_params`: The number of parameters of the ADT whose recursor is being generated
 /// * `reindex(binders, term)`: Clones a term while re-indexing binders referring to ADT parameters.
-///     `binders` is the number of binders between the source term and the root of the constructor's type.
+///   `binders` is the number of binders between the source term and the root of the constructor's type.
 /// * `motive(offset, indices, val)` : Gets a term referring to an application of the
-///     `motive` parameter of the recursor's type.
-///     `offset` is the number of binders between the root of the induction rule and the use of the motive.
-///     `indices` are the indices to the ADT instance that this motive is for.
-///     `val` is the ADT instance that this motive is for.
-fn generate_inductive_parameter_principles(
+///   `motive` parameter of the recursor's type.
+///   * `offset` is the number of binders between the root of the minor premise and the use of the motive.
+///   * `indices` are the indices to the ADT instance that this motive is for.
+///   * `val` is the ADT instance that this motive is for.
+fn generate_minor_premise_inductive_parameters(
     constructor: &AdtConstructor,
-    induction_rule_params: &mut Vec<TypedBinder>,
+    minor_premise_params: &mut Vec<TypedBinder>,
     adt_num_params: usize,
     reindex: impl Fn(usize, &TypedTerm) -> TypedTerm,
     motive: impl Fn(usize, Vec<TypedTerm>, TypedTerm) -> TypedTerm,
@@ -450,11 +459,10 @@ fn generate_inductive_parameter_principles(
         .iter()
         .enumerate()
         .filter_map(|(i, param)| match &param.kind {
-            AdtConstructorParamKind::Inductive {
-                parameters,
-                indices,
-            } => Some((i, param, parameters, indices)),
-            AdtConstructorParamKind::NonInductive(_) => None,
+            AdtConstructorParamKind::Inductive { parameters, args } => {
+                Some((i, param, parameters, args))
+            }
+            AdtConstructorParamKind::NonInductive => None,
         });
 
     for (param_index, param, param_params, param_indices) in inductive_params {
@@ -462,10 +470,10 @@ fn generate_inductive_parameter_principles(
             param_params.len(),
             param.name,
             reindex(
-                induction_rule_params.len() + param_params.len(),
+                minor_premise_params.len() + param_params.len(),
                 &constructor.params[param_index].ty.increment_above(
                     0,
-                    induction_rule_params.len() - param_index + param_params.len(),
+                    minor_premise_params.len() - param_index + param_params.len(),
                 ),
             ),
             param.span.clone(),
@@ -476,16 +484,16 @@ fn generate_inductive_parameter_principles(
             &param_indices[adt_num_params..],
             |binders, term| {
                 reindex(
-                    induction_rule_params.len() + binders,
-                    &term.increment_above(binders, induction_rule_params.len() - param_index),
+                    minor_premise_params.len() + binders,
+                    &term.increment_above(binders, minor_premise_params.len() - param_index),
                 )
             },
-            |offset, indices, val| motive(induction_rule_params.len() + offset, indices, val),
+            |offset, indices, val| motive(minor_premise_params.len() + offset, indices, val),
             param_val,
             param.span.clone(),
         );
 
-        induction_rule_params.push(TypedBinder {
+        minor_premise_params.push(TypedBinder {
             span: param.span.clone(),
             name: param.name,
             ty,
@@ -502,12 +510,12 @@ fn generate_inductive_parameter_principles(
 /// * `param_params`: The parameters to this constructor parameter
 /// * `param_indices`: The indices to the output of this parameter, not including the ADT parameters.
 /// * `reindex(binders, term)`: Clones a term while re-indexing binders referring to ADT parameters.
-///     `binders` is the number of binders between the source term and the root of the inductive parameter.
+///   `binders` is the number of binders between the source term and the root of the inductive parameter.
 /// * `motive(offset, indices, val)` : Gets a term referring to an application of the
-///     `motive` parameter of the recursor's type.
-///     `offset` is the number of binders between the root of the inductive parameter principle and the use of the motive.
-///     `indices` are the indices to the ADT instance that this motive is for.
-///     `val` is the ADT instance that this motive is for.
+///   `motive` parameter of the recursor's type.
+///   `offset` is the number of binders between the root of the inductive parameter principle and the use of the motive.
+///   `indices` are the indices to the ADT instance that this motive is for.
+///   `val` is the ADT instance that this motive is for.
 /// * `param_val`: The constructor parameter whose inductive principle is being calculated.
 /// * `span`: The span which the returned term should have
 fn calculate_inductive_parameter_principle(
@@ -549,19 +557,19 @@ fn calculate_inductive_parameter_principle(
     TypedTerm::make_telescope(param_param_binders, motive, span)
 }
 
-/// Calculates the output of the induction rule for a constructor
+/// Calculates the output type of the minor premise for a given constructor
 ///
 /// # Parameters
-/// * `constructor`: The constructor whose induction rule is being generated
+/// * `constructor`: The constructor whose minor premise is being generated
 /// * `adt_num_params`: The number of parameters or the ADT whose recursor is being generated
 /// * `get_adt_param(i)`: Gets a term referring to the `i`th ADT parameter
 /// * `get_constructor_param(i)`: Gets a term referring to the `i`th constructor parameter
 /// * `reindex(term)`: Increments the binders in a term to account for additional binders
 /// * `motive(indices, val)`: Gets a [`TypedTerm`] referring to an application of the
-///     `motive` parameter of the recursor's type.
-///     `indices` are the indices to the ADT instance that this motive is for.
-///     `val` is the ADT instance that this motive is for.
-fn calculate_constructor_induction_rule_output(
+///   `motive` parameter of the recursor's type.
+///   `indices` are the indices to the ADT instance that this motive is for.
+///   `val` is the ADT instance that this motive is for.
+fn calculate_minor_premise_output(
     constructor: &AdtConstructor,
     adt_num_params: usize,
     get_adt_param: impl Fn(usize) -> Rc<TypedTermKind>,
@@ -589,15 +597,19 @@ fn calculate_constructor_induction_rule_output(
 }
 
 impl Adt {
+    /// The number of parameters that the ADT's recursor takes
     pub fn recursor_num_parameters(&self) -> usize {
         self.header.parameters.len() + 1 + self.constructors.len() + self.header.indices.len() + 1
     }
 
-    pub fn recursor_value_param_index(&self) -> usize {
+    /// The 0-based index into the ADT's recursor's parameters of the major premise
+    pub fn recursor_major_premise_index(&self) -> usize {
         self.recursor_num_parameters() - 1
     }
 
-    pub fn recursor_constructor_param_index(&self, param: usize) -> usize {
-        self.header.parameters.len() + 1 + param
+    /// The 0-based index into the ADT's recursor's parameters of the minor premise
+    /// for the constructor with the given index
+    pub fn recursor_minor_premise_index(&self, constructor_index: usize) -> usize {
+        self.header.parameters.len() + 1 + constructor_index
     }
 }

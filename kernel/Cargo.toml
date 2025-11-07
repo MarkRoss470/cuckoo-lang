@@ -15,4 +15,7 @@ parser = {workspace =  true, features = ["test-utils"]}
 test_each_file = "0.3.6"
 
 [features]
+# Whether TypingEnvironment should track statistics
+track-stats = []
+# Adds methods for testing downstream crates
 test-utils = ["parser/test-utils"]

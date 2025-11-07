@@ -1,5 +1,8 @@
+//! The [`Level`] and [`LevelInner`] types
+
+use crate::typeck::context::TypingContext;
 use crate::typeck::error::TypeErrorKind;
-use crate::typeck::{PrettyPrintContext, TypeError, TypingContext, TypingEnvironment};
+use crate::typeck::{PrettyPrintContext, TypeError, TypingEnvironment};
 use common::{Identifier, PrettyPrint};
 use derivative::Derivative;
 use parser::ast::item::LevelParameters;
@@ -11,36 +14,70 @@ use std::ops::Index;
 use std::ptr;
 use std::rc::Rc;
 
+/// A universe level which a type can inhabit. Levels are essentially expressions which evaluate
+/// to natural numbers, where the following constants and operations are available:
+/// * [`Zero`] is the lowest level, and is reserved for propositions
+/// * [`Succ`] adds one to a level
+/// * A [`Parameter`] can be instantiated with any constant level
+/// * [`Max`] computes the maximum of two levels
+/// * [`IMax`] computes the _impredicative maximum_ of two levels.
+///
+/// `(imax a b)` is defined to be zero if `b` is zero, and the maximum of `a` and `b` otherwise.
+/// This is the type of a pi type `T -> U` where `T : Sort a` and `U: Sort b`, and means that
+/// Any function type `T -> P` where `P: Prop` also has type `Prop` - this means a proposition
+/// can generalize over all propositions, including itself.
+///
+/// Two levels are considered [definitionally equal] iff they evaluate to the same level for
+/// any constant values of their parameters. The [`normalize`] function converts a level to
+/// another level equivalent to it, with the property that any two equivalent levels will normalize
+/// to the same level.
+///
+/// [`Zero`]: LevelInner::Zero
+/// [`Succ`]: LevelInner::Succ
+/// [`Parameter`]: LevelInner::Parameter
+/// [`Max`]: LevelInner::Max
+/// [`IMax`]: LevelInner::IMax
+/// [definitionally equal]: Level::def_eq
+/// [`normalize`]: Level::normalize
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Level(Rc<LevelInner>);
 
+/// A type of [`Level`]
 #[derive(Derivative)]
 #[derivative(PartialEq)]
 #[derivative(Hash)]
 #[derive(Debug, Clone, Eq)]
 enum LevelInner {
+    /// The constant zero
     Zero,
+    /// The successor of another level
+    Succ(Level),
     /// An index into the level parameters of the item this term is a part of
     Parameter {
+        /// The index into the item's level parameters
         index: usize,
         /// The name of the level parameter. For pretty printing only.
         #[derivative(PartialEq = "ignore")]
         #[derivative(Hash = "ignore")]
         name: Identifier,
     },
-    Succ(Level),
+    /// The maximum of two levels
     Max(Level, Level),
+    /// The impredicative maximum of two levels
     IMax(Level, Level),
 }
 
+/// A list of [`Level`]s which will be substituted for the parameters of an item
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct LevelArgs(pub Vec<Level>);
 
 impl LevelArgs {
+    /// How many level arguments were given
     pub fn count(&self) -> usize {
         self.0.len()
     }
 
+    /// Constructs a list of level arguments which correspond to a list of [`LevelParameters`]
     pub fn from_level_parameters(level_parameters: &LevelParameters) -> Self {
         Self(
             level_parameters
@@ -52,10 +89,13 @@ impl LevelArgs {
         )
     }
 
+    /// Whether any of the levels mentions any level parameter
     pub fn mentions_parameters(&self) -> bool {
         self.0.iter().any(|l| l.mentions_parameters())
     }
 
+    /// Replaces the level parameters in the contained levels with the levels in another
+    /// list of level arguments
     pub fn instantiate_parameters(&self, other: &LevelArgs) -> LevelArgs {
         Self(
             self.0
@@ -65,6 +105,9 @@ impl LevelArgs {
         )
     }
 
+    /// [Normalizes] all the contained levels
+    ///
+    /// [Normalizes]: Level::normalize
     pub fn normalize(&self) -> Self {
         Self(self.0.iter().map(|l| l.normalize()).collect())
     }
@@ -79,14 +122,29 @@ impl Index<usize> for LevelArgs {
 }
 
 impl Level {
+    /// Checks whether two [`Level`]s point to the exact same [`LevelInner`]
     pub fn ptr_eq(&self, other: &Self) -> bool {
         Rc::ptr_eq(&self.0, &other.0)
     }
 
+    /// The constant level [zero]
+    ///
+    /// [zero]: LevelInner::Zero
     pub fn zero() -> Self {
         Self(Rc::new(LevelInner::Zero))
     }
 
+    /// The [successor] of a level
+    ///
+    /// [successor]: LevelInner::Succ
+    pub fn succ(&self) -> Self {
+        Self(Rc::new(LevelInner::Succ(self.clone())))
+    }
+
+    /// A constant level, made of [`Succ`] applied `u` times to [`Zero`]
+    ///
+    /// [`Succ`]: LevelInner::Succ
+    /// [`Zero`]: LevelInner::Zero
     pub fn constant(u: usize) -> Self {
         if u == 0 {
             Self::zero()
@@ -95,14 +153,9 @@ impl Level {
         }
     }
 
-    pub fn parameter(index: usize, name: Identifier) -> Self {
-        Self(Rc::new(LevelInner::Parameter { index, name }))
-    }
-
-    pub fn succ(&self) -> Self {
-        Self(Rc::new(LevelInner::Succ(self.clone())))
-    }
-
+    /// Applies [`Succ`] `u` times to a level
+    ///
+    /// [`Succ`]: LevelInner::Succ
     pub fn offset(&self, offset: usize) -> Self {
         if offset == 0 {
             self.clone()
@@ -111,9 +164,16 @@ impl Level {
         }
     }
 
-    /// Wrapper for [`Max`] which handles [`Rc`]s
+    /// A level [parameter]
     ///
-    /// [`Max`]: LevelInner::Max
+    /// [parameter]: LevelInner::Parameter
+    pub fn parameter(index: usize, name: Identifier) -> Self {
+        Self(Rc::new(LevelInner::Parameter { index, name }))
+    }
+
+    /// The [maximum] of two levels
+    ///
+    /// [maximum]: LevelInner::Max
     fn max(&self, other: &Self) -> Self {
         Self(Rc::new(LevelInner::Max(self.clone(), other.clone())))
     }
@@ -150,9 +210,9 @@ impl Level {
         }
     }
 
-    /// Wrapper for [`IMax`] which handles [`Rc`]s
+    /// The [impredicative maximum] of two levels
     ///
-    /// [`IMax`]: LevelInner::IMax
+    /// [impredicative maximum]: LevelInner::IMax
     fn imax(&self, other: &Self) -> Self {
         Self(Rc::new(LevelInner::IMax(self.clone(), other.clone())))
     }
@@ -203,6 +263,9 @@ impl Level {
         }
     }
 
+    /// Checks whether a level mentions any [parameters]
+    ///
+    /// [parameters]: LevelInner::Parameter
     pub fn mentions_parameters(&self) -> bool {
         match &*self.0 {
             LevelInner::Zero => false,
@@ -213,6 +276,9 @@ impl Level {
         }
     }
 
+    /// Replaces all [parameters] in a level with the corresponding argument from `args`
+    ///
+    /// [parameters]: LevelInner::Parameter
     pub fn instantiate_parameters(&self, args: &LevelArgs) -> Self {
         use LevelInner::*;
 
@@ -388,7 +454,7 @@ impl Level {
         {
             true
         } else if let LevelInner::IMax(a, b) = &*v.0 {
-            u.is_geq(&a) && u.is_geq(&b)
+            u.is_geq(a) && u.is_geq(b)
         } else if let LevelInner::IMax(_, b) = &*u.0 {
             b.is_geq(&v)
         } else {
@@ -407,6 +473,10 @@ impl Level {
 }
 
 impl TypingEnvironment {
+    /// Checks that `params` does not have any duplicate level parameters, then sets
+    /// [`level_parameters`] to it.
+    ///
+    /// [`level_parameters`]: TypingEnvironment::level_parameters
     pub fn set_level_params(&mut self, params: LevelParameters) -> Result<(), TypeError> {
         if let Some(id) = params.find_duplicate() {
             Err(TypeError {
@@ -419,14 +489,23 @@ impl TypingEnvironment {
         }
     }
 
+    /// Sets [`level_parameters`] to `None`
+    ///
+    /// [`level_parameters`]: TypingEnvironment::level_parameters
     pub fn clear_level_params(&mut self) {
         self.level_parameters = None;
     }
 
+    /// Resolves a syntactic [`LevelExpr`] to a [`Level`]
+    ///
+    /// # Panics
+    /// If [`level_parameters`] is `None`
+    ///
+    /// [`level_parameters`]: TypingEnvironment::level_parameters
     pub fn resolve_level(&self, arg: &LevelExpr) -> Result<Level, TypeError> {
         match &arg.kind {
             LevelExprKind::Literal(l) => {
-                if *l > 8 {
+                if *l > self.config.max_level_literal {
                     Err(TypeError {
                         span: arg.span.clone(),
                         kind: TypeErrorKind::LevelLiteralTooBig(*l),
@@ -473,21 +552,22 @@ impl TypingEnvironment {
 }
 
 impl<'a> TypingContext<'a> {
+    /// See [`TypingEnvironment::resolve_level`]
     pub fn resolve_level(&self, arg: &LevelExpr) -> Result<Level, TypeError> {
-        match self {
-            TypingContext::Root(env) => env.resolve_level(arg),
-            TypingContext::Binders { parent, .. } => parent.resolve_level(arg),
-        }
+        self.environment().resolve_level(arg)
     }
 
+    /// Resolves a syntactic list of level arguments - see [`TypingEnvironment::resolve_level`].
     pub fn resolve_level_args(
         &self,
         level_args: parser::ast::term::LevelArgs,
     ) -> Result<LevelArgs, TypeError> {
         let mut v = Vec::new();
 
+        let environment = self.environment();
+
         for arg in level_args.iter() {
-            v.push(self.resolve_level(arg)?)
+            v.push(environment.resolve_level(arg)?)
         }
 
         Ok(LevelArgs(v))
@@ -903,26 +983,11 @@ mod tests {
     }
 
     #[test]
-    fn test_set_level_params() {
-        let mut env = TypingEnvironment::new();
-
-        let id_0 = Identifier::dummy(0);
-        let id_1 = Identifier::dummy(1);
-
-        let parameters = LevelParameters::new(&[id_0, id_1]);
-        env.set_level_params(parameters)
-            .expect("Setting parameters should have succeeded");
-
-        let parameters = LevelParameters::new(&[id_0, id_1, id_0]);
-    }
-
-    #[test]
     fn test_resolve_level() {
-        let mut env = TypingEnvironment::new();
+        let mut env = TypingEnvironment::default();
 
         let id_0 = Identifier::dummy(0);
         let id_1 = Identifier::dummy(1);
-        let id_2 = Identifier::dummy(2);
         let param_0 = Level::parameter(0, id_0);
         let param_1 = Level::parameter(1, id_1);
 

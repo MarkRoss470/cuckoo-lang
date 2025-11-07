@@ -56,7 +56,7 @@ mod tests {
         for chunk in readme_text.split("```Cuckoo").skip(1) {
             let code = chunk.split("```").next().unwrap();
 
-            match env.check_str(&code) {
+            match env.load_str(&code) {
                 Ok(()) => {}
                 Err(e) => {
                     println!("{code}");

@@ -1,22 +1,33 @@
+//! The [`Adt`] and related types
+
 use crate::typeck::error::TypeErrorKind;
 use crate::typeck::level::{Level, LevelArgs};
 use crate::typeck::term::{TypedBinder, TypedTerm, TypedTermKind};
-use crate::typeck::{AdtIndex, PrettyPrintContext, TypeError, TypingContext, TypingEnvironment};
+use crate::typeck::{AdtIndex, PrettyPrintContext, TypeError, TypingEnvironment};
 use common::{Identifier, PrettyPrint};
 use parser::ast::item::LevelParameters;
 use parser::ast::item::data::{DataConstructor, DataDefinition};
 use parser::atoms::ident::{OwnedPath, Path};
 use parser::error::Span;
 use std::io::Write;
+use crate::typeck::context::TypingContext;
 
 mod recursor;
 
+/// The header of an [`Adt`], i.e. everything except the constructors
 #[derive(Debug)]
 pub struct AdtHeader {
+    /// The source span of the header of the ADT
     pub span: Span,
+    /// The index into [`adts`] of this ADT
+    ///
+    /// [`adts`]: TypingEnvironment::adts
     pub index: AdtIndex,
+    /// The ADT's name
     pub name: OwnedPath,
+    /// The ADT's level parameters
     pub level_params: LevelParameters,
+    /// The ADT's parameters (any binder before the colon)
     pub parameters: Vec<TypedBinder>,
     /// The type's family, i.e. everything in the header after the colon. This does not include the
     /// ADT's parameters, but it may reference them as bound variables.
@@ -29,10 +40,14 @@ pub struct AdtHeader {
     pub is_prop: bool,
 }
 
+/// An algebraic data type, declared with the `data` keyword
 #[derive(Debug)]
 pub struct Adt {
+    /// The source span of the whole ADT declaration
     pub span: Span,
+    /// The ADT's header
     pub header: AdtHeader,
+    /// The ADT's constructors
     pub constructors: Vec<AdtConstructor>,
     /// Whether the ADT's recursor should allow eliminating to types at any level. This is true of
     /// non-propositions, and 'subsingleton' propositions with only one constructor where all the
@@ -44,6 +59,7 @@ pub struct Adt {
 }
 
 impl AdtHeader {
+    /// Gets the ADT's type constructor, i.e. the term which the ADT's name refers to
     fn type_constructor(&self) -> TypedTerm {
         TypedTerm::adt_name(
             self.index,
@@ -57,6 +73,12 @@ impl AdtHeader {
         )
     }
 
+    /// Gets a term referring to one of the ADT's constructors
+    ///
+    /// # Parameters
+    /// * `index`: The index of the constructor
+    /// * `type_without_adt_params`: The type of the constructor as written in the declaration
+    /// * `span`: The source span of the constructor
     fn constructor(
         &self,
         index: usize,
@@ -78,12 +100,28 @@ impl AdtHeader {
 }
 
 impl Adt {
-    // Calculates and stores whether the ADT is large eliminating
+    /// Calculates and stores whether the ADT is large eliminating
     fn calculate_large_eliminating(&mut self) {
-        self.is_large_eliminating = !self.header.is_prop || self.is_subsingleton();
+        self.is_large_eliminating = !self.header.is_prop || self.is_syntactically_subsingleton();
     }
 
-    fn is_subsingleton(&self) -> bool {
+    /// Calculates whether the ADT is syntactically subsingleton.
+    ///
+    /// An ADT is syntactically subsingleton if the structure of the definition guarantees that
+    /// it has at most one instance for any given set of indices. This is the case when:
+    /// * It has at most one constructor
+    /// * Every parameter to the constructor is either a type in `Prop`, or is mentioned as one
+    ///   of the constructor output's indices
+    ///
+    /// Normally, propositions can only be soundly eliminated to other propositions, because proof
+    /// irrelevance means that all terms of a type in `Prop` are definitionally equal, but
+    /// different proofs may eliminate to different values, allowing for proving false statements
+    /// such as `0 = 1` if such propositions could eliminate to e.g. `Nat`.
+    ///
+    /// However, propositions which are syntactically subsingleton are guaranteed to never have more
+    /// than one proof, so they can eliminate to types in higher universes without introducing
+    /// inconsistency.
+    fn is_syntactically_subsingleton(&self) -> bool {
         // If the ADT has no constructors, it is subsingleton
         if self.constructors.is_empty() {
             return true;
@@ -98,8 +136,8 @@ impl Adt {
         // Check that each non-recursive parameter of the constructor is either a proposition,
         // or is one of the constructor's indices
         for (i, parameter) in constructor.params.iter().rev().enumerate() {
-            if let AdtConstructorParamKind::NonInductive(ty) = &parameter.kind {
-                let is_prop = ty.check_is_ty().unwrap().def_eq(&Level::zero());
+            if let AdtConstructorParamKind::NonInductive = &parameter.kind {
+                let is_prop = parameter.ty.check_is_ty().unwrap().def_eq(&Level::zero());
                 let is_referenced = constructor.indices.iter().any(|t| {
                     t.term()
                         .equiv(&TypedTermKind::bound_variable(i, parameter.name), false)
@@ -115,9 +153,12 @@ impl Adt {
     }
 }
 
+/// A constructor of an [`Adt`]
 #[derive(Debug)]
 pub struct AdtConstructor {
+    /// The source span of the constructor
     pub span: Span,
+    /// The name of the constructor
     pub name: Identifier,
     /// The term referring to this constructor
     pub constant: TypedTerm,
@@ -125,45 +166,61 @@ pub struct AdtConstructor {
     pub type_without_adt_params: TypedTerm,
     /// The inputs to the constructor
     pub params: Vec<AdtConstructorParam>,
-    /// The [`indices`] of the ADT produced by the constructor
-    ///
-    /// [`indices`]: Adt::indices
+    /// The indices of the ADT instance produced by the constructor
     pub indices: Vec<TypedTerm>,
 }
 
+/// A parameter to an [`AdtConstructor`]
 #[derive(Debug)]
 pub struct AdtConstructorParam {
+    /// The source span of the parameter
     pub span: Span,
+    /// The name of the parameter
     pub name: Option<Identifier>,
+    /// The type of the parameter
     pub ty: TypedTerm,
+    /// Whether the parameter is inductive or not
     pub kind: AdtConstructorParamKind,
 }
 
+/// Whether a constructor parameter is inductive or not
 #[derive(Debug)]
 pub enum AdtConstructorParamKind {
+    /// The parameter is inductive, meaning it is a function returning an instance
+    /// of the [`Adt`] being defined.
     Inductive {
+        /// The parameters to the function type
         parameters: Vec<TypedBinder>,
-        indices: Vec<TypedTerm>,
+        /// The parameters and indices of the [`Adt`] which is the return type of the function
+        args: Vec<TypedTerm>,
     },
-    NonInductive(TypedTerm),
+    /// The parameter is non-inductive, meaning it does not mention the [`Adt`] being defined
+    NonInductive,
 }
 
 impl AdtConstructor {
+    /// Returns an iterator over only the inductive parameters of the constructor.
+    /// Each item of the iterator is the parameter's index, [`parameters`], and [`args`].
+    ///
+    /// [`parameters`]: AdtConstructorParamKind::Inductive::parameters
+    /// [`args`]: AdtConstructorParamKind::Inductive::args
     pub fn inductive_params(&self) -> impl Iterator<Item = (usize, &[TypedBinder], &[TypedTerm])> {
         self.params
             .iter()
             .enumerate()
             .filter_map(|(i, param)| match &param.kind {
-                AdtConstructorParamKind::Inductive {
-                    parameters,
-                    indices,
-                } => Some((i, parameters.as_slice(), indices.as_slice())),
-                AdtConstructorParamKind::NonInductive(_) => None,
+                AdtConstructorParamKind::Inductive { parameters, args } => {
+                    Some((i, parameters.as_slice(), args.as_slice()))
+                }
+                AdtConstructorParamKind::NonInductive => None,
             })
     }
 }
 
 impl<'a> TypingEnvironment {
+    /// Resolves an ADT definition, adding it to [`adts`].
+    ///
+    /// [`adts`]: TypingEnvironment::adts
     pub(super) fn resolve_adt(&mut self, ast: &'a DataDefinition) -> Result<(), TypeError> {
         // Set the level parameters for this item
         self.set_level_params(ast.level_params.clone())?;
@@ -183,7 +240,7 @@ impl<'a> TypingEnvironment {
         let header = &self.adts.last().unwrap().header;
 
         // Resolve the constructors
-        let constructors = self.resolve_adt_constructors(&ast, header)?;
+        let constructors = self.resolve_adt_constructors(ast, header)?;
         let adt = self.adts.last_mut().unwrap();
         adt.constructors = constructors;
 
@@ -235,10 +292,12 @@ impl<'a> TypingEnvironment {
         // Create the recursor
         let (recursor_level_params, recursor) = self.generate_recursor(self.adts.last().unwrap());
 
+        // If configured, check that the recursor type is a valid term
         if self.config.check_terms {
             self.check_term(&recursor.get_type());
         }
 
+        // Create the recursor constant
         let adt_namespace = self
             .root
             .resolve_namespace_mut(adt.header.name.borrow(), adt.span.start_point())?;
@@ -255,6 +314,7 @@ impl<'a> TypingEnvironment {
         Ok(())
     }
 
+    /// Resolve an [`AdtHeader`]
     fn resolve_adt_header(
         &mut self,
         ast: &'a DataDefinition,
@@ -262,8 +322,10 @@ impl<'a> TypingEnvironment {
     ) -> Result<AdtHeader, TypeError> {
         let root = TypingContext::Root(self);
 
+        // Resolve the ADT's parameters
         let mut parameters = Vec::new();
         for param in &ast.parameters {
+            // Check that the binder has exactly one name
             let [binder_name] = param.names.as_slice() else {
                 return Err(TypeError::unsupported(
                     param.span.clone(),
@@ -271,20 +333,24 @@ impl<'a> TypingEnvironment {
                 ));
             };
 
+            // Resolve the binder's type in a context with all the previous parameters
             let context = root.with_binders(&parameters);
             let ty = context.resolve_term(&param.ty)?;
             ty.check_is_ty()?;
 
+            // Add the new parameter
             parameters.push(TypedBinder {
                 span: param.span.clone(),
                 name: *binder_name,
                 ty,
             })
         }
-        let context = root.with_binders(&parameters);
 
+        // Resolve the family in a context with all the parameters
+        let context = root.with_binders(&parameters);
         let family = context.resolve_term(&ast.family)?;
 
+        // Check that the ADT's family is a type
         let Ok(_) = family.check_is_ty() else {
             return Err(TypeError {
                 span: family.span(),
@@ -327,6 +393,7 @@ impl<'a> TypingEnvironment {
         })
     }
 
+    /// Resolves an [`Adt`]'s constructors
     fn resolve_adt_constructors(
         &self,
         ast: &DataDefinition,
@@ -360,6 +427,15 @@ impl<'a> TypingEnvironment {
         Ok(constructors)
     }
 
+    /// Resolves a single [`AdtConstructor`]
+    ///
+    /// # Parameters
+    /// * `constructor`: The AST of the constructor to resolve
+    /// * `index`: The index of the constructor in the [`Adt`]
+    /// * `ty`: The type of the constructor as written in the ADT declaration
+    ///   (this therefore does not include the ADT's parameters, which will be included in the
+    ///   type of the constructor constant)
+    /// * `header`: The ADT's header
     fn resolve_adt_constructor(
         &self,
         constructor: &DataConstructor,
@@ -367,7 +443,7 @@ impl<'a> TypingEnvironment {
         ty: &TypedTerm,
         header: &AdtHeader,
     ) -> Result<AdtConstructor, TypeError> {
-        // Check that the constructor is actually a type, and decompose it as a telescope
+        // Check that the constructor's type is actually a type, and decompose it as a telescope
         ty.check_is_ty()?;
         let (parameters, output) = ty.clone().decompose_telescope();
 
@@ -383,6 +459,7 @@ impl<'a> TypingEnvironment {
             }
         }
 
+        // Resolve the constructor's parameters
         let mut processed_params = Vec::new();
         for param in parameters {
             processed_params.push(self.resolve_adt_constructor_param(header.index, param)?);
@@ -398,11 +475,13 @@ impl<'a> TypingEnvironment {
         })
     }
 
+    /// Resolves an [`AdtConstructorParam`]
     fn resolve_adt_constructor_param(
         &self,
         adt_index: AdtIndex,
         param: TypedBinder,
     ) -> Result<AdtConstructorParam, TypeError> {
+        // Decompose the parameter's type as a function telescope resulting in an application stack
         let (parameters, output) = param.ty.clone().decompose_telescope();
         let (f, args) = output.decompose_application_stack();
 
@@ -410,6 +489,7 @@ impl<'a> TypingEnvironment {
         let param_kind = if let Some((id, _)) = f.is_adt_name()
             && id == adt_index
         {
+            // The parameters and indices of the parameter may not reference the ADT being defined
             for binder in &parameters {
                 binder.ty.forbid_references_to_adt(adt_index)?;
             }
@@ -417,14 +497,11 @@ impl<'a> TypingEnvironment {
                 arg.forbid_references_to_adt(adt_index)?;
             }
 
-            AdtConstructorParamKind::Inductive {
-                parameters,
-                indices: args,
-            }
+            AdtConstructorParamKind::Inductive { parameters, args }
         } else {
             param.ty.forbid_references_to_adt(adt_index)?;
 
-            AdtConstructorParamKind::NonInductive(param.ty.clone())
+            AdtConstructorParamKind::NonInductive
         };
 
         Ok(AdtConstructorParam {
@@ -435,20 +512,27 @@ impl<'a> TypingEnvironment {
         })
     }
 
+    /// Resolves the output of an [`AdtConstructor`]
+    ///
+    /// # Parameters
+    /// * `ty`: The type of the constructor's output
+    /// * `name`: The name of the constructor
+    /// * `constructor_params`: The parameters of the constructor
+    /// * `header`: The header of the [`Adt`] the constructor is for
     fn resolve_adt_constructor_output(
         &self,
-        output: TypedTerm,
+        ty: TypedTerm,
         name: Identifier,
         constructor_params: &[TypedBinder],
         header: &AdtHeader,
     ) -> Result<Vec<TypedTerm>, TypeError> {
         // Decompose the output of the telescope as a series of applications.
         // The underlying function should be the name of the ADT being constructed
-        let (f, arguments) = output.decompose_application_stack();
+        let (f, arguments) = ty.decompose_application_stack();
 
         // Check that the underlying function is the correct ADT name
         match f.is_adt_name() {
-            Some((id, _)) if id == header.index => (),
+            Some((id, _)) if id == header.index => {}
             _ => {
                 return Err(TypeError {
                     span: f.span(),
@@ -463,21 +547,17 @@ impl<'a> TypingEnvironment {
 
         // Check that the parameters are exactly the same as in the ADT header
         for (i, param) in header.parameters.iter().enumerate() {
-            let expected = TypedTerm::bound_variable(
+            let expected = TypedTermKind::bound_variable(
                 constructor_params.len() + header.parameters.len() - i - 1,
                 param.name,
-                param
-                    .ty
-                    .increment_above(0, constructor_params.len() + header.parameters.len() - i),
-                param.span.clone(),
             );
 
-            if !self.def_eq(arguments[i].clone(), expected.clone()) {
+            if !arguments[i].term().equiv(&expected, false) {
                 return Err(TypeError {
                     span: arguments[i].span(),
                     kind: TypeErrorKind::MismatchedAdtParameter {
                         found: arguments[i].clone(),
-                        expected: expected.term(),
+                        expected,
                     },
                 });
             }
@@ -491,17 +571,22 @@ impl<'a> TypingEnvironment {
         Ok(arguments)
     }
 
+    /// Checks that the level of the parameter `param` is less than the level of the [`Adt`]
+    /// 
+    /// # Parameters
+    /// * `param`: The parameter to check
+    /// * `adt_level`: The level of the ADT
     fn check_adt_parameter_levels(
         &self,
         param: &TypedBinder,
-        adt_sort: &Level,
+        adt_level: &Level,
     ) -> Result<(), TypeError> {
-        if !adt_sort.is_geq(&param.level()) {
+        if !adt_level.is_geq(&param.level()) {
             Err(TypeError {
                 span: param.span.clone(),
                 kind: TypeErrorKind::InvalidConstructorParameterLevel {
                     ty: param.ty.clone(),
-                    adt_level: adt_sort.clone(),
+                    adt_level: adt_level.clone(),
                 },
             })
         } else {

@@ -1,9 +1,11 @@
+//! Methods for checking structural equivalence of terms
+
 use crate::typeck::TypedTerm;
 use crate::typeck::term::{TypedBinder, TypedTermKind, TypedTermKindInner};
 use std::ptr;
 
 impl TypedTerm {
-    /// Checks two terms for structural equality.
+    /// Checks two terms for structural equivalence.
     /// If `check_names` is true, the names of binders will be compared, otherwise they will be ignored.
     pub fn equiv(&self, other: &Self, check_names: bool) -> bool {
         // Any term is equivalent to itself
@@ -18,12 +20,14 @@ impl TypedTerm {
 }
 
 impl TypedTermKind {
+    /// See [`TypedTerm::equiv`]
     pub fn equiv(&self, other: &Self, check_names: bool) -> bool {
         self.inner().equiv(other.inner(), check_names)
     }
 }
 
 impl TypedTermKindInner {
+    /// See [`TypedTerm::equiv`]
     #[rustfmt::skip]
     pub fn equiv(&self, other: &Self, check_names: bool) -> bool {
         use TypedTermKindInner::*;
@@ -52,8 +56,8 @@ impl TypedTermKindInner {
             ) => ax1 == ax2 && args1 == args2,
             (Axiom(_, _), _) => false,
             (
-                BoundVariable { index: i1, name: n1,},
-                BoundVariable { index: i2, name: n2,},
+                BoundVariable { index: i1, name: n1, },
+                BoundVariable { index: i2, name: n2, },
             ) => i1 == i2 && (!check_names || n1 == n2),
             (BoundVariable { .. }, _) => false,
             (
@@ -76,6 +80,7 @@ impl TypedTermKindInner {
 }
 
 impl TypedBinder {
+    /// See [`TypedTerm::equiv`]
     pub fn equiv(&self, other: &Self, check_names: bool) -> bool {
         (!check_names || self.name == other.name) && self.ty.equiv(&other.ty, check_names)
     }

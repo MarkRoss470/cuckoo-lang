@@ -1,3 +1,5 @@
+//! The [`Namespace`] type
+
 use crate::typeck::error::TypeErrorKind;
 use crate::typeck::level::LevelArgs;
 use crate::typeck::term::TypedTerm;
@@ -8,57 +10,54 @@ use parser::atoms::ident::{OwnedPath, Path};
 use parser::error::Span;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::io::Write;
 
-#[derive(Debug)]
-struct NamespaceItem {
-    span: Span,
-    level_params: LevelParameters,
-    value: TypedTerm,
-
-    instantiation_cache: RefCell<HashMap<LevelArgs, TypedTerm>>,
-}
-
+/// A namespace which maps [`Path`]s to terms
 #[derive(Debug, Default)]
 pub struct Namespace {
+    /// The entries of this namespace
     items: HashMap<Identifier, NamespaceItem>,
+    /// The other namespaces which are children of this one
     namespaces: HashMap<Identifier, Namespace>,
 }
 
-impl NamespaceItem {
-    fn instantiate_uncached(&self, level_args: &LevelArgs) -> TypedTerm {
-        self.value.instantiate(level_args)
-    }
+/// An item in a [`Namespace`]
+#[derive(Debug)]
+struct NamespaceItem {
+    /// The source span of the item which this namespace item represents
+    span: Span,
+    /// The level parameters of the item
+    level_params: LevelParameters,
+    /// The term which this namespace item represents
+    value: TypedTerm,
 
-    /// Instantiates the term with the given level arguments, using a cached version if possible.
-    fn instantiate(&self, level_args: LevelArgs) -> TypedTerm {
-        // If a read-only reference can't be acquired, just do the instantiation
-        let Ok(cache) = self.instantiation_cache.try_borrow() else {
-            return self.instantiate_uncached(&level_args);
-        };
-        // If the cache contains an entry for the given level arguments, return it
-        if let Some(val) = cache.get(&level_args) {
-            return val.clone();
-        }
-
-        // Drop the read-only reference so that it doesn't block us from acquiring a writable one
-        drop(cache);
-        let val = self.instantiate_uncached(&level_args);
-
-        // Write the instantiation to the cache
-        if let Ok(mut cache) = self.instantiation_cache.try_borrow_mut() {
-            cache.insert(level_args, val.clone());
-        }
-
-        val
-    }
+    /// A cache of instantiations of [`value`] for different sets of [`LevelArgs`]. Used to
+    /// avoid [instantiating] the term on the same arguments multiple times.
+    ///
+    /// [`value`]: NamespaceItem::value
+    /// [instantiating]: TypedTerm::instantiate
+    instantiation_cache: RefCell<HashMap<LevelArgs, TypedTerm>>,
 }
 
 impl Namespace {
+    /// Constructs a new empty namespace
     pub fn new() -> Self {
         Default::default()
     }
 
+    /// Resolves an identifier in the namespace
+    fn resolve_ident(&self, id: Identifier, span: Span) -> Result<&NamespaceItem, TypeError> {
+        match self.items.get(&id) {
+            None => Err(TypeError {
+                span,
+                kind: TypeErrorKind::NameNotResolved(OwnedPath::from_id(id)),
+            }),
+            Some(v) => Ok(v),
+        }
+    }
+
+    /// Resolves a path to the [`NamespaceItem`] it represents
     fn resolve_inner(&self, path: Path, span: Span) -> Result<&NamespaceItem, TypeError> {
         let (id, rest) = path.split_first();
 
@@ -70,7 +69,7 @@ impl Namespace {
                     kind: TypeErrorKind::NameNotResolved(path.to_owned()),
                 }),
                 Some(n) => n
-                    .resolve_inner(rest.clone(), span.clone())
+                    .resolve_inner(rest, span.clone())
                     .map_err(|e| match e.kind {
                         TypeErrorKind::NameNotResolved(p) => TypeError {
                             span: span.clone(),
@@ -82,16 +81,7 @@ impl Namespace {
         }
     }
 
-    fn resolve_ident(&self, id: Identifier, span: Span) -> Result<&NamespaceItem, TypeError> {
-        match self.items.get(&id) {
-            None => Err(TypeError {
-                span,
-                kind: TypeErrorKind::NameNotResolved(OwnedPath::from_id(id)),
-            }),
-            Some(v) => Ok(v),
-        }
-    }
-
+    /// Resolves a path to the term it represents
     pub fn resolve(
         &self,
         path: Path,
@@ -118,6 +108,7 @@ impl Namespace {
         }
     }
 
+    /// Inserts an item into the namespace
     pub fn insert(
         &mut self,
         path: Path,
@@ -131,28 +122,25 @@ impl Namespace {
 
         match rest {
             None => {
-                if self.items.contains_key(&id) {
+                // Check that there isn't already an item with this name
+                if let Entry::Vacant(e) = self.items.entry(id) {
+                    e.insert(NamespaceItem {
+                        span,
+                        level_params,
+                        value,
+                        instantiation_cache: RefCell::new(HashMap::new()),
+                    });
+                    Ok(())
+                } else {
                     Err(TypeError {
                         span,
                         kind: TypeErrorKind::NameAlreadyDefined(OwnedPath::from_id(id)),
                     })
-                } else {
-                    self.items.insert(
-                        id,
-                        NamespaceItem {
-                            span,
-                            level_params,
-                            value,
-                            instantiation_cache: RefCell::new(HashMap::new()),
-                        },
-                    );
-                    Ok(())
                 }
             }
             Some(rest) => {
-                if !self.namespaces.contains_key(&id) {
-                    self.namespaces.insert(id, Namespace::new());
-                }
+                // Add a new namespace if there isn't one already
+                self.namespaces.entry(id).or_default();
 
                 self.namespaces
                     .get_mut(&id)
@@ -172,16 +160,15 @@ impl Namespace {
     /// If a namespace doesn't already exist at the given path, creates a new empty one.
     pub fn insert_namespace(&mut self, path: Path) {
         let (id, rest) = path.split_first();
-        if !self.namespaces.contains_key(&id) {
-            self.namespaces.insert(id, Namespace::new());
-        }
+        self.namespaces.entry(id).or_default();
 
-        let ns = self.namespaces.get_mut(&id).unwrap();
         if let Some(r) = rest {
+            let ns = self.namespaces.get_mut(&id).unwrap();
             ns.insert_namespace(r)
         }
     }
 
+    /// Gets a reference to the namespace at `path`
     pub fn resolve_namespace(&self, path: Path, span: Span) -> Result<&Namespace, TypeError> {
         let (id, rest) = path.split_first();
         let ns = self.namespaces.get(&id).ok_or(TypeError {
@@ -195,6 +182,7 @@ impl Namespace {
         }
     }
 
+    /// Gets a mutable reference to the namespace at `path`
     pub fn resolve_namespace_mut(
         &mut self,
         path: Path,
@@ -210,6 +198,36 @@ impl Namespace {
             None => Ok(ns),
             Some(r) => ns.resolve_namespace_mut(r, span),
         }
+    }
+}
+
+impl NamespaceItem {
+    /// Instantiates the term with the given level arguments, without using the instantiation cache.
+    fn instantiate_uncached(&self, level_args: &LevelArgs) -> TypedTerm {
+        self.value.instantiate(level_args)
+    }
+
+    /// Instantiates the term with the given level arguments, using a cached version if possible.
+    fn instantiate(&self, level_args: LevelArgs) -> TypedTerm {
+        // If a read-only reference can't be acquired, just do the instantiation
+        let Ok(cache) = self.instantiation_cache.try_borrow() else {
+            return self.instantiate_uncached(&level_args);
+        };
+        // If the cache contains an entry for the given level arguments, return it
+        if let Some(val) = cache.get(&level_args) {
+            return val.clone();
+        }
+
+        // Drop the read-only reference so that it doesn't block us from acquiring a writable one
+        drop(cache);
+        let val = self.instantiate_uncached(&level_args);
+
+        // Write the instantiation to the cache
+        if let Ok(mut cache) = self.instantiation_cache.try_borrow_mut() {
+            cache.insert(level_args, val.clone());
+        }
+
+        val
     }
 }
 

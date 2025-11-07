@@ -1,0 +1,4 @@
+ERROR at tests/data/invalid/incorrect_resultant_type_1.ck 2:9-2:13: Invalid resultant type for constructor. Constructor c should result in an application of
+  Invalid
+but it results in an application of
+  Sort 0

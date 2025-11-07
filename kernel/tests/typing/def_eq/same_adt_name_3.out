@@ -1,0 +1,7 @@
+ERROR at tests/typing/def_eq/same_adt_name_3.ck 6:1-6:56: Expected
+  (fun (D: (Dep T.{u, })) => D?0)
+to have type
+  ((D: (Dep T.{u, })) -> (Dep T.{v, }))
+but it has type
+  ((D: (Dep T.{u, })) -> (Dep T.{u, }))
+.
