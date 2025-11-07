@@ -1,5 +1,6 @@
 //! The [`Adt`] and related types
 
+use crate::typeck::context::TypingContext;
 use crate::typeck::error::TypeErrorKind;
 use crate::typeck::level::{Level, LevelArgs};
 use crate::typeck::term::{TypedBinder, TypedTerm, TypedTermKind};
@@ -10,7 +11,6 @@ use parser::ast::item::data::{DataConstructor, DataDefinition};
 use parser::atoms::ident::{OwnedPath, Path};
 use parser::error::Span;
 use std::io::Write;
-use crate::typeck::context::TypingContext;
 
 mod recursor;
 
@@ -572,7 +572,7 @@ impl<'a> TypingEnvironment {
     }
 
     /// Checks that the level of the parameter `param` is less than the level of the [`Adt`]
-    /// 
+    ///
     /// # Parameters
     /// * `param`: The parameter to check
     /// * `adt_level`: The level of the ADT

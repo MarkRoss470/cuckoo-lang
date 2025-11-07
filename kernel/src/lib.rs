@@ -22,7 +22,7 @@ pub use typeck::TypingEnvironmentConfig as KernelConfig;
 pub use typeck::TypingEnvironmentStats as KernelStats;
 
 /// A typing environment which stores the ADTs, axioms, and value definitions which have been
-/// defined so far. 
+/// defined so far.
 #[derive(Debug, Default)]
 pub struct KernelEnvironment(TypingEnvironment);
 
@@ -37,7 +37,7 @@ impl KernelEnvironment {
     pub fn load(&mut self, source: &SourceFile) -> Result<(), KernelError> {
         self.0.load(source)
     }
-    
+
     /// Runs [`load`] on content from a string
     ///
     /// [`load`]: KernelEnvironment::load

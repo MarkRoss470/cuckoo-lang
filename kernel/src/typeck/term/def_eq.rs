@@ -307,13 +307,9 @@ impl TypingEnvironment {
         // The major premise of the new recursor application
         let major_premise = TypedTerm::make_application_stack(
             param_val.clone(),
-            param_params
-                .iter()
-                .cloned()
-                .enumerate()
-                .map(|(i, binder)| {
-                    TypedTermKind::bound_variable(param_params.len() - i - 1, binder.name)
-                }),
+            param_params.iter().cloned().enumerate().map(|(i, binder)| {
+                TypedTermKind::bound_variable(param_params.len() - i - 1, binder.name)
+            }),
             param_val.span(),
         );
 

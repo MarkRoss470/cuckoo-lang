@@ -64,7 +64,7 @@ pub struct TypingEnvironment {
 }
 
 /// Configuration settings for a [`KernelEnvironment`]
-/// 
+///
 /// [`KernelEnvironment`]: crate::KernelEnvironment
 #[derive(Debug)]
 pub struct TypingEnvironmentConfig {
@@ -341,7 +341,7 @@ impl TypingEnvironment {
 #[derive(Debug, Copy, Clone)]
 pub struct PrettyPrintContext<'a> {
     /// The typing environment, mostly used for its [`interner`]
-    /// 
+    ///
     /// [`interner`]: TypingEnvironment::interner
     environment: &'a TypingEnvironment,
     /// The indentation level that objects are currently being printed at
@@ -361,7 +361,7 @@ impl<'a> PrettyPrintContext<'a> {
     }
 
     /// Gets the [`interner`] from the context's [`environment`]
-    /// 
+    ///
     /// [`interner`]: TypingEnvironment::interner
     /// [`environment`]: PrettyPrintContext::environment
     fn interner(&self) -> Ref<'_, Interner> {
@@ -369,7 +369,7 @@ impl<'a> PrettyPrintContext<'a> {
     }
 
     /// Writes a newline to `out`, followed by the appropriate indent specified by [`indent_levels`]
-    /// 
+    ///
     /// [`indent_levels`]: PrettyPrintContext::indent_levels
     fn newline(&self, out: &mut dyn Write) -> std::io::Result<()> {
         writeln!(out)?;
