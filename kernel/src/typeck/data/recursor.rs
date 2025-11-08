@@ -208,7 +208,7 @@ fn calculate_motive_type(adt: &Adt, motive_output_sort: Level) -> TypedTerm {
         span: adt.span.start_point(),
         name: None,
         ty: TypedTerm::make_application_stack(
-            adt.header.type_constructor(), // TODO: don't recompute this
+            adt.header.type_constructor.clone(),
             adt.header
                 .parameters
                 .iter()
@@ -283,7 +283,7 @@ fn make_motive(
 ///   This is used to offset the indices of the ADT parameters.
 fn calculate_major_premise_type(adt: &Adt, num_params: usize) -> TypedTerm {
     TypedTerm::make_application_stack(
-        adt.header.type_constructor(), // TODO: don't recompute this
+        adt.header.type_constructor.clone(),
         adt.header
             .parameters
             .iter()

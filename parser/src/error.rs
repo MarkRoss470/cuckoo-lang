@@ -41,7 +41,6 @@ impl SourceLocation {
         }
     }
     fn max(self, other: Self) -> Self {
-        // TODO: check the locations are in the same file
         if self.byte_offset > other.byte_offset {
             self
         } else {

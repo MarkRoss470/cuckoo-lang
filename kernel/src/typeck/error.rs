@@ -300,9 +300,6 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for TypeError {
                 id.pretty_print(out, &context.interner())?;
                 write!(out, " has already been defined.")
             }
-
-            #[expect(unreachable_patterns)]
-            _ => todo!(),
         }
     }
 }

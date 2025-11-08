@@ -132,7 +132,8 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for Item {
         match self {
             Item::DataDefinition(d) => d.pretty_print(out, context),
             Item::ValueDefinition(v) => v.pretty_print(out, context),
-            _ => todo!(),
+            Item::Axiom(a) => a.pretty_print(out, context),
+            Item::Malformed(s) => write!(out, "Malformed item at {s}"),
         }
     }
 }

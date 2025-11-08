@@ -36,6 +36,8 @@ pub struct AdtHeader {
     pub indices: Vec<TypedBinder>,
     /// The level in which the ADT lives
     pub sort: Level,
+    /// The constant value which the ADT's name refers to
+    pub type_constructor: TypedTerm,
     /// Whether the ADT is a proposition
     pub is_prop: bool,
 }
@@ -59,26 +61,15 @@ pub struct Adt {
 }
 
 impl AdtHeader {
-    /// Gets the ADT's type constructor, i.e. the term which the ADT's name refers to
-    fn type_constructor(&self) -> TypedTerm {
-        TypedTerm::adt_name(
-            self.index,
-            TypedTerm::make_telescope(
-                self.parameters.clone(),
-                self.family.clone(),
-                self.span.clone(),
-            ),
-            LevelArgs::from_level_parameters(&self.level_params),
-            self.span.clone(),
-        )
-    }
-
-    /// Gets a term referring to one of the ADT's constructors
+    /// Gets a term referring to one of the ADT's constructors. This is used to construct
+    /// an [`AdtConstructor`] instance - if it already exists, use the [`constant`] field instead.
     ///
     /// # Parameters
     /// * `index`: The index of the constructor
     /// * `type_without_adt_params`: The type of the constructor as written in the declaration
     /// * `span`: The source span of the constructor
+    ///
+    /// [`constant`]: AdtConstructor::constant
     fn constructor(
         &self,
         index: usize,
@@ -272,7 +263,7 @@ impl<'a> TypingEnvironment {
         self.root.insert(
             name,
             level_parameters.clone(),
-            adt.header.type_constructor(),
+            adt.header.type_constructor.clone(),
             adt.span.start_point(),
         )?;
 
@@ -320,33 +311,11 @@ impl<'a> TypingEnvironment {
         ast: &'a DataDefinition,
         index: AdtIndex,
     ) -> Result<AdtHeader, Box<TypeError>> {
-        let root = TypingContext::Root(self);
-
         // Resolve the ADT's parameters
-        let mut parameters = Vec::new();
-        for param in &ast.parameters {
-            // Check that the binder has exactly one name
-            let [binder_name] = param.names.as_slice() else {
-                return Err(TypeError::unsupported(
-                    param.span.clone(),
-                    "Multiple names in a binder",
-                ));
-            };
-
-            // Resolve the binder's type in a context with all the previous parameters
-            let context = root.with_binders(&parameters);
-            let ty = context.resolve_term(&param.ty)?;
-            ty.check_is_ty()?;
-
-            // Add the new parameter
-            parameters.push(TypedBinder {
-                span: param.span.clone(),
-                name: *binder_name,
-                ty,
-            })
-        }
+        let parameters = self.resolve_adt_parameters(&ast)?;
 
         // Resolve the family in a context with all the parameters
+        let root = TypingContext::Root(self);
         let context = root.with_binders(&parameters);
         let family = context.resolve_term(&ast.family)?;
 
@@ -380,6 +349,14 @@ impl<'a> TypingEnvironment {
             }));
         };
 
+        // Compute the type constructor constant
+        let type_constructor = TypedTerm::adt_name(
+            index,
+            TypedTerm::make_telescope(parameters.clone(), family.clone(), ast.span.clone()),
+            LevelArgs::from_level_parameters(&ast.level_params),
+            ast.span.clone(),
+        );
+
         Ok(AdtHeader {
             span: ast.span.start_point().union(&ast.family.span),
             index,
@@ -389,8 +366,42 @@ impl<'a> TypingEnvironment {
             family,
             indices,
             sort,
+            type_constructor,
             is_prop,
         })
+    }
+
+    /// Resolves the parameter list pf
+    fn resolve_adt_parameters(
+        &self,
+        ast: &DataDefinition,
+    ) -> Result<Vec<TypedBinder>, Box<TypeError>> {
+        let root = TypingContext::Root(self);
+        let mut parameters = Vec::new();
+
+        for param in &ast.parameters {
+            // Check that the binder has exactly one name
+            let [binder_name] = param.names.as_slice() else {
+                return Err(TypeError::unsupported(
+                    param.span.clone(),
+                    "Multiple names in a binder",
+                ));
+            };
+
+            // Resolve the binder's type in a context with all the previous parameters
+            let context = root.with_binders(&parameters);
+            let ty = context.resolve_term(&param.ty)?;
+            ty.check_is_ty()?;
+
+            // Add the new parameter
+            parameters.push(TypedBinder {
+                span: param.span.clone(),
+                name: *binder_name,
+                ty,
+            })
+        }
+
+        Ok(parameters)
     }
 
     /// Resolves an [`Adt`]'s constructors
@@ -399,7 +410,7 @@ impl<'a> TypingEnvironment {
         ast: &DataDefinition,
         header: &AdtHeader,
     ) -> Result<Vec<AdtConstructor>, Box<TypeError>> {
-        let type_constructor = header.type_constructor();
+        let type_constructor = header.type_constructor.clone();
 
         // Set up a TypingContext to resolve the constructor types in
         let adt_name_binder = TypedBinder {

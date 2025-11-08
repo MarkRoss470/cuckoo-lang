@@ -104,9 +104,6 @@ impl<'a> PrettyPrint<PrettyPrintContext<'a>> for ParseDiagnostic {
             MissingLambdaBinder => writeln!(out, "Missing binder for lambda expression"),
             MissingLambdaArrow => writeln!(out, "Missing arrow in lambda expression"),
             MissingLambdaBody => writeln!(out, "Missing body of lambda expression"),
-
-            #[expect(unreachable_patterns)]
-            _ => todo!(),
         }
     }
 }
