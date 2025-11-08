@@ -36,11 +36,13 @@ impl TypedTerm {
     /// If not, returns a [`NotAType`] error.
     ///
     /// [`NotAType`]: TypeErrorKind::NotAType
-    pub fn check_is_ty(&self) -> Result<Level, TypeError> {
+    pub fn check_is_ty(&self) -> Result<Level, Box<TypeError>> {
         // The term represents a type if its type is a sort literal
-        self.ty().check_is_sort().map_err(|_| TypeError {
-            span: self.span(),
-            kind: TypeErrorKind::NotAType(self.clone()),
+        self.ty().check_is_sort().map_err(|_| {
+            Box::new(TypeError {
+                span: self.span(),
+                kind: TypeErrorKind::NotAType(self.clone()),
+            })
         })
     }
 
@@ -156,7 +158,7 @@ impl TypedTerm {
     ///
     /// [`InvalidLocationForAdtNameInConstructor`]: TypeErrorKind::InvalidLocationForAdtNameInConstructor
     /// [`Axiom`]: TypedTermKindInner::Axiom
-    pub fn forbid_references_to_adt(&self, adt: AdtIndex) -> Result<(), TypeError> {
+    pub fn forbid_references_to_adt(&self, adt: AdtIndex) -> Result<(), Box<TypeError>> {
         self.term.forbid_references_to_adt(adt, self.span())?;
         self.ty.forbid_references_to_adt(adt, self.span())
     }
@@ -190,15 +192,15 @@ impl TypedTermKind {
     ///
     /// [`InvalidLocationForAdtNameInConstructor`]: TypeErrorKind::InvalidLocationForAdtNameInConstructor
     /// [`Axiom`]: TypedTermKindInner::Axiom
-    fn forbid_references_to_adt(&self, adt: AdtIndex, span: Span) -> Result<(), TypeError> {
+    fn forbid_references_to_adt(&self, adt: AdtIndex, span: Span) -> Result<(), Box<TypeError>> {
         use TypedTermKindInner::*;
 
         match self.inner() {
             AdtName(id, _) | AdtConstructor(id, _, _) | AdtRecursor(id, _) if *id == adt => {
-                Err(TypeError {
+                Err(Box::new(TypeError {
                     span,
                     kind: TypeErrorKind::InvalidLocationForAdtNameInConstructor(adt),
-                })
+                }))
             }
             AdtName(_, _) | AdtConstructor(_, _, _) | AdtRecursor(_, _) | Axiom(_, _) => Ok(()),
 

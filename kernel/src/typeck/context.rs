@@ -63,7 +63,7 @@ impl<'a> TypingContext<'a> {
     }
 
     /// Resolves a syntactic [`Term`] into a [`TypedTerm`]
-    pub(super) fn resolve_term(&self, term: &Term) -> Result<TypedTerm, TypeError> {
+    pub(super) fn resolve_term(&self, term: &Term) -> Result<TypedTerm, Box<TypeError>> {
         let span = term.span.clone();
 
         match &term.kind {
@@ -94,7 +94,7 @@ impl<'a> TypingContext<'a> {
         path: Path,
         level_args: &LevelArgs,
         span: Span,
-    ) -> Result<(TypedTerm, usize), TypeError> {
+    ) -> Result<(TypedTerm, usize), Box<TypeError>> {
         match self {
             TypingContext::Root(env) => env.resolve_path(path, level_args, span).map(|t| (t, 0)),
             TypingContext::Binders { binders, parent } => {
@@ -105,20 +105,20 @@ impl<'a> TypingContext<'a> {
                     if binder.name == Some(first) {
                         // If the identifier resolved to the local variable but there are more segments in the path, give an error
                         if rest.is_some() {
-                            return Err(TypeError {
+                            return Err(Box::new(TypeError {
                                 span,
                                 kind: TypeErrorKind::LocalVariableIsNotANamespace(
                                     OwnedPath::from_id(first),
                                 ),
-                            });
+                            }));
                         }
 
                         // Local variables can't have level arguments
                         if level_args.count() != 0 {
-                            return Err(TypeError {
+                            return Err(Box::new(TypeError {
                                 span,
                                 kind: TypeErrorKind::LevelArgumentGivenForLocalVariable(first),
-                            });
+                            }));
                         }
 
                         return Ok((
@@ -142,7 +142,7 @@ impl<'a> TypingContext<'a> {
         path: Path,
         level_args: &LevelArgs,
         span: Span,
-    ) -> Result<TypedTerm, TypeError> {
+    ) -> Result<TypedTerm, Box<TypeError>> {
         self.resolve_path_inner(path, level_args, span.clone())
             .map(|(t, i)| {
                 // The term includes its own binder while the type doesn't, so the type needs to be incremented by one more than the term
@@ -162,7 +162,7 @@ impl<'a> TypingContext<'a> {
         function: &Term,
         argument: &Term,
         span: Span,
-    ) -> Result<TypedTerm, TypeError> {
+    ) -> Result<TypedTerm, Box<TypeError>> {
         let environment = self.environment();
 
         // Type check the function and argument
@@ -174,15 +174,17 @@ impl<'a> TypingContext<'a> {
 
         // Check that the function has a function type
         let Some((binder, output)) = function_ty.is_pi_type() else {
-            return Err(TypeError {
+            return Err(Box::new(TypeError {
                 span: function.span(),
                 kind: TypeErrorKind::NotAFunction(function),
-            });
+            }));
         };
 
         // Check that the type of the argument matches the input type of the function
         if !environment.def_eq(binder.ty.clone(), argument.get_type()) {
-            return Err(environment.mismatched_types_error(argument, binder.ty.clone()));
+            return Err(Box::new(
+                environment.mismatched_types_error(argument, binder.ty.clone()),
+            ));
         }
 
         // Replace instances of the binder in the output type with the argument
@@ -199,7 +201,7 @@ impl<'a> TypingContext<'a> {
         binder: &Binder,
         output: &Term,
         span: Span,
-    ) -> Result<TypedTerm, TypeError> {
+    ) -> Result<TypedTerm, Box<TypeError>> {
         let [binder_name] = binder.names.as_slice() else {
             return Err(TypeError::unsupported(
                 binder.span.clone(),
@@ -232,7 +234,7 @@ impl<'a> TypingContext<'a> {
         binder: &Binder,
         body: &Term,
         span: Span,
-    ) -> Result<TypedTerm, TypeError> {
+    ) -> Result<TypedTerm, Box<TypeError>> {
         let [binder_name] = binder.names.as_slice() else {
             return Err(TypeError::unsupported(
                 binder.span.clone(),

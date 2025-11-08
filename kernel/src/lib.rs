@@ -76,7 +76,7 @@ impl KernelEnvironment {
     pub fn pretty_println_error(&self, error: &KernelError) {
         match error {
             KernelError::Parse(pe) => self.0.pretty_println_val(pe),
-            KernelError::Type(te) => self.0.pretty_println_val(te),
+            KernelError::Type(te) => self.0.pretty_println_val(te.as_ref()),
         }
     }
 }
@@ -148,7 +148,7 @@ mod integration_tests {
         }
     }
 
-    #[test]
+    // #[test]
     #[expect(dead_code)]
     /// A wrapper around `test_case` which makes it easier to debug one test
     fn test_one() {

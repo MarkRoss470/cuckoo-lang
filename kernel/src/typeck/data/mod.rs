@@ -221,7 +221,7 @@ impl<'a> TypingEnvironment {
     /// Resolves an ADT definition, adding it to [`adts`].
     ///
     /// [`adts`]: TypingEnvironment::adts
-    pub(super) fn resolve_adt(&mut self, ast: &'a DataDefinition) -> Result<(), TypeError> {
+    pub(super) fn resolve_adt(&mut self, ast: &'a DataDefinition) -> Result<(), Box<TypeError>> {
         // Set the level parameters for this item
         self.set_level_params(ast.level_params.clone())?;
 
@@ -260,7 +260,7 @@ impl<'a> TypingEnvironment {
     /// constructors, and recursor.
     ///
     /// [`self.adts`]: TypingEnvironment::adts
-    fn register_last_adt(&mut self) -> Result<(), TypeError> {
+    fn register_last_adt(&mut self) -> Result<(), Box<TypeError>> {
         let adt = self.adts.last().unwrap();
         let name = adt.header.name.borrow();
         let level_parameters = adt.header.level_params.clone();
@@ -319,7 +319,7 @@ impl<'a> TypingEnvironment {
         &mut self,
         ast: &'a DataDefinition,
         index: AdtIndex,
-    ) -> Result<AdtHeader, TypeError> {
+    ) -> Result<AdtHeader, Box<TypeError>> {
         let root = TypingContext::Root(self);
 
         // Resolve the ADT's parameters
@@ -352,20 +352,20 @@ impl<'a> TypingEnvironment {
 
         // Check that the ADT's family is a type
         let Ok(_) = family.check_is_ty() else {
-            return Err(TypeError {
+            return Err(Box::new(TypeError {
                 span: family.span(),
                 kind: TypeErrorKind::NotASortFamily(family),
-            });
+            }));
         };
 
         // Resolve the type's family as a telescope
         let (indices, out) = family.clone().decompose_telescope();
         // Check that the output of the telescope is a sort
         let Ok(sort) = out.term().check_is_sort() else {
-            return Err(TypeError {
+            return Err(Box::new(TypeError {
                 span: out.span(),
                 kind: TypeErrorKind::NotASortFamily(family),
-            });
+            }));
         };
 
         // Check that the ADT is either always in `Prop` or always not in `Prop`
@@ -374,10 +374,10 @@ impl<'a> TypingEnvironment {
         } else if sort.is_geq(&Level::constant(1)) {
             false
         } else {
-            return Err(TypeError {
+            return Err(Box::new(TypeError {
                 span: out.span(),
                 kind: TypeErrorKind::MayOrMayNotBeProp(sort),
-            });
+            }));
         };
 
         Ok(AdtHeader {
@@ -398,7 +398,7 @@ impl<'a> TypingEnvironment {
         &self,
         ast: &DataDefinition,
         header: &AdtHeader,
-    ) -> Result<Vec<AdtConstructor>, TypeError> {
+    ) -> Result<Vec<AdtConstructor>, Box<TypeError>> {
         let type_constructor = header.type_constructor();
 
         // Set up a TypingContext to resolve the constructor types in
@@ -442,7 +442,7 @@ impl<'a> TypingEnvironment {
         index: usize,
         ty: &TypedTerm,
         header: &AdtHeader,
-    ) -> Result<AdtConstructor, TypeError> {
+    ) -> Result<AdtConstructor, Box<TypeError>> {
         // Check that the constructor's type is actually a type, and decompose it as a telescope
         ty.check_is_ty()?;
         let (parameters, output) = ty.clone().decompose_telescope();
@@ -480,7 +480,7 @@ impl<'a> TypingEnvironment {
         &self,
         adt_index: AdtIndex,
         param: TypedBinder,
-    ) -> Result<AdtConstructorParam, TypeError> {
+    ) -> Result<AdtConstructorParam, Box<TypeError>> {
         // Decompose the parameter's type as a function telescope resulting in an application stack
         let (parameters, output) = param.ty.clone().decompose_telescope();
         let (f, args) = output.decompose_application_stack();
@@ -525,7 +525,7 @@ impl<'a> TypingEnvironment {
         name: Identifier,
         constructor_params: &[TypedBinder],
         header: &AdtHeader,
-    ) -> Result<Vec<TypedTerm>, TypeError> {
+    ) -> Result<Vec<TypedTerm>, Box<TypeError>> {
         // Decompose the output of the telescope as a series of applications.
         // The underlying function should be the name of the ADT being constructed
         let (f, arguments) = ty.decompose_application_stack();
@@ -534,14 +534,14 @@ impl<'a> TypingEnvironment {
         match f.is_adt_name() {
             Some((id, _)) if id == header.index => {}
             _ => {
-                return Err(TypeError {
+                return Err(Box::new(TypeError {
                     span: f.span(),
                     kind: TypeErrorKind::IncorrectConstructorResultantType {
                         name,
                         found: f,
                         expected: header.index,
                     },
-                });
+                }));
             }
         }
 
@@ -553,13 +553,13 @@ impl<'a> TypingEnvironment {
             );
 
             if !arguments[i].term().equiv(&expected, false) {
-                return Err(TypeError {
+                return Err(Box::new(TypeError {
                     span: arguments[i].span(),
                     kind: TypeErrorKind::MismatchedAdtParameter {
                         found: arguments[i].clone(),
                         expected,
                     },
-                });
+                }));
             }
         }
 
@@ -580,15 +580,15 @@ impl<'a> TypingEnvironment {
         &self,
         param: &TypedBinder,
         adt_level: &Level,
-    ) -> Result<(), TypeError> {
+    ) -> Result<(), Box<TypeError>> {
         if !adt_level.is_geq(&param.level()) {
-            Err(TypeError {
+            Err(Box::new(TypeError {
                 span: param.span.clone(),
                 kind: TypeErrorKind::InvalidConstructorParameterLevel {
                     ty: param.ty.clone(),
                     adt_level: adt_level.clone(),
                 },
-            })
+            }))
         } else {
             Ok(())
         }

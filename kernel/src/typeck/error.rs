@@ -103,11 +103,11 @@ impl TypeError {
     /// Constructs an [`UnsupportedInKernel`] error with the given span and message
     ///
     /// [`UnsupportedInKernel`]: TypeErrorKind::UnsupportedInKernel
-    pub(crate) fn unsupported(span: Span, msg: &'static str) -> Self {
-        Self {
+    pub(crate) fn unsupported(span: Span, msg: &'static str) -> Box<Self> {
+        Box::new(Self {
             span,
             kind: TypeErrorKind::UnsupportedInKernel(msg),
-        }
+        })
     }
 }
 

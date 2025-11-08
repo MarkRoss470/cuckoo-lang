@@ -171,7 +171,7 @@ impl TypingEnvironment {
         path: Path,
         level_args: &LevelArgs,
         span: Span,
-    ) -> Result<TypedTerm, TypeError> {
+    ) -> Result<TypedTerm, Box<TypeError>> {
         self.root.resolve(path, level_args, span)
     }
 
@@ -197,7 +197,7 @@ impl TypingEnvironment {
     }
 
     /// Resolves an AST one item at a time
-    pub fn load_ast(&mut self, ast: &Ast) -> Result<(), TypeError> {
+    pub fn load_ast(&mut self, ast: &Ast) -> Result<(), Box<TypeError>> {
         for item in &ast.items {
             match item {
                 Item::DataDefinition(dd) => self.resolve_adt(dd)?,
@@ -213,7 +213,7 @@ impl TypingEnvironment {
     }
 
     /// Resolves a `def` statement
-    fn resolve_value_definition(&mut self, ast: &ValueDefinition) -> Result<(), TypeError> {
+    fn resolve_value_definition(&mut self, ast: &ValueDefinition) -> Result<(), Box<TypeError>> {
         let mut ty = ast.ty.clone();
         let mut value = ast.value.clone();
 
@@ -248,7 +248,7 @@ impl TypingEnvironment {
 
         // Check that the value has the right type
         if !value.level().def_eq(&level) || !self.def_eq(ty.clone(), value.get_type()) {
-            return Err(self.mismatched_types_error(value, ty));
+            return Err(Box::new(self.mismatched_types_error(value, ty)));
         }
 
         let term = TypedTerm::value_of_type(value.term(), ty, value.span()).with_abbreviation(
@@ -276,7 +276,7 @@ impl TypingEnvironment {
     }
 
     /// Resolves an `axiom` definition
-    fn resolve_axiom_definition(&mut self, ast: &AxiomDefinition) -> Result<(), TypeError> {
+    fn resolve_axiom_definition(&mut self, ast: &AxiomDefinition) -> Result<(), Box<TypeError>> {
         let mut ty = ast.ty.clone();
 
         // Set the level parameters for this item

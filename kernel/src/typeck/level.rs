@@ -477,12 +477,12 @@ impl TypingEnvironment {
     /// [`level_parameters`] to it.
     ///
     /// [`level_parameters`]: TypingEnvironment::level_parameters
-    pub fn set_level_params(&mut self, params: LevelParameters) -> Result<(), TypeError> {
+    pub fn set_level_params(&mut self, params: LevelParameters) -> Result<(), Box<TypeError>> {
         if let Some(id) = params.find_duplicate() {
-            Err(TypeError {
+            Err(Box::new(TypeError {
                 span: params.span,
                 kind: TypeErrorKind::DuplicateLevelParameter(id),
-            })
+            }))
         } else {
             self.level_parameters = Some(params);
             Ok(())
@@ -502,14 +502,14 @@ impl TypingEnvironment {
     /// If [`level_parameters`] is `None`
     ///
     /// [`level_parameters`]: TypingEnvironment::level_parameters
-    pub fn resolve_level(&self, arg: &LevelExpr) -> Result<Level, TypeError> {
+    pub fn resolve_level(&self, arg: &LevelExpr) -> Result<Level, Box<TypeError>> {
         match &arg.kind {
             LevelExprKind::Literal(l) => {
                 if *l > self.config.max_level_literal {
-                    Err(TypeError {
+                    Err(Box::new(TypeError {
                         span: arg.span.clone(),
                         kind: TypeErrorKind::LevelLiteralTooBig(*l),
-                    })
+                    }))
                 } else {
                     Ok(Level::constant(*l))
                 }
@@ -553,7 +553,7 @@ impl TypingEnvironment {
 
 impl<'a> TypingContext<'a> {
     /// See [`TypingEnvironment::resolve_level`]
-    pub fn resolve_level(&self, arg: &LevelExpr) -> Result<Level, TypeError> {
+    pub fn resolve_level(&self, arg: &LevelExpr) -> Result<Level, Box<TypeError>> {
         self.environment().resolve_level(arg)
     }
 
@@ -561,7 +561,7 @@ impl<'a> TypingContext<'a> {
     pub fn resolve_level_args(
         &self,
         level_args: parser::ast::term::LevelArgs,
-    ) -> Result<LevelArgs, TypeError> {
+    ) -> Result<LevelArgs, Box<TypeError>> {
         let mut v = Vec::new();
 
         let environment = self.environment();

@@ -10,7 +10,7 @@ pub mod modifiers;
 pub mod tests;
 
 use crate::typeck::level::{Level, LevelArgs};
-use crate::typeck::{AdtIndex, AxiomIndex, PrettyPrintContext, TypingEnvironment};
+use crate::typeck::{AdtIndex, AxiomIndex, PrettyPrintContext};
 use common::{Identifier, PrettyPrint};
 use parser::atoms::ident::OwnedPath;
 use parser::error::Span;

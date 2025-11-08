@@ -47,34 +47,34 @@ impl Namespace {
     }
 
     /// Resolves an identifier in the namespace
-    fn resolve_ident(&self, id: Identifier, span: Span) -> Result<&NamespaceItem, TypeError> {
+    fn resolve_ident(&self, id: Identifier, span: Span) -> Result<&NamespaceItem, Box<TypeError>> {
         match self.items.get(&id) {
-            None => Err(TypeError {
+            None => Err(Box::new(TypeError {
                 span,
                 kind: TypeErrorKind::NameNotResolved(OwnedPath::from_id(id)),
-            }),
+            })),
             Some(v) => Ok(v),
         }
     }
 
     /// Resolves a path to the [`NamespaceItem`] it represents
-    fn resolve_inner(&self, path: Path, span: Span) -> Result<&NamespaceItem, TypeError> {
+    fn resolve_inner(&self, path: Path, span: Span) -> Result<&NamespaceItem, Box<TypeError>> {
         let (id, rest) = path.split_first();
 
         match rest {
             None => self.resolve_ident(id, span.clone()),
             Some(rest) => match self.namespaces.get(&id) {
-                None => Err(TypeError {
+                None => Err(Box::new(TypeError {
                     span,
                     kind: TypeErrorKind::NameNotResolved(path.to_owned()),
-                }),
+                })),
                 Some(n) => n
                     .resolve_inner(rest, span.clone())
                     .map_err(|e| match e.kind {
-                        TypeErrorKind::NameNotResolved(p) => TypeError {
+                        TypeErrorKind::NameNotResolved(p) => Box::new(TypeError {
                             span: span.clone(),
                             kind: TypeErrorKind::NameNotResolved(p.prepend(id)),
-                        },
+                        }),
                         _ => e,
                     }),
             },
@@ -87,19 +87,19 @@ impl Namespace {
         path: Path,
         level_args: &LevelArgs,
         span: Span,
-    ) -> Result<TypedTerm, TypeError> {
+    ) -> Result<TypedTerm, Box<TypeError>> {
         let item = self.resolve_inner(path, span.clone())?;
 
         // Check that there are the right number of level arguments
         if item.level_params.count() != level_args.count() {
-            Err(TypeError {
+            Err(Box::new(TypeError {
                 span,
                 kind: TypeErrorKind::WrongNumberOfLevelArgs {
                     path: path.to_owned(),
                     expected: item.level_params.count(),
                     found: level_args.count(),
                 },
-            })
+            }))
         } else {
             // Normalize the level arguments for better cache hit rates
             let level_args = level_args.normalize();
@@ -115,7 +115,7 @@ impl Namespace {
         level_params: LevelParameters,
         value: TypedTerm,
         span: Span,
-    ) -> Result<(), TypeError> {
+    ) -> Result<(), Box<TypeError>> {
         let (id, rest) = path.split_first();
 
         let value = value.normalize_level();
@@ -132,10 +132,10 @@ impl Namespace {
                     });
                     Ok(())
                 } else {
-                    Err(TypeError {
+                    Err(Box::new(TypeError {
                         span,
                         kind: TypeErrorKind::NameAlreadyDefined(OwnedPath::from_id(id)),
-                    })
+                    }))
                 }
             }
             Some(rest) => {
@@ -147,10 +147,10 @@ impl Namespace {
                     .unwrap()
                     .insert(rest, level_params, value, span.clone())
                     .map_err(|e| match e.kind {
-                        TypeErrorKind::NameAlreadyDefined(p) => TypeError {
+                        TypeErrorKind::NameAlreadyDefined(p) => Box::new(TypeError {
                             span,
                             kind: TypeErrorKind::NameAlreadyDefined(p.prepend(id)),
-                        },
+                        }),
                         _ => e,
                     })
             }
@@ -169,7 +169,7 @@ impl Namespace {
     }
 
     /// Gets a reference to the namespace at `path`
-    pub fn resolve_namespace(&self, path: Path, span: Span) -> Result<&Namespace, TypeError> {
+    pub fn resolve_namespace(&self, path: Path, span: Span) -> Result<&Namespace, Box<TypeError>> {
         let (id, rest) = path.split_first();
         let ns = self.namespaces.get(&id).ok_or(TypeError {
             span: span.clone(),
@@ -187,7 +187,7 @@ impl Namespace {
         &mut self,
         path: Path,
         span: Span,
-    ) -> Result<&mut Namespace, TypeError> {
+    ) -> Result<&mut Namespace, Box<TypeError>> {
         let (id, rest) = path.split_first();
         let ns = self.namespaces.get_mut(&id).ok_or(TypeError {
             span: span.clone(),

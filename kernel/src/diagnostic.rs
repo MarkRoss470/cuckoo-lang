@@ -11,7 +11,7 @@ pub enum KernelError {
     /// The syntax of the code was incorrect
     Parse(ParseDiagnostic),
     /// The code was not type-correct
-    Type(TypeError),
+    Type(Box<TypeError>),
 }
 
 impl<'a> PrettyPrint<PrettyPrintContext<'a>> for KernelError {
