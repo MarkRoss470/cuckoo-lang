@@ -1,0 +1,7 @@
+ERROR at tests/typing/def_eq/application/lambda_2.ck 7:1-9:47: Expected
+  (fun (f: ((_: Nat) -> Nat)) => (fun (g: ((_: Nat) -> Nat)) => (fun (D: (Dep (f?1 (Nat.succ (f?1 Nat.zero))))) => D?0)))
+to have type
+  ((f: ((_: Nat) -> Nat)) -> ((g: ((_: Nat) -> Nat)) -> ((D: (Dep (f?1 (Nat.succ (f?1 Nat.zero))))) -> (Dep (g?1 (Nat.succ (f?2 Nat.zero)))))))
+but it has type
+  ((f: ((_: Nat) -> Nat)) -> ((g: ((_: Nat) -> Nat)) -> ((D: (Dep (f?1 (Nat.succ (f?1 Nat.zero))))) -> (Dep (f?2 (Nat.succ (f?2 Nat.zero)))))))
+.

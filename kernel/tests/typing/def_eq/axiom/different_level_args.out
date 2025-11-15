@@ -1,4 +1,4 @@
-ERROR at tests/typing/def_eq/axiom_level_param.ck 8:1-8:48: Expected
+ERROR at tests/typing/def_eq/axiom/different_level_args.ck 8:1-8:48: Expected
   (fun (d: (Dep A.{0, })) => d?0)
 to have type
   ((d: (Dep A.{0, })) -> (Dep A.{1, }))

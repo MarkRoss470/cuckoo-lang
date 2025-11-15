@@ -1,0 +1,7 @@
+ERROR at tests/typing/def_eq/lambda/names_irrelevant.ck 19:1-19:35: Expected
+  (fun (D: (Dep (fun (x: Nat) => (fun (y: Nat) => x?1)))) => D?0)
+to have type
+  ((D: (Dep (fun (x: Nat) => (fun (y: Nat) => x?1)))) -> (Dep (fun (x: Nat) => (fun (y: Nat) => y?0))))
+but it has type
+  ((D: (Dep (fun (x: Nat) => (fun (y: Nat) => x?1)))) -> (Dep (fun (x: Nat) => (fun (y: Nat) => x?1))))
+.

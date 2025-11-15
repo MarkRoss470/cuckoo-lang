@@ -1,4 +1,4 @@
-ERROR at tests/typing/def_eq/lambdas_2.ck 17:1-17:35: Expected
+ERROR at tests/typing/def_eq/lambda/basic_2.ck 17:1-17:35: Expected
   (fun (D: (Dep (fun (x: T) => (fun (z: T) => x?1)))) => D?0)
 to have type
   ((D: (Dep (fun (x: T) => (fun (z: T) => x?1)))) -> (Dep (fun (x: T) => (fun (z: T) => z?0))))

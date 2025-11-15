@@ -1,4 +1,4 @@
-ERROR at tests/typing/def_eq/axiom_not_def_eq_other_axiom_2.ck 9:1-9:44: Expected
+ERROR at tests/typing/def_eq/axiom/axiom_not_def_eq_other_axiom_1.ck 10:1-10:44: Expected
   (fun (d: (Dep A)) => d?0)
 to have type
   ((d: (Dep A)) -> (Dep B))
