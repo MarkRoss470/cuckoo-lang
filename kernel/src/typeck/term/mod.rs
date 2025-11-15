@@ -114,7 +114,7 @@ struct CachedTermProperties {
     /// Whether the term has been checked for correctness by [`check_term`].
     /// This is used to avoid checking the same term more than once.
     ///
-    /// [`check_term`]: TypingEnvironment::check_term
+    /// [`check_term`]: crate::TypingEnvironment::check_term
     checked: Cell<bool>,
     /// All bound variables referenced by the term have index less than this value.
     /// This is used to avoid computing [`increment_above`] and [`replace_binder`]
